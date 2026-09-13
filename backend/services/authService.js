@@ -76,11 +76,13 @@ export async function login(rawEmail, rawPassword, meta = {}) {
   };
 
   const user = await User.findOne({ email }).select('+password');
-  if (!user || !user.password) {
+  if (!user) {
     await fail('unknown-email');
     throw new ApiError(401, 'Invalid email or password'); // generic — no existence leak
   }
 
+  // Status checks come BEFORE the password check so pre-activated accounts
+  // (password still null) get the right message.
   if (user.registrationStatus === 'pending') {
     await fail('account-pending', user._id);
     throw new ApiError(403, 'Account not activated yet');
@@ -88,6 +90,10 @@ export async function login(rawEmail, rawPassword, meta = {}) {
   if (user.registrationStatus === 'suspended') {
     await fail('account-suspended', user._id);
     throw new ApiError(403, 'Account suspended');
+  }
+  if (!user.password) {
+    await fail('password-not-set', user._id);
+    throw new ApiError(401, 'Invalid email or password'); // generic — no existence leak
   }
 
   const passwordOk = await bcrypt.compare(rawPassword, user.password);

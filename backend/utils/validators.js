@@ -20,9 +20,24 @@ export function assertEmail(value, field = 'email') {
   return email;
 }
 
+/**
+ * ONE centralized strong password validator used by every flow that sets a
+ * password (CR activation, student activation, password reset). 8+ chars
+ * with upper, lower, digit and special character — consistent everywhere.
+ */
 export function assertPassword(value, field = 'password') {
   if (typeof value !== 'string' || value.length < 8 || value.length > 128) {
     throw new ApiError(400, `${field} must be 8–128 characters`);
+  }
+  const checks = [
+    [/[a-z]/, 'a lowercase letter'],
+    [/[A-Z]/, 'an uppercase letter'],
+    [/[0-9]/, 'a number'],
+    [/[^A-Za-z0-9]/, 'a special character'],
+  ];
+  const missing = checks.filter(([re]) => !re.test(value)).map(([, label]) => label);
+  if (missing.length) {
+    throw new ApiError(400, `${field} must include ${missing.join(', ')}`);
   }
   return value;
 }

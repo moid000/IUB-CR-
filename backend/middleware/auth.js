@@ -31,6 +31,8 @@ export async function protect(req, res, next) {
     } catch {
       throw new ApiError(401, 'Invalid or expired session');
     }
+    // Activation / password-reset tokens are NEVER usable as login sessions
+    if (payload.type) throw new ApiError(401, 'Invalid session token');
 
     const user = await User.findById(payload.userId); // password excluded via select:false
     if (!user) throw new ApiError(401, 'Account no longer exists');

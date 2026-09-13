@@ -1,14 +1,28 @@
 import { Router } from 'express';
 import { login, logout, me } from '../controllers/authController.js';
+import * as activation from '../controllers/activationController.js';
 import { protect } from '../middleware/auth.js';
 
 const router = Router();
 
-// Public
+// Core auth
 router.post('/login', login);
 router.post('/logout', logout);
-
-// Authenticated
 router.get('/me', protect, me);
+
+// CR activation (public — email enumeration safe)
+router.post('/cr/request-otp', activation.crRequestOtp);
+router.post('/cr/verify-otp', activation.crVerifyOtp);
+router.post('/cr/set-password', activation.crSetPassword);
+
+// Student activation (public — email enumeration safe)
+router.post('/student/request-otp', activation.studentRequestOtp);
+router.post('/student/verify-otp', activation.studentVerifyOtp);
+router.post('/student/set-password', activation.studentSetPassword);
+
+// Password reset for active accounts (public — email enumeration safe)
+router.post('/forgot-password/request-otp', activation.resetRequestOtp);
+router.post('/forgot-password/verify-otp', activation.resetVerifyOtp);
+router.post('/forgot-password/set-password', activation.resetSetPassword);
 
 export default router;
