@@ -1,0 +1,16 @@
+// Barrel export — single import point for all models.
+export { default as User } from './User.js';
+export { default as Department } from './Department.js';
+export { default as AcademicSession } from './AcademicSession.js';
+export { default as Section } from './Section.js';
+export { default as Subject } from './Subject.js';
+export { default as Announcement } from './Announcement.js';
+export { default as Note } from './Note.js';
+export { default as Assignment } from './Assignment.js';
+export { default as Submission } from './Submission.js';
+export { default as Timetable } from './Timetable.js';
+export { default as AttendanceSession } from './AttendanceSession.js';
+export { default as AttendanceRecord } from './AttendanceRecord.js';
+export { default as Notification } from './Notification.js';
+export { default as Otp } from './Otp.js';
+export { default as AuditLog } from './AuditLog.js';
