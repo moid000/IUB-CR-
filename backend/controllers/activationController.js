@@ -13,8 +13,11 @@ const wrap = (fn) => async (req, res, next) => {
   }
 };
 
-// CR activation
-export const crRequestOtp = wrap((req) => activation.requestActivationOtp('cr', req));
+// CR activation — response is ALWAYS the same generic shape (no `sent` leak)
+export const crRequestOtp = wrap(async (req) => {
+  const { message } = await activation.requestActivationOtp('cr', req);
+  return { success: true, message };
+});
 export const crVerifyOtp = wrap(async (req) => {
   const { activationToken, expiresIn } = await activation.verifyActivationOtp('cr', req);
   return { success: true, activationToken, expiresIn };
@@ -24,8 +27,11 @@ export const crSetPassword = wrap(async (req) => {
   return { success: true, message: 'Account activated. You can now log in.' };
 });
 
-// Student activation
-export const studentRequestOtp = wrap((req) => activation.requestActivationOtp('student', req));
+// Student activation — response is ALWAYS the same generic shape (no `sent` leak)
+export const studentRequestOtp = wrap(async (req) => {
+  const { message } = await activation.requestActivationOtp('student', req);
+  return { success: true, message };
+});
 export const studentVerifyOtp = wrap(async (req) => {
   const { activationToken, expiresIn } = await activation.verifyActivationOtp('student', req);
   return { success: true, activationToken, expiresIn };

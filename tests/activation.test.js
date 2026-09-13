@@ -130,6 +130,7 @@ test('CR OTP request works and email is sent through the Brevo mock', async () =
   const res = await cr.api('POST', '/api/auth/cr/request-otp', { email: crEmail.toUpperCase() + ' ' });
   assert.equal(res.status, 200);
   assert.match(res.json.message, /if the account is eligible/i);
+  assert.ok(!('sent' in res.json), 'eligibility must never leak via a sent flag');
   const last = sentEmails[sentEmails.length - 1];
   // (1) Brevo service uses the env key
   assert.match(last.url, /api\.brevo\.com\/v3\/smtp\/email/);
@@ -288,6 +289,7 @@ test('CR cannot activate through the student flow', async () => {
   const before = sentEmails.length;
   const res = await cr.api('POST', '/api/auth/student/request-otp', { email: crEmail });
   assert.equal(res.status, 200); // generic
+  assert.ok(!('sent' in res.json), 'no sent flag — eligibility must never leak');
   assert.equal(sentEmails.length, before, 'no email for role-mismatched flow');
   const verify = await cr.api('POST', '/api/auth/student/verify-otp', { email: crEmail, otp: '123456' });
   assert.equal(verify.status, 400);
