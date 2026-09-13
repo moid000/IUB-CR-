@@ -5,6 +5,8 @@ import { auditFromReq } from '../utils/audit.js';
 import { assertName, assertEmail, assertPhone, pick } from '../utils/validators.js';
 import { parsePagination, paginationMeta } from '../utils/pagination.js';
 import * as subjectSvc from '../services/subjectService.js';
+import announcementSvc from '../services/announcementService.js';
+import noteSvc from '../services/noteService.js';
 
 /**
  * CR student management. Section ownership is ALWAYS server-derived from
@@ -52,6 +54,19 @@ const wrapList = (fn) => async (req, res, next) => {
 };
 
 export const listSubjects = wrapList(subjectSvc.listSubjectsCr);
+
+/* ---- Announcements + Notes — ALWAYS scoped to req.user.section ---- */
+export const listAnnouncements = wrapList(announcementSvc.listCr);
+export const createAnnouncement = wrapDoc(announcementSvc.createCr);
+export const getAnnouncement = wrapDoc(announcementSvc.getCr);
+export const updateAnnouncement = wrapDoc(announcementSvc.updateCr);
+export const archiveAnnouncement = wrapDoc(announcementSvc.archiveCr);
+
+export const listNotes = wrapList(noteSvc.listCr);
+export const createNote = wrapDoc(noteSvc.createCr);
+export const getNote = wrapDoc(noteSvc.getCr);
+export const updateNote = wrapDoc(noteSvc.updateCr);
+export const archiveNote = wrapDoc(noteSvc.archiveCr);
 export const createSubject = wrapDoc(subjectSvc.createSubjectCr);
 export const getSubject = wrapDoc(subjectSvc.getSubjectCr);
 export const updateSubject = wrapDoc(subjectSvc.updateSubjectCr);

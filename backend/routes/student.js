@@ -1,11 +1,22 @@
 import { Router } from 'express';
 import { protect, studentOnly, sectionScope } from '../middleware/auth.js';
 import * as subjectSvc from '../services/subjectService.js';
+import {
+  listAnnouncements, getAnnouncement, listNotes, getNote,
+} from '../controllers/studentController.js';
 
 const router = Router();
 
 // Student routes are READ-ONLY — no student mutation route exists in any phase.
 router.use(protect, studentOnly, sectionScope);
+
+// Announcements of the student's OWN section (read-only)
+router.get('/announcements', listAnnouncements);
+router.get('/announcements/:id', getAnnouncement);
+
+// Notes of the student's OWN section (read-only)
+router.get('/notes', listNotes);
+router.get('/notes/:id', getNote);
 
 // Subjects of the student's OWN section (server-derived — never a query param)
 router.get('/subjects', async (req, res, next) => {

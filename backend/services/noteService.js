@@ -1,0 +1,61 @@
+import { Note } from '../models/index.js';
+import { ApiError } from '../middleware/error.js';
+import { makeSectionContentService, validateSectionSubject } from './sectionContent.js';
+import * as v from '../utils/validators.js';
+
+const TITLE_MAX = 120;
+const CONTENT_MAX = 10000;
+
+function assertTitle(value) {
+  const title = String(value ?? '').trim();
+  if (!title || title.length > TITLE_MAX) {
+    throw new ApiError(400, `Title must be 1–${TITLE_MAX} characters`);
+  }
+  return title;
+}
+
+function assertContent(value) {
+  if (value === undefined || value === null || value === '') return undefined; // notes: optional
+  const content = String(value).trim();
+  if (content.length > CONTENT_MAX) throw new ApiError(400, `Content must be at most ${CONTENT_MAX} characters`);
+  return content;
+}
+
+/**
+ * Notes — section-scoped, optionally linked to a Subject of the SAME section.
+ * Subject ownership is validated server-side: a subject from another section
+ * is rejected (400), an archived subject is rejected, and clients can never
+ * move a note across sections. `attachments` is not client-writable in this
+ * phase (Cloudinary comes later).
+ */
+export default makeSectionContentService({
+  Model: Note,
+  kind: 'note',
+  searchFields: ['title', 'content'],
+  defaults: { status: 'published', statusEnum: ['published', 'archived'] },
+  hooks: {
+    extraFields: ['subject'],
+    validateBody: async (body, { partial, ctx }) => {
+      const fields = {};
+      if (body.title !== undefined || !partial) fields.title = assertTitle(body.title);
+      if (body.content !== undefined) fields.content = assertContent(body.content);
+      if (body.subject !== undefined) {
+        // partial-update with explicit null clears the subject link
+        fields.subject = body.subject === null || body.subject === ''
+          ? null
+          : await validateSectionSubject(body.subject, ctx.sectionId);
+      }
+      return fields;
+    },
+    applyUpdate: (doc, fields) => {
+      if (fields.title !== undefined) doc.title = fields.title;
+      if (fields.content !== undefined) doc.content = fields.content;
+      if (fields.subject !== undefined) doc.subject = fields.subject;
+    },
+    extraFilters: (query) => {
+      const filter = {};
+      if (query.subjectId) filter.subject = v.assertObjectId(query.subjectId, 'subject id');
+      return Object.keys(filter).length ? filter : null;
+    },
+  },
+});

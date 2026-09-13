@@ -44,4 +44,18 @@ router.get('/subjects/:id', ctl.getSubjectAdmin);
 router.patch('/subjects/:id', ctl.updateSubjectAdmin);
 router.post('/subjects/:id/archive', ctl.archiveSubjectAdmin);
 
+// Announcements
+router.post('/announcements', ctl.createAnnouncementAdmin);
+router.get('/announcements', ctl.listAnnouncementsAdmin);
+router.get('/announcements/:id', ctl.getAnnouncementAdmin);
+router.patch('/announcements/:id', ctl.updateAnnouncementAdmin);
+router.post('/announcements/:id/archive', ctl.archiveAnnouncementAdmin);
+
+// Notes
+router.post('/notes', ctl.createNoteAdmin);
+router.get('/notes', ctl.listNotesAdmin);
+router.get('/notes/:id', ctl.getNoteAdmin);
+router.patch('/notes/:id', ctl.updateNoteAdmin);
+router.post('/notes/:id/archive', ctl.archiveNoteAdmin);
+
 export default router;
