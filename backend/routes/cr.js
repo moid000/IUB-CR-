@@ -5,6 +5,8 @@ import {
   listSubjects, createSubject, getSubject, updateSubject, archiveSubject,
   listAnnouncements, createAnnouncement, getAnnouncement, updateAnnouncement, archiveAnnouncement,
   listNotes, createNote, getNote, updateNote, archiveNote,
+  listAssignments, createAssignment, getAssignment, updateAssignment, archiveAssignment,
+  listSubmissions, getSubmission,
 } from '../controllers/crController.js';
 
 const router = Router();
@@ -28,6 +30,17 @@ router.post('/announcements', createAnnouncement);
 router.get('/announcements/:id', getAnnouncement);
 router.patch('/announcements/:id', updateAnnouncement);
 router.post('/announcements/:id/archive', archiveAnnouncement);
+
+// Assignments — section ALWAYS req.user.section; subject must be own+active
+router.get('/assignments', listAssignments);
+router.post('/assignments', createAssignment);
+router.get('/assignments/:id', getAssignment);
+router.patch('/assignments/:id', updateAssignment);
+router.post('/assignments/:id/archive', archiveAssignment);
+
+// Submissions — read-only for CR, own section only
+router.get('/assignments/:assignmentId/submissions', listSubmissions);
+router.get('/submissions/:id', getSubmission);
 
 // Notes — same section isolation; optional subject must belong to own section
 router.get('/notes', listNotes);

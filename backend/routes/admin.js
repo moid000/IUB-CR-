@@ -51,6 +51,15 @@ router.get('/announcements/:id', ctl.getAnnouncementAdmin);
 router.patch('/announcements/:id', ctl.updateAnnouncementAdmin);
 router.post('/announcements/:id/archive', ctl.archiveAnnouncementAdmin);
 
+// Assignments
+router.post('/assignments', ctl.createAssignmentAdmin);
+router.get('/assignments', ctl.listAssignmentsAdmin);
+router.get('/assignments/:id', ctl.getAssignmentAdmin);
+router.patch('/assignments/:id', ctl.updateAssignmentAdmin);
+router.post('/assignments/:id/archive', ctl.archiveAssignmentAdmin);
+router.get('/assignments/:assignmentId/submissions', ctl.listSubmissionsAdmin);
+router.get('/submissions/:id', ctl.getSubmissionAdmin);
+
 // Notes
 router.post('/notes', ctl.createNoteAdmin);
 router.get('/notes', ctl.listNotesAdmin);

@@ -7,6 +7,7 @@ import { parsePagination, paginationMeta } from '../utils/pagination.js';
 import * as subjectSvc from '../services/subjectService.js';
 import announcementSvc from '../services/announcementService.js';
 import noteSvc from '../services/noteService.js';
+import * as assignmentSvc from '../services/assignmentService.js';
 
 /**
  * CR student management. Section ownership is ALWAYS server-derived from
@@ -67,6 +68,15 @@ export const createNote = wrapDoc(noteSvc.createCr);
 export const getNote = wrapDoc(noteSvc.getCr);
 export const updateNote = wrapDoc(noteSvc.updateCr);
 export const archiveNote = wrapDoc(noteSvc.archiveCr);
+
+/* ---- Assignments — ALWAYS scoped to req.user.section ---- */
+export const listAssignments = wrapList(assignmentSvc.listAssignmentsCr);
+export const createAssignment = wrapDoc(assignmentSvc.createAssignmentCr);
+export const getAssignment = wrapDoc(assignmentSvc.getAssignmentCr);
+export const updateAssignment = wrapDoc(assignmentSvc.updateAssignmentCr);
+export const archiveAssignment = wrapDoc(assignmentSvc.archiveAssignmentCr);
+export const listSubmissions = wrapList(assignmentSvc.listSubmissionsCr);
+export const getSubmission = wrapDoc(assignmentSvc.getSubmissionCr);
 export const createSubject = wrapDoc(subjectSvc.createSubjectCr);
 export const getSubject = wrapDoc(subjectSvc.getSubjectCr);
 export const updateSubject = wrapDoc(subjectSvc.updateSubjectCr);

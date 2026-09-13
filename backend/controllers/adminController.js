@@ -2,6 +2,7 @@ import * as svc from '../services/adminService.js';
 import * as subjectSvc from '../services/subjectService.js';
 import announcementSvc from '../services/announcementService.js';
 import noteSvc from '../services/noteService.js';
+import * as assignmentSvc from '../services/assignmentService.js';
 
 /**
  * Admin API — every route sits behind protect + adminOnly (see routes/admin.js).
@@ -61,6 +62,15 @@ export const listAnnouncementsAdmin = wrapList(announcementSvc.listAdmin);
 export const getAnnouncementAdmin = wrap(announcementSvc.getAdmin);
 export const updateAnnouncementAdmin = wrap(announcementSvc.updateAdmin);
 export const archiveAnnouncementAdmin = wrap(announcementSvc.archiveAdmin);
+
+// Assignments + submissions (admin — cross-section, read-only on submissions)
+export const createAssignmentAdmin = wrap(assignmentSvc.createAssignmentAdmin);
+export const listAssignmentsAdmin = wrapList(assignmentSvc.listAssignmentsAdmin);
+export const getAssignmentAdmin = wrap(assignmentSvc.getAssignmentAdmin);
+export const updateAssignmentAdmin = wrap(assignmentSvc.updateAssignmentAdmin);
+export const archiveAssignmentAdmin = wrap(assignmentSvc.archiveAssignmentAdmin);
+export const listSubmissionsAdmin = wrapList(assignmentSvc.listSubmissionsAdmin);
+export const getSubmissionAdmin = wrap(assignmentSvc.getSubmissionAdmin);
 
 // Notes (admin — any active section, explicitly)
 export const createNoteAdmin = wrap(noteSvc.createAdmin);
