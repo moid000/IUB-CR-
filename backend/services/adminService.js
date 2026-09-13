@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { Department, AcademicSession, Section, User } from '../models/index.js';
+import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
@@ -38,6 +39,13 @@ export async function listDepartments(req) {
   const filter = {};
   if (req.query.status) filter.status = v.assertEnum(req.query.status, ['active', 'archived'], 'status');
   return Department.find(filter).sort({ name: 1 });
+}
+
+export async function getDepartment(req) {
+  const id = v.assertObjectId(req.params.id, 'department id');
+  const doc = await Department.findById(id);
+  if (!doc) throw new ApiError(404, 'Department not found');
+  return doc;
 }
 
 export async function updateDepartment(req) {
@@ -113,6 +121,13 @@ export async function listSessions(req) {
   const filter = {};
   if (req.query.status) filter.status = v.assertEnum(req.query.status, ['active', 'archived'], 'status');
   return AcademicSession.find(filter).sort({ createdAt: -1 });
+}
+
+export async function getSession(req) {
+  const id = v.assertObjectId(req.params.id, 'session id');
+  const doc = await AcademicSession.findById(id);
+  if (!doc) throw new ApiError(404, 'Session not found');
+  return doc;
 }
 
 export async function updateSession(req) {
@@ -374,8 +389,9 @@ export async function precreateCr(req) {
 
 /**
  * Assigns an existing CR user to a section transactionally.
- * Rejects: section already has a CR (no silent overwrite) and CRs already
- * belonging to another section (no reassignment operation in this phase).
+ * Rejects: target section already has a CR (never silently overwritten) and
+ * CRs already belonging to another section (reassignment is a SEPARATE
+ * explicit admin operation — see reassignCr).
  */
 export async function assignCr(req) {
   const sectionId = v.assertObjectId(req.params.id, 'section id');
@@ -400,9 +416,128 @@ export async function assignCr(req) {
   });
 
   await auditFromReq(req, {
-    action: 'section.cr.assign', entityType: 'section', entityId: section._id,
+    action: 'cr.assign', entityType: 'section', entityId: section._id,
     section: section._id, targetUser: user._id,
     after: { cr: String(user._id) },
   });
   return section;
+}
+
+/**
+ * EXPLICIT admin reassignment: moves a CR who already belongs to a section
+ * to a new (CR-less, active) section. Both sides of the OLD link and both
+ * sides of the NEW link are updated inside ONE transaction — any failure
+ * rolls everything back. The target section's CR is never silently
+ * overwritten: if it has a CR the operation is rejected.
+ */
+export async function reassignCr(req) {
+  const sectionId = v.assertObjectId(req.params.id, 'section id');
+  const userId = v.assertObjectId(v.pick(req.body, ['userId']).userId, 'cr user id');
+
+  const section = await Section.findById(sectionId);
+  if (!section) throw new ApiError(404, 'Section not found');
+  if (section.status !== 'active') throw new ApiError(400, 'Section is archived');
+  if (section.cr) throw new ApiError(409, 'Section already has a CR');
+
+  const user = await User.findById(userId);
+  if (!user) throw new ApiError(404, 'CR user not found');
+  if (user.role !== 'cr') throw new ApiError(400, 'User is not a CR');
+  if (user.registrationStatus === 'suspended') throw new ApiError(409, 'CR account is suspended');
+  if (!user.section) throw new ApiError(409, 'CR does not belong to a section — use assign instead');
+  if (String(user.section) === String(section._id)) throw new ApiError(409, 'CR already belongs to this section');
+
+  const oldSectionId = user.section;
+  await withTransaction(async (tx) => {
+    const oldSection = await Section.findById(oldSectionId).session(tx);
+    if (oldSection) {
+      oldSection.cr = null;
+      await oldSection.save({ session: tx });
+    }
+    section.cr = user._id;
+    await section.save({ session: tx });
+    user.section = section._id;
+    await user.save({ session: tx });
+  });
+
+  await auditFromReq(req, {
+    action: 'cr.reassign', entityType: 'section', entityId: section._id,
+    section: section._id, targetUser: user._id,
+    before: { fromSection: String(oldSectionId) },
+    after: { cr: String(user._id), toSection: String(section._id) },
+  });
+  return section;
+}
+
+/**
+ * EXPLICIT admin removal: clears Section.cr and User.section together in
+ * ONE transaction. The CR account itself is NEVER deleted or deactivated.
+ */
+export async function removeCr(req) {
+  const sectionId = v.assertObjectId(req.params.id, 'section id');
+  const section = await Section.findById(sectionId);
+  if (!section) throw new ApiError(404, 'Section not found');
+  if (!section.cr) throw new ApiError(409, 'Section has no CR');
+  const crId = section.cr; // captured BEFORE the transaction clears it
+
+  await withTransaction(async (tx) => {
+    const cr = await User.findById(section.cr).session(tx);
+    section.cr = null;
+    await section.save({ session: tx });
+    if (cr) {
+      cr.section = null;
+      await cr.save({ session: tx });
+    }
+  });
+
+  await auditFromReq(req, {
+    action: 'cr.remove', entityType: 'section', entityId: section._id,
+    section: section._id, targetUser: crId,
+    before: { cr: null }, after: { cr: null, removed: true },
+  });
+  return section;
+}
+
+/* ========================= Admin student listing ========================= */
+
+const STUDENT_SAFE_FIELDS = 'name email phone rollNo section registrationStatus emailVerified activationAt lastLoginAt createdAt';
+
+/**
+ * Admin-only student directory. Filters (department/session/section) and
+ * search (name/rollNo/email) are validated server-side; the response NEVER
+ * contains password hashes or any security field. Pagination capped at 100.
+ */
+export async function listStudentsAdmin(req) {
+  const { page, limit, skip } = parsePagination(req.query);
+  const filter = { role: 'student' };
+
+  if (req.query.section) {
+    filter.section = v.assertObjectId(req.query.section, 'section id');
+  } else {
+    if (req.query.department) {
+      const dept = v.assertObjectId(req.query.department, 'department id');
+      const sections = await Section.find({ department: dept }).select('_id');
+      filter.section = { $in: sections.map((s) => s._id) };
+    }
+    if (req.query.session) {
+      const sess = v.assertObjectId(req.query.session, 'session id');
+      const sections = await Section.find({ session: sess }).select('_id');
+      const list = sections.map((s) => s._id);
+      filter.section = filter.section?.$in
+        ? filter.section.$in.filter((id) => list.some((x) => String(x) === String(id)))
+        : { $in: list };
+      if (!filter.section.$in.length) filter.section = { $in: [] };
+    }
+  }
+  const search = searchFilter(req.query.search, ['name', 'rollNo', 'email']);
+  if (search) Object.assign(filter, search);
+
+  const [items, total] = await Promise.all([
+    User.find(filter)
+      .select(STUDENT_SAFE_FIELDS)
+      .populate('section', 'name semester status')
+      .sort({ createdAt: -1 })
+      .skip(skip).limit(limit),
+    User.countDocuments(filter),
+  ]);
+  return { items, pagination: paginationMeta(total, { page, limit }) };
 }

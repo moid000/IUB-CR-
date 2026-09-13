@@ -10,12 +10,14 @@ router.use(protect, adminOnly);
 // Departments
 router.post('/departments', ctl.createDepartment);
 router.get('/departments', ctl.listDepartments);
+router.get('/departments/:id', ctl.getDepartment);
 router.patch('/departments/:id', ctl.updateDepartment);
 router.post('/departments/:id/archive', ctl.archiveDepartment);
 
 // Academic Sessions
 router.post('/sessions', ctl.createSession);
 router.get('/sessions', ctl.listSessions);
+router.get('/sessions/:id', ctl.getSession);
 router.patch('/sessions/:id', ctl.updateSession);
 router.post('/sessions/:id/archive', ctl.archiveSession);
 
@@ -26,8 +28,20 @@ router.get('/sections/:id', ctl.getSection);
 router.patch('/sections/:id', ctl.updateSection);
 router.post('/sections/:id/archive', ctl.archiveSection);
 router.post('/sections/:id/cr', ctl.assignCr);
+router.post('/sections/:id/cr/reassign', ctl.reassignCr);
+router.post('/sections/:id/cr/remove', ctl.removeCr);
 
 // CR pre-creation (creates CR + section link transactionally)
 router.post('/crs', ctl.precreateCr);
+
+// Student directory (filters: department/session/section + search + pagination)
+router.get('/students', ctl.listStudentsAdmin);
+
+// Subjects (admin may manage any active section's subjects)
+router.post('/subjects', ctl.createSubjectAdmin);
+router.get('/subjects', ctl.listSubjectsAdmin);
+router.get('/subjects/:id', ctl.getSubjectAdmin);
+router.patch('/subjects/:id', ctl.updateSubjectAdmin);
+router.post('/subjects/:id/archive', ctl.archiveSubjectAdmin);
 
 export default router;

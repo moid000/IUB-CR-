@@ -8,6 +8,7 @@ import routes from './routes/index.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import crRoutes from './routes/cr.js';
+import studentRoutes from './routes/student.js';
 import { ensureAdminBootstrap } from './services/adminBootstrap.js';
 import { ApiError, notFoundHandler, errorHandler } from './middleware/error.js';
 
@@ -64,6 +65,7 @@ app.use('/api', routes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/cr', crRoutes);
+app.use('/api/student', studentRoutes);
 
 // Consistent 404 for unknown API paths
 app.use(notFoundHandler);

@@ -3,6 +3,8 @@ import Section from '../models/Section.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import { assertName, assertEmail, assertPhone, pick } from '../utils/validators.js';
+import { parsePagination, paginationMeta } from '../utils/pagination.js';
+import * as subjectSvc from '../services/subjectService.js';
 
 /**
  * CR student management. Section ownership is ALWAYS server-derived from
@@ -11,20 +13,49 @@ import { assertName, assertEmail, assertPhone, pick } from '../utils/validators.
  */
 
 /**
- * Lists students ONLY in the CR's own current section.
+ * Lists students ONLY in the CR's own current section, with safe pagination.
  */
 export async function listStudents(req, res, next) {
   try {
     const sectionId = req.user.section; // server-derived
     if (!sectionId) throw new ApiError(400, 'You are not assigned to a section');
-    const students = await User.find({ section: sectionId, role: 'student' })
-      .select('name email phone rollNo registrationStatus emailVerified createdAt')
-      .sort({ rollNo: 1, createdAt: -1 });
-    res.json({ success: true, data: students });
+    const { page, limit, skip } = parsePagination(req.query);
+    const filter = { section: sectionId, role: 'student' };
+    const [students, total] = await Promise.all([
+      User.find(filter)
+        .select('name email phone rollNo registrationStatus emailVerified createdAt')
+        .sort({ rollNo: 1, createdAt: -1 })
+        .skip(skip).limit(limit),
+      User.countDocuments(filter),
+    ]);
+    res.json({ success: true, data: students, pagination: paginationMeta(total, { page, limit }) });
   } catch (err) {
     next(err);
   }
 }
+
+/* ---- Subject management — ALWAYS scoped to req.user.section ---- */
+const wrapDoc = (fn) => async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await fn(req) });
+  } catch (err) {
+    next(err);
+  }
+};
+const wrapList = (fn) => async (req, res, next) => {
+  try {
+    const { items, pagination } = await fn(req);
+    res.json({ success: true, data: items, pagination });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const listSubjects = wrapList(subjectSvc.listSubjectsCr);
+export const createSubject = wrapDoc(subjectSvc.createSubjectCr);
+export const getSubject = wrapDoc(subjectSvc.getSubjectCr);
+export const updateSubject = wrapDoc(subjectSvc.updateSubjectCr);
+export const archiveSubject = wrapDoc(subjectSvc.archiveSubjectCr);
 
 /**
  * Pre-creates a pending student INSIDE the CR's own section.
