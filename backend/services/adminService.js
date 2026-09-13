@@ -1,0 +1,408 @@
+import mongoose from 'mongoose';
+import { Department, AcademicSession, Section, User } from '../models/index.js';
+import { ApiError } from '../middleware/error.js';
+import { auditFromReq } from '../utils/audit.js';
+import * as v from '../utils/validators.js';
+
+/** Runs fn inside a MongoDB transaction with automatic rollback on any throw. */
+async function withTransaction(fn) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await fn(session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
+/* ============================== Departments ============================== */
+
+export async function createDepartment(req) {
+  const body = v.pick(req.body, ['name', 'code']);
+  const name = v.assertName(body.name, 'name');
+  const code = String(body.code ?? '').trim().toUpperCase();
+  if (!/^[A-Z0-9-]{2,12}$/.test(code)) throw new ApiError(400, 'Invalid code (2–12 letters/digits)');
+
+  const doc = await Department.create({ name, code });
+  await auditFromReq(req, {
+    action: 'department.create', entityType: 'department', entityId: doc._id,
+    after: { name, code },
+  });
+  return doc;
+}
+
+export async function listDepartments(req) {
+  const filter = {};
+  if (req.query.status) filter.status = v.assertEnum(req.query.status, ['active', 'archived'], 'status');
+  return Department.find(filter).sort({ name: 1 });
+}
+
+export async function updateDepartment(req) {
+  const id = v.assertObjectId(req.params.id, 'department id');
+  const doc = await Department.findById(id);
+  if (!doc) throw new ApiError(404, 'Department not found');
+
+  const body = v.pick(req.body, ['name', 'code']);
+  const before = { name: doc.name, code: doc.code };
+  if (body.name !== undefined) doc.name = v.assertName(body.name, 'name');
+  if (body.code !== undefined) {
+    const code = String(body.code).trim().toUpperCase();
+    if (!/^[A-Z0-9-]{2,12}$/.test(code)) throw new ApiError(400, 'Invalid code (2–12 letters/digits)');
+    doc.code = code;
+  }
+  await doc.save(); // duplicate → 11000 → 409 via error handler
+  await auditFromReq(req, {
+    action: 'department.update', entityType: 'department', entityId: doc._id,
+    before, after: { name: doc.name, code: doc.code },
+  });
+  return doc;
+}
+
+export async function archiveDepartment(req) {
+  const id = v.assertObjectId(req.params.id, 'department id');
+  const doc = await Department.findById(id);
+  if (!doc) throw new ApiError(404, 'Department not found');
+  if (doc.status === 'archived') throw new ApiError(409, 'Department already archived');
+
+  const activeSections = await Section.countDocuments({ department: id, status: 'active' });
+  if (activeSections > 0) {
+    throw new ApiError(400, 'Cannot archive: department still has active sections');
+  }
+
+  doc.status = 'archived';
+  await doc.save();
+  await auditFromReq(req, {
+    action: 'department.archive', entityType: 'department', entityId: doc._id,
+    before: { status: 'active' }, after: { status: 'archived' },
+  });
+  return doc;
+}
+
+/* =========================== Academic Sessions =========================== */
+
+export async function createSession(req) {
+  const body = v.pick(req.body, ['name', 'startedAt', 'endedAt', 'status']);
+  const name = v.assertName(body.name, 'name');
+  const startedAt = body.startedAt !== undefined ? v.assertDate(body.startedAt, 'startedAt') : undefined;
+  const endedAt = body.endedAt !== undefined ? v.assertDate(body.endedAt, 'endedAt') : undefined;
+  if (startedAt && endedAt && endedAt <= startedAt) {
+    throw new ApiError(400, 'endedAt must be after startedAt');
+  }
+  const status = body.status !== undefined
+    ? v.assertEnum(body.status, ['active', 'archived'], 'status')
+    : 'active';
+
+  // Clean pre-check (DB partial unique index remains the backstop)
+  if (status === 'active') {
+    const activeExists = await AcademicSession.exists({ status: 'active' });
+    if (activeExists) throw new ApiError(409, 'Another academic session is already active');
+  }
+
+  const doc = await AcademicSession.create({ name, startedAt, endedAt, status });
+  await auditFromReq(req, {
+    action: 'session.create', entityType: 'session', entityId: doc._id,
+    after: { name, status },
+  });
+  return doc;
+}
+
+export async function listSessions(req) {
+  const filter = {};
+  if (req.query.status) filter.status = v.assertEnum(req.query.status, ['active', 'archived'], 'status');
+  return AcademicSession.find(filter).sort({ createdAt: -1 });
+}
+
+export async function updateSession(req) {
+  const id = v.assertObjectId(req.params.id, 'session id');
+  const doc = await AcademicSession.findById(id);
+  if (!doc) throw new ApiError(404, 'Session not found');
+
+  const body = v.pick(req.body, ['name', 'startedAt', 'endedAt', 'status']);
+  const before = { name: doc.name, status: doc.status };
+  if (body.name !== undefined) doc.name = v.assertName(body.name, 'name');
+  if (body.startedAt !== undefined) doc.startedAt = v.assertDate(body.startedAt, 'startedAt');
+  if (body.endedAt !== undefined) doc.endedAt = v.assertDate(body.endedAt, 'endedAt');
+  if (body.status !== undefined) {
+    doc.status = v.assertEnum(body.status, ['active', 'archived'], 'status');
+    if (doc.status === 'active') {
+      const otherActive = await AcademicSession.countDocuments({ status: 'active', _id: { $ne: doc._id } });
+      if (otherActive > 0) throw new ApiError(409, 'Another academic session is already active');
+    }
+  }
+  if (doc.startedAt && doc.endedAt && doc.endedAt <= doc.startedAt) {
+    throw new ApiError(400, 'endedAt must be after startedAt');
+  }
+  await doc.save();
+  await auditFromReq(req, {
+    action: 'session.update', entityType: 'session', entityId: doc._id,
+    before, after: { name: doc.name, status: doc.status },
+  });
+  return doc;
+}
+
+export async function archiveSession(req) {
+  const id = v.assertObjectId(req.params.id, 'session id');
+  const doc = await AcademicSession.findById(id);
+  if (!doc) throw new ApiError(404, 'Session not found');
+  if (doc.status === 'archived') throw new ApiError(409, 'Session already archived');
+  doc.status = 'archived';
+  await doc.save();
+  await auditFromReq(req, {
+    action: 'session.archive', entityType: 'session', entityId: doc._id,
+    before: { status: 'active' }, after: { status: 'archived' },
+  });
+  return doc;
+}
+
+/* =============================== Sections ================================ */
+
+const SECTION_NAME_RE = /^[A-Z0-9-]{1,16}$/;
+
+async function resolveSectionContext(body) {
+  const department = v.assertObjectId(body.department, 'department id');
+  const session = v.assertObjectId(body.session, 'session id');
+  const semester = v.assertSemester(body.semester);
+  const name = String(body.name ?? body.sectionName ?? '').trim().toUpperCase();
+  if (!SECTION_NAME_RE.test(name)) throw new ApiError(400, 'Invalid section name');
+
+  const dept = await Department.findById(department);
+  if (!dept) throw new ApiError(400, 'Department not found');
+  if (dept.status !== 'active') throw new ApiError(400, 'Department is archived');
+  const sess = await AcademicSession.findById(session);
+  if (!sess) throw new ApiError(400, 'Session not found');
+  if (sess.status !== 'active') throw new ApiError(400, 'Session is archived');
+
+  return { department, session, semester, name };
+}
+
+export async function createSection(req) {
+  const body = v.pick(req.body, ['department', 'session', 'semester', 'name', 'cr']);
+  const ctx = await resolveSectionContext(body);
+
+  // Optional CR assignment during creation — validated BEFORE the transaction
+  let crUser = null;
+  if (body.cr !== undefined && body.cr !== null && body.cr !== '') {
+    const crId = v.assertObjectId(body.cr, 'cr id');
+    crUser = await User.findById(crId);
+    if (!crUser) throw new ApiError(400, 'CR user not found');
+    if (crUser.role !== 'cr') throw new ApiError(400, 'User is not a CR');
+    if (crUser.section) throw new ApiError(409, 'CR already belongs to another section');
+  }
+
+  // Section.cr and User.section are always mutated together, inside ONE transaction
+  const section = await withTransaction(async (tx) => {
+    const [doc] = await Section.create([{ ...ctx, status: 'active' }], { session: tx });
+    if (crUser) {
+      doc.cr = crUser._id;
+      await doc.save({ session: tx });
+      crUser.section = doc._id;
+      await crUser.save({ session: tx });
+    }
+    return doc;
+  });
+
+  await auditFromReq(req, {
+    action: 'section.create', entityType: 'section', entityId: section._id,
+    section: section._id,
+    after: { ...ctx, cr: crUser ? String(crUser._id) : null },
+  });
+  return section;
+}
+
+export async function listSections(req) {
+  const filter = {};
+  if (req.query.department) filter.department = v.assertObjectId(req.query.department, 'department id');
+  if (req.query.session) filter.session = v.assertObjectId(req.query.session, 'session id');
+  if (req.query.status) filter.status = v.assertEnum(req.query.status, ['active', 'archived'], 'status');
+  return Section.find(filter)
+    .populate('department', 'name code')
+    .populate('session', 'name status')
+    .populate('cr', 'name email')
+    .sort({ createdAt: -1 });
+}
+
+export async function getSection(req) {
+  const id = v.assertObjectId(req.params.id, 'section id');
+  const doc = await Section.findById(id)
+    .populate('department', 'name code')
+    .populate('session', 'name status')
+    .populate('cr', 'name email');
+  if (!doc) throw new ApiError(404, 'Section not found');
+  return doc;
+}
+
+/**
+ * Updates ONLY allowed administrative fields (name, semester).
+ * Protected fields (department, session, cr, status, pastMembers) can NEVER
+ * be set from a client payload — pastMembers is exclusively admin-promotion
+ * logic territory and has no update path at all in this phase.
+ */
+export async function updateSection(req) {
+  const id = v.assertObjectId(req.params.id, 'section id');
+  const doc = await Section.findById(id);
+  if (!doc) throw new ApiError(404, 'Section not found');
+
+  const body = v.pick(req.body, ['name', 'semester']);
+  const before = { name: doc.name, semester: doc.semester };
+  if (body.name !== undefined) {
+    const name = String(body.name).trim().toUpperCase();
+    if (!SECTION_NAME_RE.test(name)) throw new ApiError(400, 'Invalid section name');
+    doc.name = name;
+  }
+  if (body.semester !== undefined) doc.semester = v.assertSemester(body.semester);
+  await doc.save(); // duplicate → 11000 → 409 via error handler
+  await auditFromReq(req, {
+    action: 'section.update', entityType: 'section', entityId: doc._id, section: doc._id,
+    before, after: { name: doc.name, semester: doc.semester },
+  });
+  return doc;
+}
+
+/**
+ * Archiving a Section never deletes or modifies ANY historical content
+ * (subjects, assignments, submissions, attendance, timetable, audit logs).
+ * If the section has an active CR, both sides are cleared transactionally —
+ * the CR becomes sectionless but their account is NOT archived or modified
+ * beyond the section link.
+ */
+export async function archiveSection(req) {
+  const id = v.assertObjectId(req.params.id, 'section id');
+  const doc = await Section.findById(id);
+  if (!doc) throw new ApiError(404, 'Section not found');
+  if (doc.status === 'archived') throw new ApiError(409, 'Section already archived');
+
+  const before = { status: doc.status, cr: doc.cr ? String(doc.cr) : null };
+
+  if (doc.cr) {
+    await withTransaction(async (tx) => {
+      const cr = await User.findById(doc.cr).session(tx);
+      doc.cr = null;
+      doc.status = 'archived';
+      await doc.save({ session: tx });
+      if (cr) {
+        cr.section = null; // CR becomes sectionless — account untouched otherwise
+        await cr.save({ session: tx });
+      }
+    });
+  } else {
+    doc.status = 'archived';
+    await doc.save();
+  }
+
+  await auditFromReq(req, {
+    action: 'section.archive', entityType: 'section', entityId: doc._id, section: doc._id,
+    before, after: { status: 'archived', cr: null }, reason: req.body?.reason,
+  });
+  return doc;
+}
+
+/* ========================== CR pre-creation =========================== */
+
+/**
+ * Admin-only CR pre-creation. Creates the CR account (pending, no password,
+ * cannot log in until activation is implemented later) and, in the SAME
+ * transaction, either links them to an existing section or creates the
+ * section first. Section ownership is ALWAYS server-derived — the admin
+ * supplies a validated sectionId or explicit department/session/semester/
+ * name, and the server resolves the rest.
+ *
+ * Transactional invariants (1 CR → 1 Section, 1 Section → 1 CR):
+ * - section already has a CR → rejected (never silently overwritten)
+ * - CR already belongs to a section → rejected (no reassignment path in this phase)
+ * - on any failure, ALL changes roll back
+ */
+export async function precreateCr(req) {
+  const body = v.pick(req.body, [
+    'name', 'email', 'phone', 'sectionId',
+    'department', 'session', 'semester', 'sectionName',
+  ]);
+  const name = v.assertName(body.name, 'name');
+  const email = v.assertEmail(body.email, 'email');
+  const phone = v.assertPhone(body.phone, 'phone');
+
+  if (await User.exists({ email })) throw new ApiError(409, 'Email already in use');
+
+  let section = null;
+  let ctx = null;
+  if (body.sectionId) {
+    const sectionId = v.assertObjectId(body.sectionId, 'section id');
+    section = await Section.findById(sectionId);
+    if (!section) throw new ApiError(404, 'Section not found');
+    if (section.status !== 'active') throw new ApiError(400, 'Section is archived');
+    if (section.cr) throw new ApiError(409, 'Section already has a CR');
+  } else {
+    // section name is the explicit sectionName field — never the CR's own name
+    ctx = await resolveSectionContext({
+      department: body.department,
+      session: body.session,
+      semester: body.semester,
+      name: body.sectionName,
+    });
+  }
+
+  const result = await withTransaction(async (tx) => {
+    let target = section;
+    if (!target) {
+      const [created] = await Section.create([{ ...ctx, status: 'active' }], { session: tx });
+      target = created;
+    }
+    const [cr] = await User.create([{
+      name,
+      email,
+      phone,
+      role: 'cr',
+      registrationStatus: 'pending', // cannot log in until activation (later phase)
+      emailVerified: false,
+      password: null,
+      section: target._id, // server-derived section ownership
+    }], { session: tx });
+    target.cr = cr._id;
+    await target.save({ session: tx });
+    return { cr, section: target };
+  });
+
+  await auditFromReq(req, {
+    action: 'user.cr.precreate', entityType: 'user', entityId: result.cr._id,
+    targetUser: result.cr._id, section: result.section._id,
+    after: { name, email, role: 'cr', registrationStatus: 'pending', section: String(result.section._id) },
+  });
+  return result.cr;
+}
+
+/**
+ * Assigns an existing CR user to a section transactionally.
+ * Rejects: section already has a CR (no silent overwrite) and CRs already
+ * belonging to another section (no reassignment operation in this phase).
+ */
+export async function assignCr(req) {
+  const sectionId = v.assertObjectId(req.params.id, 'section id');
+  const userId = v.assertObjectId(v.pick(req.body, ['userId']).userId, 'cr user id');
+
+  const section = await Section.findById(sectionId);
+  if (!section) throw new ApiError(404, 'Section not found');
+  if (section.status !== 'active') throw new ApiError(400, 'Section is archived');
+  if (section.cr) throw new ApiError(409, 'Section already has a CR');
+
+  const user = await User.findById(userId);
+  if (!user) throw new ApiError(404, 'CR user not found');
+  if (user.role !== 'cr') throw new ApiError(400, 'User is not a CR');
+  if (user.section) throw new ApiError(409, 'CR already belongs to another section');
+  if (user.registrationStatus === 'suspended') throw new ApiError(409, 'CR account is suspended');
+
+  await withTransaction(async (tx) => {
+    section.cr = user._id;
+    await section.save({ session: tx });
+    user.section = section._id;
+    await user.save({ session: tx });
+  });
+
+  await auditFromReq(req, {
+    action: 'section.cr.assign', entityType: 'section', entityId: section._id,
+    section: section._id, targetUser: user._id,
+    after: { cr: String(user._id) },
+  });
+  return section;
+}

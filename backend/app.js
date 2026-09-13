@@ -5,6 +5,9 @@ import cookieParser from 'cookie-parser';
 import { env, ensureEnv } from './config/env.js';
 import { connectDB } from './config/db.js';
 import routes from './routes/index.js';
+import authRoutes from './routes/auth.js';
+import adminRoutes from './routes/admin.js';
+import { ensureAdminBootstrap } from './services/adminBootstrap.js';
 import { ApiError, notFoundHandler, errorHandler } from './middleware/error.js';
 
 ensureEnv(); // fail fast — reports variable names only, never values
@@ -45,7 +48,20 @@ app.use(async (req, res, next) => {
   }
 });
 
+// Idempotent admin bootstrap — runs once per serverless instance.
+// Fail-safe: a configuration conflict is logged clearly but never breaks the API.
+app.use(async (req, res, next) => {
+  try {
+    await ensureAdminBootstrap();
+  } catch (err) {
+    console.error('[bootstrap]', err.message);
+  }
+  next();
+});
+
 app.use('/api', routes);
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Consistent 404 for unknown API paths
 app.use(notFoundHandler);

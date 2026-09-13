@@ -9,6 +9,7 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET,
   attendanceSecret: process.env.ATTENDANCE_SECRET,
   adminEmail: process.env.ADMIN_EMAIL,
+  adminPassword: process.env.ADMIN_PASSWORD,
   brevoApiKey: process.env.BREVO_API_KEY,
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,

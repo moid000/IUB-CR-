@@ -18,8 +18,10 @@ function sanitize(value) {
  * Server-side audit logging. Never exposed to clients; there are no
  * update/delete routes for audit logs (append-only by design).
  *
- * `actor` must be a server-derived User id (or null for the system actor).
- * Callers must never pass client-supplied actor identities.
+ * - `actor` must be a server-derived User id (or null for the system actor).
+ * - `email` stores only the NORMALIZED email for auth events (throttle +
+ *   investigation) — never passwords, never tokens.
+ * - Callers must never pass client-supplied actor identities.
  */
 export async function audit({
   actor = null,
@@ -27,6 +29,7 @@ export async function audit({
   action,
   entityType,
   entityId,
+  email,
   section = null,
   targetUser = null,
   before,
@@ -42,6 +45,7 @@ export async function audit({
       action,
       entityType,
       entityId,
+      email: email ? String(email).toLowerCase() : undefined,
       section,
       targetUser,
       before: sanitize(before),
