@@ -212,5 +212,6 @@ export async function setResetPassword(req) {
     entityType: 'user', entityId: user._id, targetUser: user._id,
     ip: req.ip, userAgent: req.get('user-agent'),
   });
-  return user;
+  // Minimal confirmation only — never the raw user document (hash leak).
+  return { message: 'Password updated. You can now sign in.' };
 }

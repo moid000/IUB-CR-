@@ -256,6 +256,8 @@ test('CR password setup activates the account and CR can login', async () => {
   // (15) valid token + strong password → activated
   const set = await cr.api('POST', '/api/auth/cr/set-password', { activationToken: token, password: 'CrStrong123!' });
   assert.equal(set.status, 200);
+  // hash-leak regression: response must NOT contain the user document
+  assert.ok(!('password' in (set.json ?? {})) && !('role' in (set.json ?? {})), 'no user doc / hash in set-password response');
   const user = await User.findOne({ email: crEmail }).select('+password');
   assert.equal(user.registrationStatus, 'active');
   assert.equal(user.emailVerified, true);
@@ -413,6 +415,7 @@ test('password reset OTP works end-to-end', async () => {
 
   const set = await cr.api('POST', '/api/auth/forgot-password/set-password', { resetToken: verify.json.resetToken, password: 'NewStrong456!' });
   assert.equal(set.status, 200);
+  assert.ok(!('password' in (set.json ?? {})) && !('role' in (set.json ?? {})), 'no user doc / hash in reset response');
 
   // (33) token is single-use
   const again = await cr.api('POST', '/api/auth/forgot-password/set-password', { resetToken: verify.json.resetToken, password: 'AgainStrong789!' });
