@@ -43,3 +43,4 @@ export const getTimetable = wrapDoc(timetableSvc.getTimetableStudent);
 export const attendWithCode = wrapDoc(attendanceSvc.attendWithCode);
 export const attendWithQr = wrapDoc(attendanceSvc.attendWithQr);
 export const listMyAttendance = wrapList(attendanceSvc.listMyAttendance);
+export const listSessionsStudent = wrapList(attendanceSvc.listSessionsStudent);

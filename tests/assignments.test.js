@@ -391,6 +391,37 @@ test('31–32. student reads OWN submission only; cross-read impossible', async 
   assert.equal((await student1.api('GET', `/api/student/assignments/${aA3}/submission`)).status, 404);
 });
 
+test('32b. student assignment LIST embeds mySubmission (own only) — no N+1 client reads', async () => {
+  const list1 = await student1.api('GET', '/api/student/assignments');
+  assert.equal(list1.status, 200);
+  const byId = new Map(list1.json.data.map((a) => [String(a._id), a]));
+
+  // student1 submitted on aA1 — embedded summary only (id + state; the full
+  // document stays behind the submission detail endpoint)
+  const a1 = byId.get(String(aA1));
+  assert.ok(a1, 'published assignment present in student list');
+  assert.ok(a1.mySubmission);
+  assert.equal(String(a1.mySubmission._id), String(s1Sub)); // same record as the direct read
+  assert.equal(a1.mySubmission.isLate, false);
+  assert.ok(a1.mySubmission.submittedAt);
+  // list view intentionally carries no answer text — nothing to leak
+  assert.equal('textAnswer' in a1.mySubmission, false);
+
+  // an assignment student1 never submitted carries an explicit null — never
+  // someone else's submission, never fabricated data
+  const a2 = byId.get(String(aA2));
+  if (a2) assert.equal(a2.mySubmission, null);
+
+  // cross-student submissions never leak into another student's list
+  const list2 = await student2.api('GET', '/api/student/assignments');
+  assert.equal(list2.status, 200);
+  const b1 = list2.json.data.find((a) => String(a._id) === String(aA1));
+  assert.ok(b1.mySubmission);
+  const sub2 = await Submission.findOne({ assignment: aA1, student: student2Id });
+  assert.equal(String(b1.mySubmission._id), String(sub2._id)); // their OWN record
+  assert.notEqual(String(b1.mySubmission._id), String(a1.mySubmission._id));
+});
+
 test('33–36. CR submission views; read-only; cross-section 404', async () => {
   const res = await cr1.api('GET', `/api/cr/assignments/${aA1}/submissions`);
   assert.equal(res.status, 200);

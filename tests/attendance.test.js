@@ -541,6 +541,76 @@ test('68–71. pagination + deterministic ordering', async () => {
   assert.ok(hist.json.data.every((r) => r.session && r.session.subject && String(r.session.subject._id) === String(subA2)));
 });
 
+/* =========== STEP 16: student active-session discovery (71) =========== */
+test('71. student lists ACTIVE own-section sessions — no code/hash ever leaks', async () => {
+  // two fresh users: a section-B student and a student with no section
+  const hash = (await import('bcryptjs')).default.hashSync('CrPass123!', 10);
+  const studentB = makeSession();
+  const studentNoSec = makeSession();
+  await User.create([
+    { name: 'Student B', email: 'sb@test.local', phone: '+923001110006', role: 'student',
+      registrationStatus: 'active', emailVerified: true, password: hash, section: secB, rollNo: 'R-006' },
+    { name: 'Student NS', email: 'sns@test.local', phone: '+923001110007', role: 'student',
+      registrationStatus: 'active', emailVerified: true, password: hash, rollNo: 'R-007' },
+  ]);
+  assert.equal((await studentB.api('POST', '/api/auth/login', { email: 'sb@test.local', password: 'CrPass123!' })).status, 200);
+  assert.equal((await studentNoSec.api('POST', '/api/auth/login', { email: 'sns@test.local', password: 'CrPass123!' })).status, 200);
+
+  setNow(T0);
+  await AttendanceSession.updateMany({ status: 'open' }, { $set: { status: 'cancelled' } }); // test isolation
+  const sA = await cr1.api('POST', '/api/cr/attendance/sessions', { subject: subA1 });
+  const sB = await cr2.api('POST', '/api/cr/attendance/sessions', { subject: subB1 });
+  assert.equal(sA.status, 200);
+  assert.equal(sB.status, 200);
+  const sAId = sA.json.data.session._id;
+  const sBId = sB.json.data.session._id;
+
+  // role guards: CR/admin/anonymous can't use the student discovery route
+  assert.equal((await cr1.api('GET', '/api/student/attendance/sessions')).status, 403);
+  assert.equal((await fetch(`${BASE}/api/student/attendance/sessions`)).status, 401);
+
+  // section-A student sees ONLY section-A open sessions
+  const mine = await student1.api('GET', '/api/student/attendance/sessions');
+  assert.equal(mine.status, 200);
+  assert.ok(Array.isArray(mine.json.data));
+  const mineIds = mine.json.data.map((s) => String(s._id));
+  assert.ok(mineIds.includes(String(sAId)));
+  assert.ok(!mineIds.includes(String(sBId))); // cross-section isolation
+  for (const s of mine.json.data) {
+    assert.equal(String(s.section), String(secA));
+    assert.equal(s.status, 'open');
+    // the payload must NEVER carry code material
+    assert.equal('code' in s, false);
+    assert.equal('codeHash' in s, false);
+    assert.equal('qrPayload' in s, false);
+  }
+  const dumped = JSON.stringify(mine.json);
+  assert.equal(dumped.includes(sA.json.data.code), false); // plaintext code never serialized
+  assert.equal(dumped.includes('codeHash'), false);
+
+  // section-B student sees ONLY the section-B session
+  const bList = await studentB.api('GET', '/api/student/attendance/sessions');
+  assert.equal(bList.status, 200);
+  assert.ok(bList.json.data.every((s) => String(s.section) === String(secB)));
+  assert.ok(bList.json.data.some((s) => String(s._id) === String(sBId)));
+  assert.ok(!bList.json.data.some((s) => String(s._id) === String(sAId)));
+
+  // expired sessions disappear once the MOCK_NOW clock passes expiry
+  const expMs = new Date(sA.json.data.session.expiresAt).getTime();
+  setNow(expMs + 60_000);
+  const after = await student1.api('GET', '/api/student/attendance/sessions');
+  assert.equal(after.status, 200);
+  assert.ok(!after.json.data.some((s) => String(s._id) === String(sAId)));
+  setNow(T0);
+
+  // no-section student gets a clean 400
+  const noSec = await studentNoSec.api('GET', '/api/student/attendance/sessions');
+  assert.equal(noSec.status, 400);
+
+  // records must still not be enumerable by session id
+  assert.equal((await studentB.api('GET', `/api/student/attendance/sessions/${sAId}/records`)).status, 404);
+});
+
 /* ===================== REGRESSION (72–78) ===================== */
 test('72–78. earlier phases healthy', async () => {
   const health = await fetch(`${BASE}/api/health`).then((r) => r.json());

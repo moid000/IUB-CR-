@@ -317,7 +317,9 @@ test('21. note with subject from another section rejected; archived subject reje
   // positive path: subjectId filter works and stays section-scoped
   const bySubject = await cr1.api('GET', `/api/cr/notes?subjectId=${subA1}`);
   assert.equal(bySubject.status, 200);
-  assert.ok(bySubject.json.data.every((n) => String(n.subject) === String(subA1)));
+  assert.ok(bySubject.json.data.every((n) => String(n.subject._id) === String(subA1)));
+  // subject is now POPULATED in list responses: { _id, name, code }
+  assert.ok(bySubject.json.data.every((n) => n.subject.name && n.subject.code));
   assert.ok(bySubject.json.data.every((n) => String(n.section) === String(secA)));
 });
 

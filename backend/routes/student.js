@@ -5,7 +5,7 @@ import {
   listAnnouncements, getAnnouncement, listNotes, getNote,
   listAssignments, getAssignment, submitSubmission, getMySubmission,
   listTimetable, getTimetable,
-  attendWithCode, attendWithQr, listMyAttendance,
+  attendWithCode, attendWithQr, listMyAttendance, listSessionsStudent,
 } from '../controllers/studentController.js';
 import {
   listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
@@ -19,6 +19,7 @@ const router = Router();
 router.use(protect, studentOnly, sectionScope);
 
 // Attendance — single verification path for manual code AND signed QR
+router.get('/attendance/sessions', listSessionsStudent); // active own-section sessions (no code/hash)
 router.post('/attendance/sessions/:sessionId/attend', attendWithCode);
 router.post('/attendance/scan', attendWithQr);
 router.get('/attendance', listMyAttendance);

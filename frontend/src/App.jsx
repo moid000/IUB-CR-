@@ -39,7 +39,18 @@ import MarksPage from './pages/cr/MarksPage.jsx';
 import NotificationsPage from './pages/cr/NotificationsPage.jsx';
 import CrProfilePage from './pages/cr/CrProfilePage.jsx';
 import CrNotFound from './pages/cr/CrNotFound.jsx';
-import RoleHome from './pages/roles/RoleHome.jsx';
+import StudentLayout from './student/StudentLayout.jsx';
+import StudentOverview from './pages/student/StudentOverview.jsx';
+import StudentSubjectsPage from './pages/student/StudentSubjectsPage.jsx';
+import StudentAnnouncementsPage from './pages/student/StudentAnnouncementsPage.jsx';
+import StudentNotesPage from './pages/student/StudentNotesPage.jsx';
+import StudentAssignmentsPage from './pages/student/StudentAssignmentsPage.jsx';
+import StudentTimetablePage from './pages/student/StudentTimetablePage.jsx';
+import StudentAttendancePage from './pages/student/StudentAttendancePage.jsx';
+import StudentMarksPage from './pages/student/StudentMarksPage.jsx';
+import StudentNotificationsPage from './pages/student/StudentNotificationsPage.jsx';
+import StudentProfilePage from './pages/student/StudentProfilePage.jsx';
+import StudentNotFound from './pages/student/StudentNotFound.jsx';
 
 export default function App() {
   return (
@@ -87,9 +98,21 @@ export default function App() {
               <Route path="*" element={<CrNotFound />} />
             </Route>
 
-            {/* Student home (full student portal arrives in a later phase) */}
-            <Route path="/student" element={<RequireRole roles={['STUDENT']}><RoleHome area="student" label="Student" /></RequireRole>} />
-            <Route path="/student/*" element={<Navigate to="/student" replace />} />
+            {/* Student portal — mobile-first shell; section scoping is always
+                server-derived (UX protection only, backend is authoritative) */}
+            <Route path="/student" element={<RequireRole roles={['STUDENT']}><StudentLayout /></RequireRole>}>
+              <Route index element={<StudentOverview />} />
+              <Route path="subjects" element={<StudentSubjectsPage />} />
+              <Route path="announcements" element={<StudentAnnouncementsPage />} />
+              <Route path="notes" element={<StudentNotesPage />} />
+              <Route path="assignments" element={<StudentAssignmentsPage />} />
+              <Route path="timetable" element={<StudentTimetablePage />} />
+              <Route path="attendance" element={<StudentAttendancePage />} />
+              <Route path="marks" element={<StudentMarksPage />} />
+              <Route path="notifications" element={<StudentNotificationsPage />} />
+              <Route path="profile" element={<StudentProfilePage />} />
+              <Route path="*" element={<StudentNotFound />} />
+            </Route>
 
             {/* Fallback */}
             <Route path="*" element={<NotFound />} />

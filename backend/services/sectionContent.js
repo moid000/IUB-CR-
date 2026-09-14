@@ -35,6 +35,10 @@ export function makeSectionContentService({
     return section;
   }
 
+  // Notes carry an optional subject link — populate it for BOTH the CR and the
+  // student views so list/detail responses carry { name, code }, never a bare id.
+  const withSubject = (q) => (extraFields.includes('subject') ? q.populate('subject', 'name code') : q);
+
   async function audit(req, action, doc, extra = {}) {
     await auditFromReq(req, {
       action: `${kind}.${action}`, entityType: kind, entityId: doc._id, section: doc.section,
@@ -72,7 +76,7 @@ export function makeSectionContentService({
     if (search) Object.assign(filter, search);
 
     const [items, total] = await Promise.all([
-      Model.find(filter).populate('author', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit),
+      withSubject(Model.find(filter).populate('author', 'name')).sort({ createdAt: -1 }).skip(skip).limit(limit),
       Model.countDocuments(filter),
     ]);
     return { items, pagination: paginationMeta(total, { page, limit }) };
@@ -80,7 +84,7 @@ export function makeSectionContentService({
 
   async function getAdmin(req) {
     const id = v.assertObjectId(req.params.id, `${kind} id`);
-    const doc = await Model.findById(id).populate('author', 'name');
+    const doc = await withSubject(Model.findById(id)).populate('author', 'name');
     if (!doc) throw new ApiError(404, `${KIND_LABEL} not found`);
     return doc;
   }
@@ -145,7 +149,7 @@ export function makeSectionContentService({
     if (search) Object.assign(filter, search);
 
     const [items, total] = await Promise.all([
-      Model.find(filter).populate('author', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit),
+      withSubject(Model.find(filter).populate('author', 'name')).sort({ createdAt: -1 }).skip(skip).limit(limit),
       Model.countDocuments(filter),
     ]);
     return { items, pagination: paginationMeta(total, { page, limit }) };
@@ -164,7 +168,7 @@ export function makeSectionContentService({
   async function getCr(req) {
     if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
     const doc = await findOwn(req);
-    await doc.populate('author', 'name');
+    await withSubject(doc).populate('author', 'name');
     return doc;
   }
 
@@ -206,7 +210,7 @@ export function makeSectionContentService({
     if (search) Object.assign(filter, search);
 
     const [items, total] = await Promise.all([
-      Model.find(filter).populate('author', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit),
+      withSubject(Model.find(filter).populate('author', 'name')).sort({ createdAt: -1 }).skip(skip).limit(limit),
       Model.countDocuments(filter),
     ]);
     return { items, pagination: paginationMeta(total, { page, limit }) };

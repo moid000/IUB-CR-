@@ -170,8 +170,18 @@ export async function listAssignmentsCr(req) {
 export async function listAssignmentsStudent(req) {
   if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
   // sectionId from a student is never read — always server-derived
-  return listAssignments(assignmentFilters({ ...req.query, sectionId: undefined, section: undefined },
+  const result = await listAssignments(assignmentFilters({ ...req.query, sectionId: undefined, section: undefined },
     { forceSection: req.user.section }), req.query);
+  // Embed the requesting student's OWN submission state per assignment so the
+  // portal list can show Submitted / Pending without an N+1 of client calls.
+  const subs = await Submission.find({ student: req.user._id })
+    .where('assignment').in(result.items.map((a) => a._id))
+    .select('assignment submittedAt isLate updatedAt');
+  const byAssignment = new Map(subs.map((s) => [String(s.assignment), {
+    _id: s._id, submittedAt: s.submittedAt, isLate: s.isLate, updatedAt: s.updatedAt,
+  }]));
+  result.items = result.items.map((a) => ({ ...a, mySubmission: byAssignment.get(String(a._id)) ?? null }));
+  return result;
 }
 
 export async function getAssignmentAdmin(req) {

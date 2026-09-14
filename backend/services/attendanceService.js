@@ -229,6 +229,25 @@ export async function getSessionAdmin(req) {
   return safeSession(session, { attendanceCount });
 }
 
+/** Students see ACTIVE sessions of their OWN section only — never the code,
+ *  codeHash or QR payload. Discovering the session id is required by the
+ *  manual `POST /attendance/sessions/:sessionId/attend` route; the code
+ *  itself still comes from the CR in class. */
+export async function listSessionsStudent(req) {
+  if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
+  const nowD = nowDate();
+  const items = await AttendanceSession.find({
+    section: req.user.section,
+    status: 'open',
+    opensAt: { $lte: nowD }, // future-scheduled sessions are invisible to students
+    expiresAt: { $gt: nowD },
+  }).populate('subject', 'name code').sort({ opensAt: -1 }).limit(10);
+  return {
+    items: items.map((s) => safeSession(s, {})),
+    pagination: paginationMeta(items.length, { page: 1, limit: 10 }),
+  };
+}
+
 /* ------------------------------- cancel -------------------------------- */
 
 export async function cancelSession(req) {

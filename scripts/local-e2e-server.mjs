@@ -22,7 +22,7 @@ process.env.MONGODB_URI = mongod.getUri('local_e2e');
 const { default: mongoose } = await import('mongoose');
 const models = await import('../backend/models/index.js');
 const { default: app } = await import('../backend/app.js');
-const { ensureAdminBootstrap } = await import('../backend/services/adminBootstrap.js');
+const { ensureAdminBootstrap, runAdminBootstrap } = await import('../backend/services/adminBootstrap.js');
 
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
@@ -70,7 +70,7 @@ app.set('__e2eReset', async (req, res) => {
   try {
     const collections = await mongoose.connection.db.collections();
     await Promise.all(collections.map((c) => c.deleteMany({})));
-    await ensureAdminBootstrap();
+    await runAdminBootstrap(); // cached ensureAdminBootstrap would no-op after a wipe
     if (process.env.SEED_CR === '1') await seedCrWorkspace();
     res.json({ success: true, note: 'db wiped + re-seeded for a fresh idempotent E2E run' });
   } catch (err) {

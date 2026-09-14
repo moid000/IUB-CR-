@@ -7,7 +7,7 @@
 import puppeteer from 'puppeteer-core';
 
 const CHROME = '/tmp/chrome-headless-shell/linux-153.0.8010.36/chrome-headless-shell-linux64/chrome-headless-shell';
-const BASE = 'http://localhost:5173';
+const BASE = 'http://localhost:5173/frontend';
 const ADMIN = { email: 'admin@local.test', password: 'Step14Admin!2026' };
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'shell', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
