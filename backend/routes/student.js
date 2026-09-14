@@ -4,12 +4,17 @@ import * as subjectSvc from '../services/subjectService.js';
 import {
   listAnnouncements, getAnnouncement, listNotes, getNote,
   listAssignments, getAssignment, submitSubmission, getMySubmission,
+  listTimetable, getTimetable,
 } from '../controllers/studentController.js';
 
 const router = Router();
 
 // Student routes are READ-ONLY — no student mutation route exists in any phase.
 router.use(protect, studentOnly, sectionScope);
+
+// Timetable of the student's OWN section (read-only, recurring weekly slots)
+router.get('/timetable', listTimetable);
+router.get('/timetable/:id', getTimetable);
 
 // Assignments of the student's OWN section + their own single submission
 router.get('/assignments', listAssignments);

@@ -3,6 +3,7 @@ import * as subjectSvc from '../services/subjectService.js';
 import announcementSvc from '../services/announcementService.js';
 import noteSvc from '../services/noteService.js';
 import * as assignmentSvc from '../services/assignmentService.js';
+import * as timetableSvc from '../services/timetableService.js';
 
 /**
  * Admin API — every route sits behind protect + adminOnly (see routes/admin.js).
@@ -71,6 +72,13 @@ export const updateAssignmentAdmin = wrap(assignmentSvc.updateAssignmentAdmin);
 export const archiveAssignmentAdmin = wrap(assignmentSvc.archiveAssignmentAdmin);
 export const listSubmissionsAdmin = wrapList(assignmentSvc.listSubmissionsAdmin);
 export const getSubmissionAdmin = wrap(assignmentSvc.getSubmissionAdmin);
+
+// Timetable — cross-section admin access; section/subject relationship always validated
+export const createTimetable = wrap(timetableSvc.createTimetableAdmin);
+export const listTimetable = wrapList(timetableSvc.listTimetableAdmin);
+export const getTimetable = wrap(timetableSvc.getTimetableAdmin);
+export const updateTimetable = wrap(timetableSvc.updateTimetableAdmin);
+export const archiveTimetable = wrap(timetableSvc.archiveTimetableAdmin);
 
 // Notes (admin — any active section, explicitly)
 export const createNoteAdmin = wrap(noteSvc.createAdmin);

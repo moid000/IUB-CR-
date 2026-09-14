@@ -5,12 +5,15 @@ const { ObjectId } = Schema.Types;
 
 const TIME_FORMAT = /^([01]\d|2[0-3]):[0-5]\d$/; // HH:MM 24h
 
-const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+// Canonical lowercase day names — Sunday is NOT a working day.
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 /**
- * Timetable slot — arbitrary timeslots set by the CR
- * (day + start/end wall-clock times in HH:MM, interpreted in Asia/Karachi).
- * Cross-slot overlap is enforced later at the service layer.
+ * Timetable slot — recurring WEEKLY class for one section + subject.
+ * day + startTime/endTime are Asia/Karachi WALL-CLOCK values stored as
+ * zero-padded HH:MM 24h strings. They are recurring weekly schedule data —
+ * they are deliberately NEVER converted to UTC timestamps.
+ * Same-section/same-day overlap is enforced at the service layer (Step 7).
  */
 const timetableSchema = new Schema(
   {

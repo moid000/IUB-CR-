@@ -8,6 +8,7 @@ import * as subjectSvc from '../services/subjectService.js';
 import announcementSvc from '../services/announcementService.js';
 import noteSvc from '../services/noteService.js';
 import * as assignmentSvc from '../services/assignmentService.js';
+import * as timetableSvc from '../services/timetableService.js';
 
 /**
  * CR student management. Section ownership is ALWAYS server-derived from
@@ -77,6 +78,13 @@ export const updateAssignment = wrapDoc(assignmentSvc.updateAssignmentCr);
 export const archiveAssignment = wrapDoc(assignmentSvc.archiveAssignmentCr);
 export const listSubmissions = wrapList(assignmentSvc.listSubmissionsCr);
 export const getSubmission = wrapDoc(assignmentSvc.getSubmissionCr);
+
+/* ---- Timetable — section ALWAYS req.user.section; overlap enforced ---- */
+export const listTimetable = wrapList(timetableSvc.listTimetableCr);
+export const createTimetable = wrapDoc(timetableSvc.createTimetableCr);
+export const getTimetable = wrapDoc(timetableSvc.getTimetableCr);
+export const updateTimetable = wrapDoc(timetableSvc.updateTimetableCr);
+export const archiveTimetable = wrapDoc(timetableSvc.archiveTimetableCr);
 export const createSubject = wrapDoc(subjectSvc.createSubjectCr);
 export const getSubject = wrapDoc(subjectSvc.getSubjectCr);
 export const updateSubject = wrapDoc(subjectSvc.updateSubjectCr);

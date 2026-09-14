@@ -7,6 +7,7 @@ import {
   listNotes, createNote, getNote, updateNote, archiveNote,
   listAssignments, createAssignment, getAssignment, updateAssignment, archiveAssignment,
   listSubmissions, getSubmission,
+  listTimetable, createTimetable, getTimetable, updateTimetable, archiveTimetable,
 } from '../controllers/crController.js';
 
 const router = Router();
@@ -41,6 +42,13 @@ router.post('/assignments/:id/archive', archiveAssignment);
 // Submissions — read-only for CR, own section only
 router.get('/assignments/:assignmentId/submissions', listSubmissions);
 router.get('/submissions/:id', getSubmission);
+
+// Timetable — section ALWAYS req.user.section; same-day overlap rejected
+router.get('/timetable', listTimetable);
+router.post('/timetable', createTimetable);
+router.get('/timetable/:id', getTimetable);
+router.patch('/timetable/:id', updateTimetable);
+router.post('/timetable/:id/archive', archiveTimetable);
 
 // Notes — same section isolation; optional subject must belong to own section
 router.get('/notes', listNotes);

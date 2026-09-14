@@ -60,6 +60,13 @@ router.post('/assignments/:id/archive', ctl.archiveAssignmentAdmin);
 router.get('/assignments/:assignmentId/submissions', ctl.listSubmissionsAdmin);
 router.get('/submissions/:id', ctl.getSubmissionAdmin);
 
+// Timetable
+router.post('/timetable', ctl.createTimetable);
+router.get('/timetable', ctl.listTimetable);
+router.get('/timetable/:id', ctl.getTimetable);
+router.patch('/timetable/:id', ctl.updateTimetable);
+router.post('/timetable/:id/archive', ctl.archiveTimetable);
+
 // Notes
 router.post('/notes', ctl.createNoteAdmin);
 router.get('/notes', ctl.listNotesAdmin);
