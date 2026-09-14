@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 // (dev) or rewritten to the serverless function on Vercel (prod).
 // No API base URL or secret ever needs to be embedded in the bundle.
 export default defineConfig({
+  base: '/frontend/', // static-build output is namespaced under /frontend/ on Vercel
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
