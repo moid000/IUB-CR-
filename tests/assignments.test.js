@@ -286,7 +286,8 @@ test('17. student submits text (before deadline)', async () => {
   s1Sub = doc._id;
 });
 
-test('18. student submits attachment metadata (sanitized, uploadedBy forced)', async () => {
+test('18. submission attachment INJECTION is blocked — files persist only via the verified confirm flow (Step 10)', async () => {
+  // Shape-violating payloads (http URL) → still 400 before anything is read
   const res = await student2.api('POST', `/api/student/assignments/${aA1}/submission`, {
     files: [{
       publicId: 'notes/abc123', url: 'https://res.cloudinary.com/demo/raw/upload/abc123.pdf',
@@ -296,14 +297,16 @@ test('18. student submits attachment metadata (sanitized, uploadedBy forced)', a
       publicId: 'bad', url: 'http://insecure.example/x', // http → rejected
     }],
   });
-  assert.equal(res.status, 400);
-  assert.match(res.json.message, /https/i);
-  // retry with valid https only
+  assert.equal(res.status, 400); // files stripped → no text → 400
+  // Even well-formed Cloudinary-shaped metadata is IGNORED on this route —
+  // attachments reach a Submission ONLY through /files/sign + /files/confirm.
   const ok = await student2.api('POST', `/api/student/assignments/${aA1}/submission`, {
+    textAnswer: 'Text-only submission.',
     files: [{ publicId: 'notes/abc123', url: 'https://res.cloudinary.com/demo/raw/upload/abc123.pdf', resourceType: 'raw', format: 'pdf', originalName: 'solution.pdf', size: 1024, uploadedBy: cr1Id }],
   });
-  assert.equal(ok.status, 200);
-  assert.equal((await Submission.findById(ok.json.data._id)).files[0].uploadedBy.toString(), String(student2Id));
+  assert.equal(ok.status, 200); // accepted (text) but the injected files never persisted
+  const doc = await Submission.findById(ok.json.data._id);
+  assert.equal(doc.files.length, 0); // arbitrary attachment injection impossible
 });
 
 test('19. text + attachment together; 20. empty rejected', async () => {

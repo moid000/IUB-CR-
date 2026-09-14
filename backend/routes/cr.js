@@ -14,11 +14,16 @@ import {
 import {
   listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
 } from '../controllers/notificationController.js';
+import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
 
 // CR-only routes — section scope is ALWAYS derived from the authenticated CR
 router.use(protect, crOnly, sectionScope);
+
+// Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
+router.post('/files/sign', signFileUpload);
+router.post('/files/confirm', confirmFileUpload);
 
 // In-app notifications — own mailbox only; lazy reminders generated on poll
 router.get('/notifications', listMyNotifications);

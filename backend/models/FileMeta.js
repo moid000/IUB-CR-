@@ -11,6 +11,8 @@ const FileMetaSchema = new Schema(
     url: { type: String, required: true }, // Cloudinary secure_url
     resourceType: String,
     format: String,
+    mimeType: String, // verified at upload confirmation — allowlist only
+    folder: String,   // server-derived Cloudinary namespace
     originalName: String,
     size: Number,
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User' },

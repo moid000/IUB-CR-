@@ -21,7 +21,6 @@ import { notifySection } from './notificationService.js';
 const TITLE_MAX = 120;
 const INSTRUCTIONS_MAX = 8000;
 const TEXT_MAX = 10000;
-const FILES_MAX = 10;
 
 /* ------------------------------ validation ------------------------------ */
 
@@ -64,38 +63,6 @@ async function assertActiveSection(sectionId) {
   if (!section) throw new ApiError(400, 'Section not found');
   if (section.status !== 'active') throw new ApiError(400, 'Section is archived');
   return section;
-}
-
-/**
- * Sanitized embedded FileMeta. Cloudinary upload infra comes in a later
- * phase — here we only accept already-valid metadata with strict shape
- * checks. `uploadedBy` is ALWAYS the authenticated user (server-derived),
- * and only https URLs are accepted. No signing secrets ever cross this API.
- */
-function sanitizeFiles(raw, uploaderId) {
-  if (raw === undefined || raw === null || raw === '') return [];
-  if (!Array.isArray(raw)) throw new ApiError(400, 'files must be an array');
-  if (raw.length > FILES_MAX) throw new ApiError(400, `Too many files (max ${FILES_MAX})`);
-  return raw.map((f) => {
-    const publicId = String(f?.publicId ?? '').trim();
-    const url = String(f?.url ?? '').trim();
-    if (!publicId || publicId.length > 200) throw new ApiError(400, 'Each file requires a publicId');
-    if (!/^https:\/\//.test(url) || url.length > 2048) throw new ApiError(400, 'Each file requires a valid https url');
-    const str = (val, max) => {
-      const s = String(val ?? '').trim();
-      return s ? s.slice(0, max) : undefined;
-    };
-    const size = Number(f?.size);
-    return {
-      publicId,
-      url,
-      resourceType: str(f.resourceType, 40),
-      format: str(f.format, 40),
-      originalName: str(f.originalName, 255),
-      size: Number.isFinite(size) && size >= 0 ? Math.min(size, 2 ** 31) : undefined,
-      uploadedBy: uploaderId, // server-derived — never client input
-    };
-  });
 }
 
 /** Server-computed deadline state — the ONLY source of lock/eligibility truth. */
@@ -316,17 +283,20 @@ export async function submitSubmission(req) {
     throw new ApiError(400, 'Deadline has passed — submissions are locked');
   }
 
-  const body = v.pick(req.body, ['textAnswer', 'files']);
+  // `files` is deliberately NOT picked: attachment metadata reaches a
+  // Submission ONLY via the verified Cloudinary confirm flow (Step 10) — a
+  // client can never inject arbitrary attachment objects through this route.
+  const body = v.pick(req.body, ['textAnswer']);
   const text = assertTextAnswer(body.textAnswer);
-  const files = sanitizeFiles(body.files, req.user._id);
-  if (!text && files.length === 0) throw new ApiError(400, 'Submission requires text and/or files');
-
   const filter = { assignment: assignment._id, student: req.user._id };
+  const prior = await Submission.findOne(filter).select('files');
+  const hasFiles = (prior?.files?.length ?? 0) > 0;
+  if (!text && !hasFiles) throw new ApiError(400, 'Submission requires text and/or files');
+
   const existedBefore = await Submission.exists(filter);
   const update = {
     $set: {
-      textAnswer: text ?? null,
-      files, // latest submission content replaces the old payload
+      textAnswer: text ?? null, // confirmed attachments are preserved — never replaced here
       isLate: false, // server-derived only — client can never set this
       // updatedAt handled by mongoose timestamps; submittedAt set once below
     },
@@ -356,7 +326,7 @@ export async function submitSubmission(req) {
     // NEVER copy submission content into the audit log — ids and counts only
     after: {
       assignment: String(assignment._id), student: String(req.user._id),
-      files: files.length, hadText: Boolean(text),
+      files: hasFiles ? prior.files.length : 0, hadText: Boolean(text),
     },
   });
   return doc;

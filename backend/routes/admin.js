@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { protect, adminOnly } from '../middleware/auth.js';
 import * as ctl from '../controllers/adminController.js';
 import { listNotificationsAdmin } from '../controllers/notificationController.js';
+import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
 
@@ -75,6 +76,10 @@ router.get('/attendance/sessions/:id/records', ctl.listAttendanceRecords);
 
 // Notes
 router.post('/notes', ctl.createNoteAdmin);
+// Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
+router.post('/files/sign', signFileUpload);
+router.post('/files/confirm', confirmFileUpload);
+
 // In-app notifications — READ-ONLY visibility; no admin mutation route exists
 router.get('/notifications', listNotificationsAdmin);
 

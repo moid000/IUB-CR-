@@ -10,6 +10,7 @@ import {
 import {
   listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
 } from '../controllers/notificationController.js';
+import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
 
@@ -38,6 +39,10 @@ router.get('/announcements/:id', getAnnouncement);
 // Notes of the student's OWN section (read-only)
 router.get('/notes', listNotes);
 router.get('/notes/:id', getNote);
+
+// Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
+router.post('/files/sign', signFileUpload);
+router.post('/files/confirm', confirmFileUpload);
 
 // In-app notifications — own mailbox only; lazy reminders generated on poll
 router.get('/notifications', listMyNotifications);
