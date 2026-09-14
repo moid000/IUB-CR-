@@ -49,6 +49,7 @@ export const archiveSection = wrap(svc.archiveSection);
 export const assignCr = wrap(svc.assignCr);
 export const reassignCr = wrap(svc.reassignCr);
 export const removeCr = wrap(svc.removeCr);
+export const listCrsAdmin = wrapList(svc.listCrsAdmin);
 export const listStudentsAdmin = wrapList(svc.listStudentsAdmin);
 
 // Subjects (admin — any active section, explicitly)

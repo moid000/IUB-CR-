@@ -497,6 +497,33 @@ export async function removeCr(req) {
   return section;
 }
 
+/* ========================== Admin CR directory ============================ */
+
+const CR_SAFE_FIELDS = 'name email phone section registrationStatus emailVerified activationAt lastLoginAt createdAt';
+
+/**
+ * Admin-only CR directory. Read-only — CRs are pre-created via POST /api/admin/crs
+ * and assigned/reassigned/removed through the dedicated section routes. The
+ * response NEVER contains password hashes or any security field.
+ */
+export async function listCrsAdmin(req) {
+  const { page, limit, skip } = parsePagination(req.query);
+  const filter = { role: 'cr' };
+  if (req.query.section) filter.section = v.assertObjectId(req.query.section, 'section id');
+  const search = searchFilter(req.query.search, ['name', 'email']);
+  if (search) Object.assign(filter, search);
+
+  const [items, total] = await Promise.all([
+    User.find(filter)
+      .select(CR_SAFE_FIELDS)
+      .populate('section', 'name semester status')
+      .sort({ createdAt: -1 })
+      .skip(skip).limit(limit),
+    User.countDocuments(filter),
+  ]);
+  return { items, pagination: paginationMeta(total, { page, limit }) };
+}
+
 /* ========================= Admin student listing ========================= */
 
 const STUDENT_SAFE_FIELDS = 'name email phone rollNo section registrationStatus emailVerified activationAt lastLoginAt createdAt';

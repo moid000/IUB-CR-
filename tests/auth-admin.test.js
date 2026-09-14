@@ -444,6 +444,47 @@ test('audit events were recorded for auth flows', async () => {
   assert.equal(bad, 0);
 });
 
+/* ---- Step 14: admin CR directory (read-only list) ---- */
+test('admin CR directory: pagination, search, section filter, no security fields', async () => {
+  const res = await admin.api('GET', '/api/admin/crs?limit=5');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.success, true);
+  assert.ok(Array.isArray(res.json.data));
+  assert.equal(res.json.pagination.page, 1);
+  assert.equal(res.json.pagination.limit, 5);
+  for (const cr of res.json.data) {
+    assert.ok(!('password' in cr), 'password must never be serialized');
+    assert.ok(!('passwordHash' in cr));
+    assert.ok(!('otpHash' in cr));
+    assert.equal(cr.role, undefined, 'role is implicit in the directory');
+    assert.ok(['pending', 'active', 'suspended'].includes(cr.registrationStatus));
+  }
+});
+
+test('admin CR directory: search and section filter behave', async () => {
+  const sections = await admin.api('GET', '/api/admin/sections?status=active');
+  const withCr = (sections.json.data ?? []).find((s) => s.cr);
+  if (withCr) {
+    const res = await admin.api('GET', `/api/admin/crs?section=${withCr._id}`);
+    assert.equal(res.status, 200);
+    for (const cr of res.json.data) {
+      assert.equal(String(cr.section?._id ?? cr.section), String(withCr._id));
+    }
+  }
+  const none = await admin.api('GET', '/api/admin/crs?search=zz-no-such-cr-xyz');
+  assert.equal(none.status, 200);
+  assert.equal(none.json.data.length, 0);
+});
+
+test('admin CR directory is admin-only', async () => {
+  const res = await admin.api('GET', '/api/admin/crs');
+  assert.equal(res.status, 200);
+  // unauthenticated
+  const anon = makeSession();
+  const unauth = await anon.api('GET', '/api/admin/crs');
+  assert.equal(unauth.status, 401);
+});
+
 test.after(async () => {
   server.close();
   await mongoose.disconnect();

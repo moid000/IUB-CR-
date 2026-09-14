@@ -41,6 +41,7 @@ router.post('/sections/:id/cr/reassign', ctl.reassignCr);
 router.post('/sections/:id/cr/remove', ctl.removeCr);
 
 // CR pre-creation (creates CR + section link transactionally)
+router.get('/crs', ctl.listCrsAdmin); // read-only CR directory
 router.post('/crs', ctl.precreateCr);
 
 // Student directory (filters: department/session/section + search + pagination)

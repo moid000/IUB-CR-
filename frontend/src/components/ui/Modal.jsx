@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Button } from './Button.jsx';
 
 /** Accessible modal dialog: Esc to close, backdrop click, focus management. */
-export function Modal({ open, onClose, title, children, footer = null }) {
+export function Modal({ open, onClose, title, children, footer = null, className = '' }) {
   const dialogRef = useRef(null);
   const previouslyFocused = useRef(null);
 
@@ -31,7 +31,7 @@ export function Modal({ open, onClose, title, children, footer = null }) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-md animate-fade-up rounded-2xl border border-slate-200/70 bg-white p-6 shadow-lift"
+        className={`w-full max-w-md animate-fade-up rounded-2xl border border-slate-200/70 bg-white p-6 shadow-lift ${className}`}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>
