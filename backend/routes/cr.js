@@ -14,12 +14,30 @@ import {
 import {
   listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
 } from '../controllers/notificationController.js';
+import {
+  createAssessment, listAssessmentsCr, getAssessmentCr, updateAssessment,
+  openAssessment, finalizeAssessment, archiveAssessment,
+  createMark, updateMark, bulkUpsertMarks, listMarks,
+} from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
 
 // CR-only routes — section scope is ALWAYS derived from the authenticated CR
 router.use(protect, crOnly, sectionScope);
+
+// Assessments & marks — CR's OWN section only (server-derived)
+router.post('/assessments', createAssessment);
+router.get('/assessments', listAssessmentsCr);
+router.get('/assessments/:id', getAssessmentCr);
+router.patch('/assessments/:id', updateAssessment);
+router.post('/assessments/:id/open', openAssessment);
+router.post('/assessments/:id/finalize', finalizeAssessment);
+router.post('/assessments/:id/archive', archiveAssessment);
+router.post('/assessments/:assessmentId/marks', createMark);
+router.patch('/assessments/:assessmentId/marks/:studentId', updateMark);
+router.post('/assessments/:assessmentId/marks/bulk', bulkUpsertMarks);
+router.get('/assessments/:assessmentId/marks', listMarks);
 
 // Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
 router.post('/files/sign', signFileUpload);

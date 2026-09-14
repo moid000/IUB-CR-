@@ -10,6 +10,7 @@ import {
 import {
   listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
 } from '../controllers/notificationController.js';
+import { listAssessmentsStudent, getAssessmentStudent, listMyMarks } from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
@@ -39,6 +40,11 @@ router.get('/announcements/:id', getAnnouncement);
 // Notes of the student's OWN section (read-only)
 router.get('/notes', listNotes);
 router.get('/notes/:id', getNote);
+
+// Assessments & marks of the student's OWN section (read-only) + own-marks history
+router.get('/assessments', listAssessmentsStudent);
+router.get('/assessments/:id', getAssessmentStudent);
+router.get('/marks', listMyMarks);
 
 // Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
 router.post('/files/sign', signFileUpload);

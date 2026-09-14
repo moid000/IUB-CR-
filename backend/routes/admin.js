@@ -2,6 +2,13 @@ import { Router } from 'express';
 import { protect, adminOnly } from '../middleware/auth.js';
 import * as ctl from '../controllers/adminController.js';
 import { listNotificationsAdmin } from '../controllers/notificationController.js';
+import {
+  createAssessment as createAssessmentAdmin, listAssessmentsAdmin, getAssessmentAdmin,
+  updateAssessment as updateAssessmentAdmin, openAssessment as openAssessmentAdmin,
+  finalizeAssessment as finalizeAssessmentAdmin, archiveAssessment as archiveAssessmentAdmin,
+  createMark as createMarkAdmin, updateMark as updateMarkAdmin,
+  bulkUpsertMarks as bulkUpsertMarksAdmin, listMarks as listMarksAdmin,
+} from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
@@ -76,6 +83,19 @@ router.get('/attendance/sessions/:id/records', ctl.listAttendanceRecords);
 
 // Notes
 router.post('/notes', ctl.createNoteAdmin);
+// Assessments & marks — Admin manage across sections (relationships still validated)
+router.post('/assessments', createAssessmentAdmin);
+router.get('/assessments', listAssessmentsAdmin);
+router.get('/assessments/:id', getAssessmentAdmin);
+router.patch('/assessments/:id', updateAssessmentAdmin);
+router.post('/assessments/:id/open', openAssessmentAdmin);
+router.post('/assessments/:id/finalize', finalizeAssessmentAdmin);
+router.post('/assessments/:id/archive', archiveAssessmentAdmin);
+router.post('/assessments/:assessmentId/marks', createMarkAdmin);
+router.patch('/assessments/:assessmentId/marks/:studentId', updateMarkAdmin);
+router.post('/assessments/:assessmentId/marks/bulk', bulkUpsertMarksAdmin);
+router.get('/assessments/:assessmentId/marks', listMarksAdmin);
+
 // Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
 router.post('/files/sign', signFileUpload);
 router.post('/files/confirm', confirmFileUpload);

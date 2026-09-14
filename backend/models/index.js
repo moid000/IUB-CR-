@@ -11,6 +11,8 @@ export { default as Submission } from './Submission.js';
 export { default as Timetable } from './Timetable.js';
 export { default as AttendanceSession } from './AttendanceSession.js';
 export { default as AttendanceRecord } from './AttendanceRecord.js';
+export { default as Assessment } from './Assessment.js';
+export { default as Mark } from './Mark.js';
 export { default as Notification } from './Notification.js';
 export { default as Otp } from './Otp.js';
 export { default as AuditLog } from './AuditLog.js';

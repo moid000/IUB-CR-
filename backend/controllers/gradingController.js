@@ -1,0 +1,36 @@
+import * as gradingSvc from '../services/gradingService.js';
+
+/**
+ * Grading/Marks controllers — thin wrappers. Every ownership, lifecycle and
+ * validation decision lives in the service and is derived server-side.
+ */
+
+const wrap = (fn) => async (req, res, next) => {
+  try {
+    const data = await fn(req);
+    if (data?.items !== undefined) {
+      const { items, pagination, ...rest } = data;
+      return res.json({ success: true, data: items, ...(pagination ? { pagination } : {}), ...rest });
+    }
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createAssessment = wrap(gradingSvc.createAssessment);
+export const listAssessmentsCr = wrap(gradingSvc.listAssessmentsCr);
+export const listAssessmentsAdmin = wrap(gradingSvc.listAssessmentsAdmin);
+export const listAssessmentsStudent = wrap(gradingSvc.listAssessmentsStudent);
+export const getAssessmentCr = wrap(gradingSvc.getAssessmentCr);
+export const getAssessmentAdmin = wrap(gradingSvc.getAssessmentAdmin);
+export const getAssessmentStudent = wrap(gradingSvc.getAssessmentStudent);
+export const updateAssessment = wrap(gradingSvc.updateAssessment);
+export const openAssessment = wrap(gradingSvc.openAssessment);
+export const finalizeAssessment = wrap(gradingSvc.finalizeAssessment);
+export const archiveAssessment = wrap(gradingSvc.archiveAssessment);
+export const createMark = wrap(gradingSvc.createMark);
+export const updateMark = wrap(gradingSvc.updateMark);
+export const bulkUpsertMarks = wrap(gradingSvc.bulkUpsertMarks);
+export const listMarks = wrap(gradingSvc.listMarks);
+export const listMyMarks = wrap(gradingSvc.listMyMarks);
