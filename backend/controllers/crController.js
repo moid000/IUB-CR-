@@ -9,6 +9,7 @@ import announcementSvc from '../services/announcementService.js';
 import noteSvc from '../services/noteService.js';
 import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
+import * as attendanceSvc from '../services/attendanceService.js';
 
 /**
  * CR student management. Section ownership is ALWAYS server-derived from
@@ -85,6 +86,13 @@ export const createTimetable = wrapDoc(timetableSvc.createTimetableCr);
 export const getTimetable = wrapDoc(timetableSvc.getTimetableCr);
 export const updateTimetable = wrapDoc(timetableSvc.updateTimetableCr);
 export const archiveTimetable = wrapDoc(timetableSvc.archiveTimetableCr);
+
+/* ---- Attendance — section ALWAYS req.user.section; code shown once at create ---- */
+export const createAttendanceSession = wrapDoc(attendanceSvc.createSession);
+export const listAttendanceSessions = wrapList(attendanceSvc.listSessionsCr);
+export const getAttendanceSession = wrapDoc(attendanceSvc.getSessionCr);
+export const cancelAttendanceSession = wrapDoc(attendanceSvc.cancelSession);
+export const listAttendanceRecords = wrapList(attendanceSvc.listRecordsCr);
 export const createSubject = wrapDoc(subjectSvc.createSubjectCr);
 export const getSubject = wrapDoc(subjectSvc.getSubjectCr);
 export const updateSubject = wrapDoc(subjectSvc.updateSubjectCr);

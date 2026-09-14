@@ -2,6 +2,7 @@ import announcementSvc from '../services/announcementService.js';
 import noteSvc from '../services/noteService.js';
 import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
+import * as attendanceSvc from '../services/attendanceService.js';
 
 /**
  * Student API — strictly READ-ONLY (protect + studentOnly + sectionScope in
@@ -37,3 +38,8 @@ export const getMySubmission = wrapDoc(assignmentSvc.getMySubmission);
 /* ---- Timetable — read-only, section always server-derived ---- */
 export const listTimetable = wrapList(timetableSvc.listTimetableStudent);
 export const getTimetable = wrapDoc(timetableSvc.getTimetableStudent);
+
+/* ---- Attendance — one path for code/QR; own records only ---- */
+export const attendWithCode = wrapDoc(attendanceSvc.attendWithCode);
+export const attendWithQr = wrapDoc(attendanceSvc.attendWithQr);
+export const listMyAttendance = wrapList(attendanceSvc.listMyAttendance);

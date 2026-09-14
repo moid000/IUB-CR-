@@ -67,6 +67,11 @@ router.get('/timetable/:id', ctl.getTimetable);
 router.patch('/timetable/:id', ctl.updateTimetable);
 router.post('/timetable/:id/archive', ctl.archiveTimetable);
 
+// Attendance (read-only cross-section views)
+router.get('/attendance/sessions', ctl.listAttendanceSessions);
+router.get('/attendance/sessions/:id', ctl.getAttendanceSession);
+router.get('/attendance/sessions/:id/records', ctl.listAttendanceRecords);
+
 // Notes
 router.post('/notes', ctl.createNoteAdmin);
 router.get('/notes', ctl.listNotesAdmin);

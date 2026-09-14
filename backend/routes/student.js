@@ -5,12 +5,18 @@ import {
   listAnnouncements, getAnnouncement, listNotes, getNote,
   listAssignments, getAssignment, submitSubmission, getMySubmission,
   listTimetable, getTimetable,
+  attendWithCode, attendWithQr, listMyAttendance,
 } from '../controllers/studentController.js';
 
 const router = Router();
 
 // Student routes are READ-ONLY — no student mutation route exists in any phase.
 router.use(protect, studentOnly, sectionScope);
+
+// Attendance — single verification path for manual code AND signed QR
+router.post('/attendance/sessions/:sessionId/attend', attendWithCode);
+router.post('/attendance/scan', attendWithQr);
+router.get('/attendance', listMyAttendance);
 
 // Timetable of the student's OWN section (read-only, recurring weekly slots)
 router.get('/timetable', listTimetable);

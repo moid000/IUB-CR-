@@ -4,6 +4,7 @@ import announcementSvc from '../services/announcementService.js';
 import noteSvc from '../services/noteService.js';
 import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
+import * as attendanceSvc from '../services/attendanceService.js';
 
 /**
  * Admin API — every route sits behind protect + adminOnly (see routes/admin.js).
@@ -79,6 +80,11 @@ export const listTimetable = wrapList(timetableSvc.listTimetableAdmin);
 export const getTimetable = wrap(timetableSvc.getTimetableAdmin);
 export const updateTimetable = wrap(timetableSvc.updateTimetableAdmin);
 export const archiveTimetable = wrap(timetableSvc.archiveTimetableAdmin);
+
+// Attendance — read-only cross-section views; no plaintext code/hash ever exposed
+export const listAttendanceSessions = wrapList(attendanceSvc.listSessionsAdmin);
+export const getAttendanceSession = wrap(attendanceSvc.getSessionAdmin);
+export const listAttendanceRecords = wrapList(attendanceSvc.listRecordsAdmin);
 
 // Notes (admin — any active section, explicitly)
 export const createNoteAdmin = wrap(noteSvc.createAdmin);

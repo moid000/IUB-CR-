@@ -31,6 +31,9 @@ const attendanceSessionSchema = new Schema(
       },
     },
     codeHash: { type: String, required: true, select: false },
+    // Wrong-code counter — incremented ATOMICALLY ($inc); the session is
+    // auto-cancelled when it reaches MAX_FAILED_ATTEMPTS (10).
+    failedAttempts: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ['open', 'cancelled'], default: 'open' },
   },
   { timestamps: true }

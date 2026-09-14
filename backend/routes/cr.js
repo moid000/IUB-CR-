@@ -8,6 +8,8 @@ import {
   listAssignments, createAssignment, getAssignment, updateAssignment, archiveAssignment,
   listSubmissions, getSubmission,
   listTimetable, createTimetable, getTimetable, updateTimetable, archiveTimetable,
+  createAttendanceSession, listAttendanceSessions, getAttendanceSession,
+  cancelAttendanceSession, listAttendanceRecords,
 } from '../controllers/crController.js';
 
 const router = Router();
@@ -49,6 +51,13 @@ router.post('/timetable', createTimetable);
 router.get('/timetable/:id', getTimetable);
 router.patch('/timetable/:id', updateTimetable);
 router.post('/timetable/:id/archive', archiveTimetable);
+
+// Attendance sessions — section ALWAYS req.user.section; code returned once
+router.post('/attendance/sessions', createAttendanceSession);
+router.get('/attendance/sessions', listAttendanceSessions);
+router.get('/attendance/sessions/:id', getAttendanceSession);
+router.post('/attendance/sessions/:id/cancel', cancelAttendanceSession);
+router.get('/attendance/sessions/:id/records', listAttendanceRecords);
 
 // Notes — same section isolation; optional subject must belong to own section
 router.get('/notes', listNotes);
