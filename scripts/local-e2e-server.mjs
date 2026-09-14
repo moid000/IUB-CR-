@@ -13,6 +13,8 @@ process.env.JWT_SECRET = 'local-e2e-jwt-secret';
 process.env.ADMIN_EMAIL = 'admin@local.test';
 process.env.ADMIN_PASSWORD = 'Step14Admin!2026';
 process.env.BREVO_API_KEY = 'mock';
+process.env.BREVO_SENDER_EMAIL = 'e2e@local.test'; // mocked below — no real email is ever sent
+process.env.BREVO_SENDER_NAME = 'IUB E2E';
 process.env.ATTENDANCE_SECRET = 'local-e2e-attendance-secret'; // QR signing (503 if unset) // emails never sent locally (OTP flows not exercised here)
 
 const { MongoMemoryReplSet } = await import('mongodb-memory-server');
@@ -23,6 +25,24 @@ const { default: mongoose } = await import('mongoose');
 const models = await import('../backend/models/index.js');
 const { default: app } = await import('../backend/app.js');
 const { ensureAdminBootstrap, runAdminBootstrap } = await import('../backend/services/adminBootstrap.js');
+
+/* --------- test-only OTP capture (intercepts the mocked Brevo call) --------- */
+const sentOtps = new Map(); // email(lower) -> 6-digit plaintext (NEVER exposed to clients below except the guarded test route)
+const realFetch = globalThis.fetch;
+globalThis.fetch = (url, init = {}) => {
+  if (String(url).includes('api.brevo.com')) {
+    try {
+      const b = JSON.parse(init?.body ?? '{}');
+      const to = String(b?.to?.[0]?.email ?? '').toLowerCase();
+      const m = String(b?.textContent ?? '').match(/code is:?\s*(\d{6})/i);
+      if (to && m) sentOtps.set(to, m[1]);
+    } catch { /* malformed — ignore */ }
+    return Promise.resolve(new Response('{"message":"queued"}', {
+      status: 201, headers: { 'content-type': 'application/json' },
+    }));
+  }
+  return realFetch(url, init);
+};
 
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
@@ -81,6 +101,23 @@ app.set('__e2eReset', async (req, res) => {
 const server = app.listen(3000, () => {
   console.log(`LOCAL E2E READY: backend on :3000, admin = admin@local.test / Step14Admin!2026${process.env.SEED_CR === '1' ? ' (+ CR seed)' : ''}`);
 });
+
+/* test-only OTP introspection — wrapped at the HTTP layer so it can NOT be
+   shadowed by app.js's 404 catch-all; hard-gated to NODE_ENV=test. */
+{
+  const orig = server.listeners('request');
+  server.removeAllListeners('request');
+  server.on('request', (req, res) => {
+    const url = (req.url || '').split('?')[0];
+    if (process.env.NODE_ENV === 'test' && url.startsWith('/__e2e/otp/')) {
+      const email = decodeURIComponent(url.slice('/__e2e/otp/'.length)).toLowerCase();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ success: true, otp: sentOtps.get(email) ?? null }));
+      return;
+    }
+    orig.forEach((l) => l(req, res));
+  });
+}
 
 const shutdown = async () => {
   server.close();
