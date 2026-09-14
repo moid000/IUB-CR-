@@ -2,6 +2,8 @@ import { Assignment, Submission, Section, Subject } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
+
+const assertText = v.assertText;
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 import { now, nowDate } from '../utils/clock.js';
 import { notifySection } from './notificationService.js';
@@ -25,14 +27,14 @@ const TEXT_MAX = 10000;
 /* ------------------------------ validation ------------------------------ */
 
 function assertTitle(value) {
-  const title = String(value ?? '').trim();
+  const title = assertText(value, 'title').trim();
   if (!title || title.length > TITLE_MAX) throw new ApiError(400, `Title must be 1–${TITLE_MAX} characters`);
   return title;
 }
 
 function assertInstructions(value) {
   if (value === undefined || value === null || value === '') return undefined;
-  const text = String(value).trim();
+  const text = assertText(value, 'instructions').trim();
   if (text.length > INSTRUCTIONS_MAX) throw new ApiError(400, `Instructions must be at most ${INSTRUCTIONS_MAX} characters`);
   return text;
 }

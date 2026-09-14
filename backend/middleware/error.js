@@ -19,6 +19,15 @@ export function notFoundHandler(req, res) {
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
 
+  // Body-parser errors (malformed JSON / oversized body) — stable 400/413,
+  // never a 500 and never any parser internals in the response.
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, message: 'Invalid JSON body' });
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ success: false, message: 'Request body too large' });
+  }
+
   // Mongoose schema validation errors → 400 with field details
   if (err.name === 'ValidationError') {
     return res.status(400).json({

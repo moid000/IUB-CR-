@@ -2,6 +2,8 @@ import { Section, Subject } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
+
+const assertText = v.assertText;
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 
 /**
@@ -22,7 +24,7 @@ const SUBJECT_NAME_MAX = 80;
 const SAFE_FIELDS = 'name code teacherName creditHours description section createdBy status createdAt updatedAt';
 
 function assertCode(value) {
-  const code = String(value ?? '').trim().toUpperCase();
+  const code = assertText(value, 'code').trim().toUpperCase();
   if (!SUBJECT_CODE_RE.test(code)) {
     throw new ApiError(400, 'Invalid subject code (2–16 letters/digits/dashes, e.g. AI-101)');
   }
@@ -30,7 +32,7 @@ function assertCode(value) {
 }
 
 function assertName(value) {
-  const name = String(value ?? '').trim();
+  const name = assertText(value, 'name').trim();
   if (!name || name.length > SUBJECT_NAME_MAX) {
     throw new ApiError(400, `Subject name must be 1–${SUBJECT_NAME_MAX} characters`);
   }
@@ -39,7 +41,7 @@ function assertName(value) {
 
 function assertDescription(value) {
   if (value === undefined || value === null) return undefined;
-  const description = String(value).trim();
+  const description = assertText(value, 'description').trim();
   if (description.length > 1000) throw new ApiError(400, 'Description too long (max 1000)');
   return description || undefined;
 }

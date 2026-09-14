@@ -2,12 +2,15 @@ import { Announcement } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { makeSectionContentService } from './sectionContent.js';
 import { notifySection } from './notificationService.js';
+import * as v from '../utils/validators.js';
+
+const assertText = v.assertText;
 
 const TITLE_MAX = 120;
 const CONTENT_MAX = 5000;
 
 function assertTitle(value) {
-  const title = String(value ?? '').trim();
+  const title = assertText(value, 'title').trim();
   if (!title || title.length > TITLE_MAX) {
     throw new ApiError(400, `Title must be 1–${TITLE_MAX} characters`);
   }
@@ -15,7 +18,7 @@ function assertTitle(value) {
 }
 
 function assertContent(value) {
-  const content = String(value ?? '').trim();
+  const content = assertText(value, 'content').trim();
   if (!content) throw new ApiError(400, 'Content is required');
   if (content.length > CONTENT_MAX) throw new ApiError(400, `Content must be at most ${CONTENT_MAX} characters`);
   return content;

@@ -42,8 +42,20 @@ export function assertPassword(value, field = 'password') {
   return value;
 }
 
+/**
+ * Rejects non-string client input outright. Objects/arrays must NEVER be
+ * stringified into "[object Object]" junk and stored — they are invalid.
+ */
+export function assertText(value, field = 'value') {
+  if (typeof value !== 'string') throw new ApiError(400, `Invalid ${field}`);
+  return value;
+}
+
 export function assertName(value, field = 'name') {
-  const name = String(value ?? '').trim();
+  // typeof FIRST — arrays/objects/numbers must NOT be stringified into
+  // "[object Object]"-style junk; they are invalid input, full stop.
+  if (typeof value !== 'string') throw new ApiError(400, `Invalid ${field}`);
+  const name = value.trim();
   if (name.length < 2 || name.length > 100) {
     throw new ApiError(400, `Invalid ${field} (2–100 characters required)`);
   }
