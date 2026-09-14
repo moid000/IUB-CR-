@@ -318,11 +318,12 @@ test('D4. duplicate mark → 409; PATCH updates value', async () => {
 test('D5. CR marks sheet: items + calculated missing list (never stored)', async () => {
   const res = await crA.api('GET', A(`/assessments/${openId}/marks`));
   assert.equal(res.status, 200);
-  assert.equal(res.json.data.length, 2); // s1 + s2
-  const missingIds = res.json.missing.map((m) => String(m._id));
+  assert.equal(res.json.data.items.length, 2); // s1 + s2
+  const missingIds = res.json.data.missing.map((m) => String(m._id));
   assert.ok(!missingIds.includes(String(s1Id)) && !missingIds.includes(String(s2Id)));
   assert.ok(missingIds.includes(String(s1PendingId)) === false); // pending — not an active student
-  assert.equal(res.json.counts.entered, 2);
+  assert.equal(res.json.data.counts.entered, 2);
+  assert.equal(res.json.data.assessment._id, String(openId));
   // mark docs never auto-created for missing students
   assert.equal(await Mark.countDocuments({ assessment: openId }), 2);
 });
@@ -338,7 +339,7 @@ test('J1. valid bulk upsert — atomic, counts correct', async () => {
   assert.equal(res.status, 200, res.text);
   assert.equal(res.json.data.processed, 2);
   const sheet = await crA.api('GET', A(`/assessments/${openId}/marks`));
-  assert.equal(sheet.json.data.find((m) => String(m.student._id) === String(s1Id)).marksObtained, 19);
+  assert.equal(sheet.json.data.items.find((m) => String(m.student._id) === String(s1Id)).marksObtained, 19);
 });
 
 test('J2. bulk: duplicate rows / invalid students / out-of-range → nothing written', async () => {

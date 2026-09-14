@@ -4,10 +4,12 @@
     { "src": "api/index.js", "use": "@vercel/node" },
     { "src": "frontend/package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } }
   ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api" },
-    { "src": "/frontend/(.*)", "dest": "/frontend/$1" },
-    { "src": "/", "dest": "/frontend/index.html" },
-    { "src": "/(.*)", "dest": "/frontend/index.html" }
+  "redirects": [
+    { "source": "/", "destination": "/frontend/", "permanent": false }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/frontend/(.*)", "destination": "/frontend/index.html" },
+    { "source": "/((?!frontend/|api/|frontend$).*)", "destination": "/frontend/index.html" }
   ]
 }

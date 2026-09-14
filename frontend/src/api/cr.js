@@ -1,0 +1,104 @@
+/**
+ * CR API layer — thin wrappers over the EXACT backend contracts.
+ * Every route is section-scoped SERVER-SIDE (derived from the authenticated
+ * CR); the frontend NEVER sends section/role/ownership fields.
+ */
+import { api } from './client.js';
+
+const qs = (params = {}) => {
+  const clean = Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '' && v !== 'all')
+  );
+  const s = new URLSearchParams(clean).toString();
+  return s ? `?${s}` : '';
+};
+
+export const crApi = {
+  /* ---- Students (list + precreate — section ALWAYS server-derived) ---- */
+  students: {
+    list: (params) => api.get(`/api/cr/students${qs(params)}`), // page | limit → { data, pagination }
+    precreate: (body) => api.post('/api/cr/students', body), // { name, rollNo, email, phone? }
+  },
+
+  /* ---- Subjects ---- */
+  subjects: {
+    list: (params) => api.get(`/api/cr/subjects${qs(params)}`), // search | status | page | limit
+    create: (body) => api.post('/api/cr/subjects', body), // { name, code, teacherName?, creditHours?, description? }
+    update: (id, body) => api.patch(`/api/cr/subjects/${id}`, body),
+    archive: (id) => api.post(`/api/cr/subjects/${id}/archive`),
+  },
+
+  /* ---- Announcements ---- */
+  announcements: {
+    list: (params) => api.get(`/api/cr/announcements${qs(params)}`), // search | status | page | limit
+    get: (id) => api.get(`/api/cr/announcements/${id}`),
+    create: (body) => api.post('/api/cr/announcements', body), // { title, content, pinned? }
+    update: (id, body) => api.patch(`/api/cr/announcements/${id}`, body), // { title?, content?, pinned? }
+    archive: (id) => api.post(`/api/cr/announcements/${id}/archive`),
+  },
+
+  /* ---- Notes (optional subject must belong to own section) ---- */
+  notes: {
+    list: (params) => api.get(`/api/cr/notes${qs(params)}`), // search | status | subjectId | page | limit
+    get: (id) => api.get(`/api/cr/notes/${id}`),
+    create: (body) => api.post('/api/cr/notes', body), // { title, content?, subject? }
+    update: (id, body) => api.patch(`/api/cr/notes/${id}`, body),
+    archive: (id) => api.post(`/api/cr/notes/${id}/archive`),
+  },
+
+  /* ---- Assignments ---- */
+  assignments: {
+    list: (params) => api.get(`/api/cr/assignments${qs(params)}`), // search | status | subjectId | page | limit
+    get: (id) => api.get(`/api/cr/assignments/${id}`),
+    create: (body) => api.post('/api/cr/assignments', body), // { subject, title, instructions?, deadline }
+    update: (id, body) => api.patch(`/api/cr/assignments/${id}`, body), // { subject?, title?, instructions?, deadline? }
+    archive: (id) => api.post(`/api/cr/assignments/${id}/archive`),
+    submissions: (id, params) => api.get(`/api/cr/assignments/${id}/submissions${qs(params)}`),
+  },
+
+  /* ---- Timetable (monday–saturday, HH:MM wall-clock, overlap → 409) ---- */
+  timetable: {
+    list: (params) => api.get(`/api/cr/timetable${qs(params)}`), // day | subjectId | status | page | limit
+    create: (body) => api.post('/api/cr/timetable', body), // { subject, day, startTime, endTime, room? }
+    update: (id, body) => api.patch(`/api/cr/timetable/${id}`, body),
+    archive: (id) => api.post(`/api/cr/timetable/${id}/archive`),
+  },
+
+  /* ---- Attendance (code + QR returned EXACTLY ONCE at creation) ---- */
+  attendance: {
+    createSession: (body) => api.post('/api/cr/attendance/sessions', body), // { subject }
+    listSessions: (params) => api.get(`/api/cr/attendance/sessions${qs(params)}`), // status | subjectId | page | limit
+    getSession: (id) => api.get(`/api/cr/attendance/sessions/${id}`),
+    cancelSession: (id) => api.post(`/api/cr/attendance/sessions/${id}/cancel`),
+    records: (id, params) => api.get(`/api/cr/attendance/sessions/${id}/records${qs(params)}`),
+  },
+
+  /* ---- Assessments & marks (draft → open → finalized → archived) ---- */
+  assessments: {
+    list: (params) => api.get(`/api/cr/assessments${qs(params)}`), // status | subjectId | type | page | limit
+    get: (id) => api.get(`/api/cr/assessments/${id}`),
+    create: (body) => api.post('/api/cr/assessments', body), // { subject, title, type, totalMarks, assessmentDate, weightage? }
+    update: (id, body) => api.patch(`/api/cr/assessments/${id}`, body),
+    open: (id) => api.post(`/api/cr/assessments/${id}/open`),
+    finalize: (id) => api.post(`/api/cr/assessments/${id}/finalize`),
+    archive: (id) => api.post(`/api/cr/assessments/${id}/archive`),
+    marks: {
+      list: (id) => api.get(`/api/cr/assessments/${id}/marks`), // → { assessment, items, missing, counts }
+      bulk: (id, rows) => api.post(`/api/cr/assessments/${id}/marks/bulk`, { rows }), // [{ student, marksObtained }]
+    },
+  },
+
+  /* ---- Notifications (own mailbox; reminders lazily generated server-side) ---- */
+  notifications: {
+    list: (params) => api.get(`/api/cr/notifications${qs(params)}`), // unread | page | limit
+    unreadCount: () => api.get('/api/cr/notifications/unread-count'), // → { count }
+    read: (id) => api.post(`/api/cr/notifications/${id}/read`),
+    readAll: () => api.post('/api/cr/notifications/read-all'),
+  },
+
+  /* ---- Signed Cloudinary uploads (sign → browser upload → confirm) ---- */
+  files: {
+    sign: (body) => api.post('/api/cr/files/sign', body), // { parentType, parentId, file: { originalName, mimeType } }
+    confirm: (body) => api.post('/api/cr/files/confirm', body), // { parentType, parentId, result }
+  },
+};

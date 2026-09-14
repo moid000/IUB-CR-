@@ -61,6 +61,14 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// Test-only hook: local E2E server attaches its DB reset handler via app.set().
+// In production nothing registers the handler, so this passes through to 404.
+app.use('/api/__e2e', (req, res, next) => {
+  const handler = app.get('__e2eReset');
+  if (req.method === 'POST' && req.path === '/reset' && typeof handler === 'function') return handler(req, res);
+  return next();
+});
+
 app.use('/api', routes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);

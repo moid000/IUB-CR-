@@ -31,3 +31,12 @@ export function timeAgo(value) {
   if (days < 30) return `${days}d ago`;
   return formatDate(value);
 }
+
+const dateTimeNoYearFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: TZ });
+
+/** "Mon 14 Sep, 9:10 PM" — used for short-lived expiries like attendance sessions. */
+export function formatDateTimeNoYear(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '—' : dateTimeNoYearFmt.format(d);
+}

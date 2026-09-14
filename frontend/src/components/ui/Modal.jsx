@@ -5,12 +5,20 @@ import { Button } from './Button.jsx';
 export function Modal({ open, onClose, title, children, footer = null, className = '' }) {
   const dialogRef = useRef(null);
   const previouslyFocused = useRef(null);
+  // onClose stays fresh via a ref — the effect must NOT re-run on parent re-renders.
+  // Otherwise a passing re-render (e.g. a toast dismissing) steals focus mid-typing,
+  // and the focused X button would swallow Space/Enter and close the dialog.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
 
   useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement;
-    dialogRef.current?.querySelector('button, [href], input, select, textarea')?.focus();
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    // Focus the first form field — never the close (X) button: keys the user
+    // types must never fall through to the button that discards their work.
+    const firstField = dialogRef.current?.querySelector('input, select, textarea');
+    (firstField ?? dialogRef.current?.querySelector('button, [href]'))?.focus();
+    const onKey = (e) => { if (e.key === 'Escape') onCloseRef.current?.(); };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
     return () => {
@@ -18,13 +26,13 @@ export function Modal({ open, onClose, title, children, footer = null, className
       document.body.style.overflow = '';
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-sm"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onCloseRef.current?.(); }}
     >
       <div
         ref={dialogRef}

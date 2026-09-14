@@ -32,5 +32,11 @@ export const archiveAssessment = wrap(gradingSvc.archiveAssessment);
 export const createMark = wrap(gradingSvc.createMark);
 export const updateMark = wrap(gradingSvc.updateMark);
 export const bulkUpsertMarks = wrap(gradingSvc.bulkUpsertMarks);
-export const listMarks = wrap(gradingSvc.listMarks);
+// listMarks returns ONE composite object ({ assessment, items, missing, counts }) —
+// it is not a paginated list, so the generic wrap must not spread it.
+export const listMarks = async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await gradingSvc.listMarks(req) });
+  } catch (err) { next(err); }
+};
 export const listMyMarks = wrap(gradingSvc.listMyMarks);
