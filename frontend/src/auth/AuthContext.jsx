@@ -15,6 +15,14 @@ const AuthContext = createContext(null);
 
 export const ROLE_HOME = { ADMIN: '/admin', CR: '/cr', STUDENT: '/student' };
 
+/**
+ * Backend stores roles lowercase ('admin' | 'cr' | 'student'); the frontend
+ * consistently uses uppercase. Normalize at the auth boundary so every
+ * consumer sees canonical role strings.
+ */
+const normalizeUser = (u) =>
+  u ? { ...u, role: typeof u.role === 'string' ? u.role.toUpperCase() : u.role } : null;
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false); // initial session check done?
@@ -26,7 +34,7 @@ export function AuthProvider({ children }) {
     (async () => {
       try {
         const data = await authApi.me();
-        if (!cancelled) setUser(data?.user ?? null);
+        if (!cancelled) setUser(normalizeUser(data?.user));
       } catch {
         if (!cancelled) setUser(null); // 401 or network → unauthenticated
       } finally {
@@ -39,8 +47,9 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     await authApi.login(email, password); // sets the httpOnly cookie
     const data = await authApi.me(); // fetch the authoritative session
-    setUser(data?.user ?? null);
-    return data?.user ?? null;
+    const u = normalizeUser(data?.user);
+    setUser(u);
+    return u;
   }, []);
 
   const logout = useCallback(async () => {
@@ -55,8 +64,9 @@ export function AuthProvider({ children }) {
     setRefreshing(true);
     try {
       const data = await authApi.me();
-      setUser(data?.user ?? null);
-      return data?.user ?? null;
+      const u = normalizeUser(data?.user);
+      setUser(u);
+      return u;
     } catch (err) {
       setUser(null);
       if (err instanceof ApiError && err.status !== 401) throw err;
