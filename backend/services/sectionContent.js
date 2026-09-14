@@ -24,6 +24,7 @@ export function makeSectionContentService({
     validateBody,        // async (body, { partial, ctx }) → validated fields
     applyUpdate,         // (doc, fields, ctx) → void (mutates doc)
     extraFilters,        // (query) → additional validated filters or null
+    afterCreate,         // optional post-create side effect (e.g. notifications)
   } = hooks;
 
   async function activeSection(sectionId) {
@@ -54,6 +55,9 @@ export function makeSectionContentService({
       status: defaults.status,
     });
     await audit(req, 'create', doc, { after: { title: doc.title, section: String(section._id) } });
+    if (afterCreate) { // best-effort — a side-effect failure must never break creation
+      try { await afterCreate(doc, req); } catch (err) { console.error('[afterCreate] failed:', err.message); }
+    }
     return doc;
   }
 
@@ -123,6 +127,9 @@ export function makeSectionContentService({
       status: defaults.status,
     });
     await audit(req, 'create', doc, { after: { title: doc.title, section: String(sectionId) } });
+    if (afterCreate) {
+      try { await afterCreate(doc, req); } catch (err) { console.error('[afterCreate] failed:', err.message); }
+    }
     return doc;
   }
 

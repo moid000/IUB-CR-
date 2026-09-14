@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { protect, adminOnly } from '../middleware/auth.js';
 import * as ctl from '../controllers/adminController.js';
+import { listNotificationsAdmin } from '../controllers/notificationController.js';
 
 const router = Router();
 
@@ -74,6 +75,9 @@ router.get('/attendance/sessions/:id/records', ctl.listAttendanceRecords);
 
 // Notes
 router.post('/notes', ctl.createNoteAdmin);
+// In-app notifications — READ-ONLY visibility; no admin mutation route exists
+router.get('/notifications', listNotificationsAdmin);
+
 router.get('/notes', ctl.listNotesAdmin);
 router.get('/notes/:id', ctl.getNoteAdmin);
 router.patch('/notes/:id', ctl.updateNoteAdmin);

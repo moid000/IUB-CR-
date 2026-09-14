@@ -7,6 +7,9 @@ import {
   listTimetable, getTimetable,
   attendWithCode, attendWithQr, listMyAttendance,
 } from '../controllers/studentController.js';
+import {
+  listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
+} from '../controllers/notificationController.js';
 
 const router = Router();
 
@@ -35,6 +38,12 @@ router.get('/announcements/:id', getAnnouncement);
 // Notes of the student's OWN section (read-only)
 router.get('/notes', listNotes);
 router.get('/notes/:id', getNote);
+
+// In-app notifications — own mailbox only; lazy reminders generated on poll
+router.get('/notifications', listMyNotifications);
+router.get('/notifications/unread-count', getUnreadCount);
+router.post('/notifications/:id/read', markNotificationRead);
+router.post('/notifications/read-all', markAllNotificationsRead);
 
 // Subjects of the student's OWN section (server-derived — never a query param)
 router.get('/subjects', async (req, res, next) => {

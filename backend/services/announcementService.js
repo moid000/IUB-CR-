@@ -1,6 +1,7 @@
 import { Announcement } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { makeSectionContentService } from './sectionContent.js';
+import { notifySection } from './notificationService.js';
 
 const TITLE_MAX = 120;
 const CONTENT_MAX = 5000;
@@ -46,6 +47,20 @@ export default makeSectionContentService({
       }
       return fields;
     },
+    // New announcement → in-app notification for CURRENT active section
+    // members. Recipients/dedupe keys are fully server-derived; retries are
+    // idempotent via the notification unique index. No email is ever sent.
+    afterCreate: (doc, req) => notifySection({
+      req,
+      section: doc.section,
+      actorId: req.user._id,
+      type: 'announcement',
+      title: 'New announcement',
+      message: doc.title,
+      refType: 'Announcement',
+      refId: doc._id,
+      dedupePrefix: 'announcement',
+    }),
     applyUpdate: (doc, fields) => {
       if (fields.title !== undefined) doc.title = fields.title;
       if (fields.content !== undefined) doc.content = fields.content;

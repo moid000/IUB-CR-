@@ -4,6 +4,7 @@ import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 import { now, nowDate } from '../utils/clock.js';
+import { notifySection } from './notificationService.js';
 
 /**
  * Assignments + Submissions (Step 6).
@@ -108,6 +109,21 @@ async function audit(req, action, { entityType, entityId, section, before, after
 
 /* ------------------------------ ASSIGNMENTS ----------------------------- */
 
+/** New assignment → in-app notification for active section students. */
+function notifyAssignmentCreated(req, doc) {
+  return notifySection({
+    req,
+    section: doc.section,
+    actorId: req.user._id,
+    type: 'assignment',
+    title: 'New assignment',
+    message: `"${doc.title}" — due ${doc.deadline.toISOString().slice(0, 10)}`,
+    refType: 'Assignment',
+    refId: doc._id,
+    dedupePrefix: 'assignment',
+  }).catch((err) => console.error('[notifications] assignment fan-out failed:', err.message));
+}
+
 export async function createAssignmentAdmin(req) {
   const body = v.pick(req.body, ['section', 'subject', 'title', 'instructions', 'deadline']);
   const section = await assertActiveSection(body.section);
@@ -124,6 +140,7 @@ export async function createAssignmentAdmin(req) {
     entityType: 'assignment', entityId: doc._id, section: doc.section,
     after: { title: doc.title, subject: String(subject), deadline: doc.deadline.toISOString() },
   });
+  await notifyAssignmentCreated(req, doc); // updates/archives never re-notify
   return doc;
 }
 
@@ -146,6 +163,7 @@ export async function createAssignmentCr(req) {
     entityType: 'assignment', entityId: doc._id, section: doc.section,
     after: { title: doc.title, subject: String(subject), deadline: doc.deadline.toISOString() },
   });
+  await notifyAssignmentCreated(req, doc); // updates/archives never re-notify
   return doc;
 }
 

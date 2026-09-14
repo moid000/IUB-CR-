@@ -11,11 +11,20 @@ import {
   createAttendanceSession, listAttendanceSessions, getAttendanceSession,
   cancelAttendanceSession, listAttendanceRecords,
 } from '../controllers/crController.js';
+import {
+  listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
+} from '../controllers/notificationController.js';
 
 const router = Router();
 
 // CR-only routes — section scope is ALWAYS derived from the authenticated CR
 router.use(protect, crOnly, sectionScope);
+
+// In-app notifications — own mailbox only; lazy reminders generated on poll
+router.get('/notifications', listMyNotifications);
+router.get('/notifications/unread-count', getUnreadCount);
+router.post('/notifications/:id/read', markNotificationRead);
+router.post('/notifications/read-all', markAllNotificationsRead);
 
 router.get('/students', listStudents);
 router.post('/students', precreateStudent);
