@@ -39,9 +39,9 @@ export function Modal({ open, onClose, title, children, footer = null, className
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`w-full max-w-md animate-fade-up rounded-2xl border border-slate-200/70 bg-white p-6 shadow-lift ${className}`}
+        className={`flex max-h-[calc(100dvh-2rem)] w-full max-w-md animate-fade-up flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-lift ${className}`}
       >
-        <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="mb-4 flex shrink-0 items-start justify-between gap-4 px-6 pt-6">
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>
           <button
             type="button"
@@ -54,8 +54,9 @@ export function Modal({ open, onClose, title, children, footer = null, className
             </svg>
           </button>
         </div>
-        <div className="text-sm text-slate-600">{children}</div>
-        {footer && <div className="mt-6 flex justify-end gap-2.5">{footer}</div>}
+        {/* scrollable body — tall forms stay usable on small screens */}
+        <div className={`min-h-0 flex-1 overflow-y-auto px-6 text-sm text-slate-600 ${footer ? 'pb-2' : 'pb-6'}`}>{children}</div>
+        {footer && <div className="mt-4 flex shrink-0 justify-end gap-2.5 px-6 pb-6">{footer}</div>}
       </div>
     </div>
   );

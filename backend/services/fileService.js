@@ -37,12 +37,15 @@ const MAX_FILES_PER_PARENT = 10; // matches the pre-existing submission limit
  * and the MIME type must be present AND refer to the same entry — extension
  * alone is never trusted. Executable/script formats are structurally absent.
  */
+// mime may be a string or an array of accepted variants (browsers disagree
+// on several audio/video/archive MIME labels, e.g. audio/wav vs audio/x-wav).
 const ALLOWED_TYPES = [
   { ext: 'pdf',  mime: 'application/pdf',                                                resourceType: 'raw' },
   { ext: 'png',  mime: 'image/png',                                                      resourceType: 'image' },
   { ext: 'jpg',  mime: 'image/jpeg',                                                    resourceType: 'image' },
   { ext: 'jpeg', mime: 'image/jpeg',                                                    resourceType: 'image' },
   { ext: 'webp', mime: 'image/webp',                                                     resourceType: 'image' },
+  { ext: 'gif',  mime: 'image/gif',                                                      resourceType: 'image' },
   { ext: 'doc',  mime: 'application/msword',                                            resourceType: 'raw' },
   { ext: 'docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  resourceType: 'raw' },
   { ext: 'ppt',  mime: 'application/vnd.ms-powerpoint',                                 resourceType: 'raw' },
@@ -50,6 +53,22 @@ const ALLOWED_TYPES = [
   { ext: 'xls',  mime: 'application/vnd.ms-excel',                                      resourceType: 'raw' },
   { ext: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',       resourceType: 'raw' },
   { ext: 'txt',  mime: 'text/plain',                                                    resourceType: 'raw' },
+  { ext: 'csv',  mime: 'text/csv',                                                      resourceType: 'raw' },
+  { ext: 'rtf',  mime: ['application/rtf', 'text/rtf'],                                 resourceType: 'raw' },
+  { ext: 'zip',  mime: ['application/zip', 'application/x-zip-compressed'],             resourceType: 'raw' },
+  { ext: 'rar',  mime: ['application/vnd.rar', 'application/x-rar-compressed', 'application/rar'], resourceType: 'raw' },
+  { ext: '7z',   mime: 'application/x-7z-compressed',                                  resourceType: 'raw' },
+  { ext: 'mp3',  mime: 'audio/mpeg',                                                    resourceType: 'raw' },
+  { ext: 'wav',  mime: ['audio/wav', 'audio/x-wav'],                                    resourceType: 'raw' },
+  { ext: 'm4a',  mime: ['audio/mp4', 'audio/x-m4a'],                                    resourceType: 'raw' },
+  { ext: 'ogg',  mime: ['audio/ogg', 'application/ogg'],                                 resourceType: 'raw' },
+  { ext: 'aac',  mime: ['audio/aac', 'audio/x-aac'],                                    resourceType: 'raw' },
+  { ext: 'flac', mime: 'audio/flac',                                                    resourceType: 'raw' },
+  { ext: 'mp4',  mime: 'video/mp4',                                                      resourceType: 'raw' },
+  { ext: 'mkv',  mime: 'video/x-matroska',                                              resourceType: 'raw' },
+  { ext: 'mov',  mime: ['video/quicktime', 'video/x-quicktime'],                        resourceType: 'raw' },
+  { ext: 'avi',  mime: ['video/x-msvideo', 'video/avi'],                                resourceType: 'raw' },
+  { ext: 'webm', mime: ['video/webm', 'audio/webm'],                                     resourceType: 'raw' },
 ];
 
 const SUPPORTED_PARENTS = {
@@ -90,7 +109,8 @@ function assertTypePair(originalName, mimeType) {
   const name = String(originalName ?? '').trim();
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
   const mime = String(mimeType ?? '').trim().toLowerCase();
-  const match = ALLOWED_TYPES.find((t) => t.ext === ext && t.mime === mime);
+  const match = ALLOWED_TYPES.find((t) => t.ext === ext
+    && (t.mime === mime || (Array.isArray(t.mime) && t.mime.includes(mime))));
   if (!match) {
     throw new ApiError(400, 'Unsupported file type');
   }
@@ -237,13 +257,20 @@ export async function confirmUpload(req) {
   // the namespace is then proven by the publicId prefix checks below.
   if (folder && folder !== expectedFolder) await reject('folder_mismatch');
   if (!publicId.startsWith(`${expectedFolder}/`)) await reject('publicId_mismatch');
-  const suffix = publicId.slice(expectedFolder.length + 1);
-  if (!new RegExp(`^${parentType}-[0-9a-f]{24}-${PUBLIC_ID_RE.source.replace(/^\^|\$$/g, '')}$`).test(suffix)) {
+    const suffix = publicId.slice(expectedFolder.length + 1);
+  // raw uploads: Cloudinary APPENDS the extension to public_id (…-<hex>.pdf)
+  // and omits `format` — split the tail off so the pattern check stays exact.
+  const dot = suffix.lastIndexOf('.');
+  const ext = dot > -1 ? suffix.slice(dot + 1).toLowerCase() : '';
+  const baseSuffix = ext ? suffix.slice(0, dot) : suffix;
+  if (!new RegExp(`^${parentType}-[0-9a-f]{24}-${PUBLIC_ID_RE.source.replace(/^\^|\$$/g, '')}$`).test(baseSuffix)) {
     await reject('publicId_pattern');
   }
 
   // 2. format ↔ resource_type from the allowlist
-  const type = ALLOWED_TYPES.find((t) => t.ext === format && t.resourceType === resourceType);
+  // images carry `format`; raw files don't — derive it from the public_id tail
+  const effFormat = format || ext;
+  const type = ALLOWED_TYPES.find((t) => t.ext === effFormat && t.resourceType === resourceType);
   if (!type) await reject('type_not_allowed');
 
   // 3. HTTPS URL on OUR Cloudinary account, pointing at this exact asset
@@ -252,7 +279,8 @@ export async function confirmUpload(req) {
   // real delivery URLs carry a version segment (/upload/v<digits>/) — normalize
   // it away so the URL is compared to the exact asset path
   const normalizedUrl = secureUrl.replace(/\/upload\/v\d+\//, '/upload/');
-  const expectedUrlSuffix = `/upload/${publicId}.${format}`;
+  // raw assets: public_id ALREADY ends with the extension and format is null
+  const expectedUrlSuffix = `/upload/${publicId}${format ? '.' + format : ''}`;
   if (!normalizedUrl.endsWith(expectedUrlSuffix)) await reject('url_asset_mismatch');
 
   // 4. size from the CLOUDINARY result — never a client-declared number
@@ -270,14 +298,19 @@ export async function confirmUpload(req) {
 
   // sanitize display name from the CLOUDINARY result only (basename, capped)
   const rawName = String(result.original_filename ?? '').trim();
-  const originalName = rawName.slice(Math.max(0, rawName.lastIndexOf('/') + 1)).slice(0, 255) || `upload.${format}`;
+  let originalName = rawName.slice(Math.max(0, rawName.lastIndexOf('/') + 1)).slice(0, 255) || `upload.${effFormat}`;
+  // raw uploads come back with the extension STRIPPED from original_filename —
+  // restore it so the UI shows "notes.pdf", not "notes"
+  if (effFormat && !originalName.toLowerCase().endsWith('.' + effFormat)) {
+    originalName = `${originalName}.${effFormat}`.slice(0, 255);
+  }
 
   const fileMeta = {
     publicId,
     url: secureUrl,             // verified HTTPS, our account, this asset
     resourceType,
-    format,
-    mimeType: type.mime,
+    format: effFormat,
+    mimeType: Array.isArray(type.mime) ? type.mime[0] : type.mime,
     folder: folder || expectedFolder,
     originalName,
     size: bytes,                // verified from the Cloudinary result

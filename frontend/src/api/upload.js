@@ -11,6 +11,7 @@ export const ALLOWED_TYPES = [
   { ext: 'jpg', mime: 'image/jpeg', label: 'JPG' },
   { ext: 'jpeg', mime: 'image/jpeg', label: 'JPEG' },
   { ext: 'webp', mime: 'image/webp', label: 'WEBP' },
+  { ext: 'gif', mime: 'image/gif', label: 'GIF' },
   { ext: 'doc', mime: 'application/msword', label: 'DOC' },
   { ext: 'docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', label: 'DOCX' },
   { ext: 'ppt', mime: 'application/vnd.ms-powerpoint', label: 'PPT' },
@@ -18,6 +19,22 @@ export const ALLOWED_TYPES = [
   { ext: 'xls', mime: 'application/vnd.ms-excel', label: 'XLS' },
   { ext: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', label: 'XLSX' },
   { ext: 'txt', mime: 'text/plain', label: 'TXT' },
+  { ext: 'csv', mime: 'text/csv', label: 'CSV' },
+  { ext: 'rtf', mime: ['application/rtf', 'text/rtf'], label: 'RTF' },
+  { ext: 'zip', mime: ['application/zip', 'application/x-zip-compressed'], label: 'ZIP' },
+  { ext: 'rar', mime: ['application/vnd.rar', 'application/x-rar-compressed', 'application/rar'], label: 'RAR' },
+  { ext: '7z', mime: 'application/x-7z-compressed', label: '7Z' },
+  { ext: 'mp3', mime: 'audio/mpeg', label: 'MP3' },
+  { ext: 'wav', mime: ['audio/wav', 'audio/x-wav'], label: 'WAV' },
+  { ext: 'm4a', mime: ['audio/mp4', 'audio/x-m4a'], label: 'M4A' },
+  { ext: 'ogg', mime: ['audio/ogg', 'application/ogg'], label: 'OGG' },
+  { ext: 'aac', mime: ['audio/aac', 'audio/x-aac'], label: 'AAC' },
+  { ext: 'flac', mime: 'audio/flac', label: 'FLAC' },
+  { ext: 'mp4', mime: 'video/mp4', label: 'MP4' },
+  { ext: 'mkv', mime: 'video/x-matroska', label: 'MKV' },
+  { ext: 'mov', mime: ['video/quicktime', 'video/x-quicktime'], label: 'MOV' },
+  { ext: 'avi', mime: ['video/x-msvideo', 'video/avi'], label: 'AVI' },
+  { ext: 'webm', mime: ['video/webm', 'audio/webm'], label: 'WEBM' },
 ];
 
 export const AVATAR_TYPES = [
@@ -38,7 +55,8 @@ export function matchType(file, types = ALLOWED_TYPES) {
   const name = String(file?.name ?? '').trim();
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
   const mime = String(file?.type ?? '').trim().toLowerCase();
-  return types.find((t) => t.ext === ext && t.mime === mime) ?? null;
+  return types.find((t) => t.ext === ext
+    && (t.mime === mime || (Array.isArray(t.mime) && t.mime.includes(mime)))) ?? null;
 }
 
 export function formatBytes(bytes) {

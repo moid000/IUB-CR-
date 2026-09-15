@@ -278,7 +278,7 @@ test('E2. dangerous extensions/MIMEs rejected; mismatch rejected', async () => {
     { originalName: 'a.pdf', mimeType: 'application/x-msdownload' }, // mismatch
     { originalName: 'a.pdf', mimeType: 'image/png' }, // mismatch
     { originalName: 'a.png.exe', mimeType: 'image/png' }, // real ext is exe
-    { originalName: 'a.zip', mimeType: 'application/zip' }, // not in project allowlist
+    { originalName: 'a.apk', mimeType: 'application/vnd.android.package-archive' }, // not in allowlist
   ]) {
     assert.equal((await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file })).status, 400, file.originalName);
   }
@@ -395,6 +395,48 @@ test('G2b. REAL Cloudinary shape accepted: folder:null + versioned delivery URL'
   assert.equal(res.json.data.folder, s.folder);
 });
 
+test('G2c. REAL raw shape accepted: .pdf appended to public_id, format:null, extension-less original_filename', async () => {
+  // live-observed production behavior: raw uploads get the extension APPENDED to
+  // public_id, `format` omitted, and original_filename STRIPPED of its extension
+  const s = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: PDF })).json.data;
+  const fullId = `${s.folder}/${s.publicId}.pdf`;
+  const res = await confirmFile(cr1, 'cr', {
+    parentType: 'note', parentId: noteA1,
+    result: {
+      public_id: fullId, folder: null,
+      secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/v1789443208/${fullId}`,
+      resource_type: 'raw', format: null, bytes: 2048, original_filename: 'doc',
+    },
+  });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.json.data.publicId, fullId);
+  assert.equal(res.json.data.format, 'pdf');       // derived from the public_id tail
+  assert.equal(res.json.data.originalName, 'doc.pdf'); // extension restored for display
+});
+
+test('G2d. audio/video/archive types signable + confirmable (mp3 wav zip mp4 …)', async () => {
+  const mp3 = { originalName: 'lecture.mp3', mimeType: 'audio/mpeg' };
+  const s = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: mp3 })).json.data;
+  assert.equal(s.resourceType, 'raw');
+  const fullId = `${s.folder}/${s.publicId}.mp3`;
+  const res = await confirmFile(cr1, 'cr', {
+    parentType: 'note', parentId: noteA1,
+    result: {
+      public_id: fullId, folder: null,
+      secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/v99/${fullId}`,
+      resource_type: 'raw', format: null, bytes: 4096, original_filename: 'lecture',
+    },
+  });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.json.data.mimeType, 'audio/mpeg');
+  // wav with the alternate browser MIME label is accepted too
+  const wav = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: { originalName: 'clip.wav', mimeType: 'audio/x-wav' } })).json.data;
+  assert.equal(wav.resourceType, 'raw');
+  // gif counts as an image
+  const gif = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: { originalName: 'anim.gif', mimeType: 'image/gif' } })).json.data;
+  assert.equal(gif.resourceType, 'image');
+});
+
 test('G3. resource_type/format pairing and size verification', async () => {
   const s = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: PDF })).json.data;
   const cases = [
@@ -442,7 +484,7 @@ test('H2. 10 concurrent confirms of the same asset → exactly one entry', async
 });
 
 test('H3. per-parent attachment limit (10) enforced atomically', async () => {
-  for (let i = 0; i < 8; i++) { // note already has 2 (G0 + G2b)
+  for (let i = 0; i < 6; i++) { // note already has 4 (G0 + G2b + G2c + G2d)
     const s = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: { originalName: `f${i}.txt`, mimeType: 'text/plain' } })).json.data;
     const res = await confirmFile(cr1, 'cr', {
       parentType: 'note', parentId: noteA1,
