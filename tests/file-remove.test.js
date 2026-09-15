@@ -76,8 +76,8 @@ async function confirmFile(session, role, parentType, parentId, name = 'doc.pdf'
   })).json.data;
   assert.ok(sign, 'sign succeeded');
   const result = {
-    public_id: sign.publicId, folder: sign.folder,
-    secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${sign.publicId}.pdf`,
+    public_id: `${sign.folder}/${sign.publicId}`, folder: sign.folder,
+    secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${sign.folder}/${sign.publicId}.pdf`,
     resource_type: 'raw', format: 'pdf', bytes: 2048, original_filename: name,
   };
   const r = await session.api('POST', `${ROLE_PATH[role]}/files/confirm`, { parentType, parentId, result });

@@ -102,9 +102,12 @@ function folderFor(parentType, parentId) {
 }
 
 function publicIdFor(parentType, parentId) {
-  // `${parentType}-${parentId}-${random}` — the parentId segment makes the
-  // namespace self-describing so confirmation can verify parent binding.
-  return `${folderFor(parentType, parentId)}/${parentType}-${parentId}-${crypto.randomBytes(6).toString('hex')}`;
+  // BASENAME ONLY — Cloudinary prepends the `folder` param to public_id on
+  // upload, so the final asset id is folder + '/' + basename. Prefixing the
+  // folder here would double the path and break confirm validation.
+  // The parentId segment keeps the namespace self-describing so confirmation
+  // can verify parent binding.
+  return `${parentType}-${parentId}-${crypto.randomBytes(6).toString('hex')}`;
 }
 
 /* --------------------------- parent resolution --------------------------- */
@@ -377,7 +380,8 @@ function avatarFolder(userId) {
 }
 
 function avatarPublicId(userId) {
-  return `${avatarFolder(userId)}/avatar-${String(userId)}-${crypto.randomBytes(6).toString('hex')}`;
+  // BASENAME ONLY — Cloudinary prepends the folder on upload (see publicIdFor).
+  return `avatar-${String(userId)}-${crypto.randomBytes(6).toString('hex')}`;
 }
 
 /**

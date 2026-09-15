@@ -135,7 +135,8 @@ page.on('request', async (req) => {
     const j = await signRespPromise; // race-free: always the CURRENT sign
     const sign = j?.data ?? j ?? {};
     const folder = String(sign.folder ?? '');
-    const publicId = String(sign.publicId ?? '');
+    // mimic REAL Cloudinary: the final public_id is folder + '/' + basename
+    const publicId = folder ? `${folder}/${String(sign.publicId ?? '')}` : String(sign.publicId ?? '');
     const rt = String(sign.resourceType ?? 'raw');
     const cloud = String(sign.cloudName ?? 'e2e-cloud');
     const fname = String(signReqFile?.originalName ?? 'upload.pdf');

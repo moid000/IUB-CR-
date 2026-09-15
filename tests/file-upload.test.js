@@ -89,10 +89,12 @@ const confirmFile = (session, role, body) => session.api('POST', `${ROLE_PATH[ro
 
 /** Build a valid fake Cloudinary upload result from a sign response. */
 function cloudinaryResult(signRes, { format, resourceType, bytes = 2048, name = 'doc.pdf' } = {}) {
+  // mimic REAL Cloudinary: public_id comes back as folder + '/' + basename
+  const publicId = `${signRes.folder}/${signRes.publicId}`;
   return {
-    public_id: signRes.publicId,
+    public_id: publicId,
     folder: signRes.folder,
-    secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/${resourceType}/upload/${signRes.publicId}.${format}`,
+    secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/${resourceType}/upload/${publicId}.${format}`,
     resource_type: resourceType,
     format,
     bytes,
@@ -233,7 +235,8 @@ test('D1. client folder/publicId/section/owner fields are ignored — server der
   assert.equal(res.status, 200);
   const d = res.json.data;
   assert.match(d.folder, new RegExp(`^iub-cr-lms/note/${noteA1}$`));
-  assert.match(d.publicId, new RegExp(`^iub-cr-lms/note/${noteA1}/note-[0-9a-f]{24}-[0-9a-f]{12}$`));
+  // basename only — Cloudinary prepends the folder at upload time
+  assert.match(d.publicId, new RegExp(`^note-[0-9a-f]{24}-[0-9a-f]{12}$`));
   assert.ok(!d.publicId.includes('..'));
   assert.ok(!d.publicId.includes('evil'));
   assert.equal(d.folder.startsWith('iub-cr-lms/announcement'), false);
@@ -303,7 +306,10 @@ test('F2. two signs produce different publicIds (no overwrite of existing assets
   const a = await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: PDF });
   const b = await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: PDF });
   assert.notEqual(a.json.data.publicId, b.json.data.publicId);
-  assert.ok(a.json.data.publicId.startsWith(b.json.data.folder.split('/').slice(0, 3).join('/')));
+  // basename only now — same parent prefix, different random suffix
+  for (const r of [a.json.data, b.json.data]) {
+    assert.match(r.publicId, new RegExp(`^note-[0-9a-f]{24}-[0-9a-f]{12}$`));
+  }
 });
 
 test('F3. missing Cloudinary config → safe 503, no secret name leaked', async () => {
@@ -326,7 +332,8 @@ test('G0. valid Cloudinary result confirmed → verified FileMeta embedded', asy
   });
   assert.equal(confirm.status, 200, confirm.text);
   const meta = confirm.json.data;
-  assert.equal(meta.publicId, noteSignRes.publicId);
+  // stored publicId is the FULL asset path Cloudinary assigned (folder + basename)
+  assert.equal(meta.publicId, `${noteSignRes.folder}/${noteSignRes.publicId}`);
   assert.ok(meta.url.startsWith(`https://res.cloudinary.com/${CLOUD_NAME}/`));
   assert.equal(meta.format, 'pdf');
   assert.equal(meta.mimeType, 'application/pdf');
@@ -336,7 +343,7 @@ test('G0. valid Cloudinary result confirmed → verified FileMeta embedded', asy
   // embedded in the parent
   const note = await Note.findById(noteA1);
   assert.equal(note.attachments.length, 1);
-  assert.equal(note.attachments[0].publicId, noteSignRes.publicId);
+  assert.equal(note.attachments[0].publicId, `${noteSignRes.folder}/${noteSignRes.publicId}`);
 });
 
 test('G1. wrong folder / foreign publicId / path traversal rejected', async () => {

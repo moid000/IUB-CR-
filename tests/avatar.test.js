@@ -71,10 +71,12 @@ const JPG = { originalName: 'me.jpg', mimeType: 'image/jpeg' };
 const PDF = { originalName: 'doc.pdf', mimeType: 'application/pdf' };
 
 function cloudinaryAvatar(signRes, { format = 'png', bytes = 2048, name = 'me.png' } = {}) {
+  // mimic REAL Cloudinary: public_id comes back as folder + '/' + basename
+  const publicId = `${signRes.folder}/${signRes.publicId}`;
   return {
-    public_id: signRes.publicId,
+    public_id: publicId,
     folder: signRes.folder,
-    secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/${signRes.publicId}.${format}`,
+    secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/${publicId}.${format}`,
     resource_type: 'image',
     format,
     bytes,
@@ -114,7 +116,8 @@ test('A2. sign: folder/publicId derived from req.user — client fields ignored'
   assert.equal(r.status, 200);
   const d = r.json.data;
   assert.equal(d.folder, `iub-cr-lms/avatar/${s1Id}`);
-  assert.match(d.publicId, new RegExp(`^iub-cr-lms/avatar/${s1Id}/avatar-${s1Id}-[0-9a-f]{12}$`));
+  // basename only — Cloudinary prepends the folder at upload time
+  assert.match(d.publicId, new RegExp(`^avatar-${s1Id}-[0-9a-f]{12}$`));
   assert.equal(d.resourceType, 'image');
   assert.equal(d.maxSizeBytes, 5 * 1024 * 1024);
   assert.ok(d.uploadUrl.startsWith(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`));
