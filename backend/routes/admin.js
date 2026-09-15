@@ -6,6 +6,7 @@ import {
   createAssessment as createAssessmentAdmin, listAssessmentsAdmin, getAssessmentAdmin,
   updateAssessment as updateAssessmentAdmin, openAssessment as openAssessmentAdmin,
   finalizeAssessment as finalizeAssessmentAdmin, archiveAssessment as archiveAssessmentAdmin,
+  deleteAssessment as deleteAssessmentAdmin,
   createMark as createMarkAdmin, updateMark as updateMarkAdmin,
   bulkUpsertMarks as bulkUpsertMarksAdmin, listMarks as listMarksAdmin,
 } from '../controllers/gradingController.js';
@@ -22,6 +23,7 @@ router.get('/departments', ctl.listDepartments);
 router.get('/departments/:id', ctl.getDepartment);
 router.patch('/departments/:id', ctl.updateDepartment);
 router.post('/departments/:id/archive', ctl.archiveDepartment);
+router.delete('/departments/:id', ctl.deleteDepartment);
 
 // Academic Sessions
 router.post('/sessions', ctl.createSession);
@@ -29,6 +31,7 @@ router.get('/sessions', ctl.listSessions);
 router.get('/sessions/:id', ctl.getSession);
 router.patch('/sessions/:id', ctl.updateSession);
 router.post('/sessions/:id/archive', ctl.archiveSession);
+router.delete('/sessions/:id', ctl.deleteSession);
 
 // Sections
 router.post('/sections', ctl.createSection);
@@ -36,16 +39,19 @@ router.get('/sections', ctl.listSections);
 router.get('/sections/:id', ctl.getSection);
 router.patch('/sections/:id', ctl.updateSection);
 router.post('/sections/:id/archive', ctl.archiveSection);
+router.delete('/sections/:id', ctl.deleteSection);
 router.post('/sections/:id/cr', ctl.assignCr);
 router.post('/sections/:id/cr/reassign', ctl.reassignCr);
 router.post('/sections/:id/cr/remove', ctl.removeCr);
 
 // CR pre-creation (creates CR + section link transactionally)
 router.get('/crs', ctl.listCrsAdmin); // read-only CR directory
+router.delete('/crs/:id', ctl.deleteCr);
 router.post('/crs', ctl.precreateCr);
 
 // Student directory (filters: department/session/section + search + pagination)
 router.get('/students', ctl.listStudentsAdmin);
+router.delete('/students/:id', ctl.deleteStudent);
 
 // Subjects (admin may manage any active section's subjects)
 router.post('/subjects', ctl.createSubjectAdmin);
@@ -53,6 +59,7 @@ router.get('/subjects', ctl.listSubjectsAdmin);
 router.get('/subjects/:id', ctl.getSubjectAdmin);
 router.patch('/subjects/:id', ctl.updateSubjectAdmin);
 router.post('/subjects/:id/archive', ctl.archiveSubjectAdmin);
+router.delete('/subjects/:id', ctl.deleteSubjectAdmin);
 
 // Announcements
 router.post('/announcements', ctl.createAnnouncementAdmin);
@@ -60,6 +67,7 @@ router.get('/announcements', ctl.listAnnouncementsAdmin);
 router.get('/announcements/:id', ctl.getAnnouncementAdmin);
 router.patch('/announcements/:id', ctl.updateAnnouncementAdmin);
 router.post('/announcements/:id/archive', ctl.archiveAnnouncementAdmin);
+router.delete('/announcements/:id', ctl.deleteAnnouncementAdmin);
 
 // Assignments
 router.post('/assignments', ctl.createAssignmentAdmin);
@@ -67,6 +75,7 @@ router.get('/assignments', ctl.listAssignmentsAdmin);
 router.get('/assignments/:id', ctl.getAssignmentAdmin);
 router.patch('/assignments/:id', ctl.updateAssignmentAdmin);
 router.post('/assignments/:id/archive', ctl.archiveAssignmentAdmin);
+router.delete('/assignments/:id', ctl.deleteAssignmentAdmin);
 router.get('/assignments/:assignmentId/submissions', ctl.listSubmissionsAdmin);
 router.get('/submissions/:id', ctl.getSubmissionAdmin);
 
@@ -76,6 +85,7 @@ router.get('/timetable', ctl.listTimetable);
 router.get('/timetable/:id', ctl.getTimetable);
 router.patch('/timetable/:id', ctl.updateTimetable);
 router.post('/timetable/:id/archive', ctl.archiveTimetable);
+router.delete('/timetable/:id', ctl.deleteTimetable);
 
 // Attendance (read-only cross-section views)
 router.get('/attendance/sessions', ctl.listAttendanceSessions);
@@ -92,6 +102,7 @@ router.patch('/assessments/:id', updateAssessmentAdmin);
 router.post('/assessments/:id/open', openAssessmentAdmin);
 router.post('/assessments/:id/finalize', finalizeAssessmentAdmin);
 router.post('/assessments/:id/archive', archiveAssessmentAdmin);
+router.delete('/assessments/:id', deleteAssessmentAdmin);
 router.post('/assessments/:assessmentId/marks', createMarkAdmin);
 router.patch('/assessments/:assessmentId/marks/:studentId', updateMarkAdmin);
 router.post('/assessments/:assessmentId/marks/bulk', bulkUpsertMarksAdmin);
@@ -109,5 +120,6 @@ router.get('/notes', ctl.listNotesAdmin);
 router.get('/notes/:id', ctl.getNoteAdmin);
 router.patch('/notes/:id', ctl.updateNoteAdmin);
 router.post('/notes/:id/archive', ctl.archiveNoteAdmin);
+router.delete('/notes/:id', ctl.deleteNoteAdmin);
 
 export default router;

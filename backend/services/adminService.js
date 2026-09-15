@@ -1,5 +1,9 @@
 import mongoose from 'mongoose';
-import { Department, AcademicSession, Section, User } from '../models/index.js';
+import {
+  Department, AcademicSession, Section, User, Subject, Announcement, Note,
+  Assignment, Timetable, Assessment, Submission, Mark, Notification, AttendanceSession,
+} from '../models/index.js';
+import { destroyAttachmentMetas } from './fileService.js';
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
@@ -567,4 +571,119 @@ export async function listStudentsAdmin(req) {
     User.countDocuments(filter),
   ]);
   return { items, pagination: paginationMeta(total, { page, limit }) };
+}
+
+/* ================================ DELETE ================================ */
+
+/** Hard delete for departments. Blocked while any section still references it. */
+export async function deleteDepartment(req) {
+  const id = v.assertObjectId(req.params.id, 'department id');
+  const doc = await Department.findById(id);
+  if (!doc) throw new ApiError(404, 'Department not found');
+  const sections = await Section.countDocuments({ department: id });
+  if (sections > 0) {
+    throw new ApiError(400, `Cannot delete: ${sections} section(s) still belong to this department. Delete those first.`);
+  }
+  await doc.deleteOne();
+  await auditFromReq(req, {
+    action: 'department.delete', entityType: 'department', entityId: doc._id,
+    before: { name: doc.name }, after: { deleted: true },
+  });
+  return { deleted: true, id: doc._id };
+}
+
+/** Hard delete for academic sessions. Blocked while any section still references it. */
+export async function deleteSession(req) {
+  const id = v.assertObjectId(req.params.id, 'session id');
+  const doc = await AcademicSession.findById(id);
+  if (!doc) throw new ApiError(404, 'Session not found');
+  const sections = await Section.countDocuments({ session: id });
+  if (sections > 0) {
+    throw new ApiError(400, `Cannot delete: ${sections} section(s) still belong to this session. Delete those first.`);
+  }
+  await doc.deleteOne();
+  await auditFromReq(req, {
+    action: 'session.delete', entityType: 'session', entityId: doc._id,
+    before: { name: doc.name }, after: { deleted: true },
+  });
+  return { deleted: true, id: doc._id };
+}
+
+/**
+ * Hard delete for sections — the biggest structural object, so every dependent
+ * is listed explicitly. The error tells the owner exactly what to clear first,
+ * bottom-up, so nothing is ever a dead end.
+ */
+export async function deleteSection(req) {
+  const id = v.assertObjectId(req.params.id, 'section id');
+  const doc = await Section.findById(id);
+  if (!doc) throw new ApiError(404, 'Section not found');
+
+  const [students, subjects, slots, announcements, notes, assignments, assessments, attendance] = await Promise.all([
+    User.countDocuments({ section: id, role: 'student' }),
+    Subject.countDocuments({ section: id }),
+    Timetable.countDocuments({ section: id }),
+    Announcement.countDocuments({ section: id }),
+    Note.countDocuments({ section: id }),
+    Assignment.countDocuments({ section: id }),
+    Assessment.countDocuments({ section: id }),
+    AttendanceSession.countDocuments({ section: id }),
+  ]);
+  const blocking = [];
+  if (doc.cr) blocking.push('an assigned CR');
+  if (students) blocking.push(`${students} student(s)`);
+  if (subjects) blocking.push(`${subjects} subject(s)`);
+  if (slots) blocking.push(`${slots} timetable slot(s)`);
+  if (announcements) blocking.push(`${announcements} announcement(s)`);
+  if (notes) blocking.push(`${notes} note(s)`);
+  if (assignments) blocking.push(`${assignments} assignment(s)`);
+  if (assessments) blocking.push(`${assessments} assessment(s)`);
+  if (attendance) blocking.push(`${attendance} attendance session(s)`);
+  if (blocking.length) {
+    throw new ApiError(400, `Cannot delete this section yet — it still has ${blocking.join(', ')}. Delete those first.`);
+  }
+
+  await doc.deleteOne();
+  await auditFromReq(req, {
+    action: 'section.delete', entityType: 'section', entityId: doc._id,
+    before: { name: doc.name }, after: { deleted: true },
+  });
+  return { deleted: true, id: doc._id };
+}
+
+/** Hard delete a CR account. Unlinks them from their section first. */
+export async function deleteCr(req) {
+  const id = v.assertObjectId(req.params.id, 'CR id');
+  const user = await User.findOne({ _id: id, role: 'cr' });
+  if (!user) throw new ApiError(404, 'CR not found');
+  if (user.section) {
+    await Section.updateMany({ _id: user.section, cr: user._id }, { $unset: { cr: 1 } });
+  }
+  await Notification.deleteMany({ recipient: user._id });
+  await user.deleteOne();
+  await auditFromReq(req, {
+    action: 'cr.delete', entityType: 'user', entityId: user._id,
+    before: { email: user.email }, after: { deleted: true },
+  });
+  return { deleted: true, id: user._id };
+}
+
+/** Hard delete a student account, cascading their submissions, marks, notifications. */
+export async function deleteStudent(req) {
+  const id = v.assertObjectId(req.params.id, 'student id');
+  const user = await User.findOne({ _id: id, role: 'student' });
+  if (!user) throw new ApiError(404, 'Student not found');
+
+  const submissions = await Submission.find({ student: user._id });
+  for (const sub of submissions) destroyAttachmentMetas(sub.files);
+  await Submission.deleteMany({ student: user._id });
+  await Mark.deleteMany({ student: user._id });
+  await Notification.deleteMany({ recipient: user._id });
+
+  await user.deleteOne();
+  await auditFromReq(req, {
+    action: 'student.delete', entityType: 'user', entityId: user._id,
+    before: { email: user.email, rollNo: user.rollNo }, after: { deleted: true, submissions: submissions.length },
+  });
+  return { deleted: true, id: user._id, submissionsRemoved: submissions.length };
 }

@@ -1,4 +1,5 @@
-import { Assignment, Submission, Section, Subject } from '../models/index.js';
+import { Assignment, Submission, Section, Subject, Notification } from '../models/index.js';
+import { destroyAttachmentMetas } from './fileService.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
@@ -270,6 +271,44 @@ export async function archiveAssignmentCr(req) {
   if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
   const doc = await findOwnAssignment(req);
   return archiveAssignment(req, doc);
+}
+
+/* -------------------------------- DELETE -------------------------------- */
+
+/** Hard delete: destroys attachment + submission assets, removes notifications, then the doc. */
+async function deleteAssignment(req, doc) {
+  destroyAttachmentMetas(doc.attachments);
+  const submissions = await Submission.find({ assignment: doc._id });
+  for (const sub of submissions) destroyAttachmentMetas(sub.files);
+  const subIds = submissions.map((sub) => sub._id);
+  await Submission.deleteMany({ assignment: doc._id });
+  await Notification.deleteMany({
+    $or: [
+      { refType: 'Assignment', refId: doc._id },
+      { refType: 'Submission', refId: { $in: subIds } },
+      { refId: { $in: [doc._id, ...subIds] } }, // any legacy link shape
+    ],
+  });
+  const title = doc.title;
+  await doc.deleteOne();
+  await audit(req, 'assignment.delete', {
+    entityType: 'assignment', entityId: doc._id, section: doc.section,
+    before: { title }, after: { deleted: true, submissions: subIds.length },
+  });
+  return { deleted: true, id: doc._id, submissionsRemoved: subIds.length };
+}
+
+export async function deleteAssignmentAdmin(req) {
+  const id = v.assertObjectId(req.params.id, 'assignment id');
+  const doc = await Assignment.findById(id);
+  if (!doc) throw new ApiError(404, 'Assignment not found');
+  return deleteAssignment(req, doc);
+}
+
+export async function deleteAssignmentCr(req) {
+  if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
+  const doc = await findOwnAssignment(req);
+  return deleteAssignment(req, doc);
 }
 
 /* ------------------------------ SUBMISSIONS ----------------------------- */

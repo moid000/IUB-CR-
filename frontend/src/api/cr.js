@@ -26,6 +26,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/subjects', body), // { name, code, teacherName?, creditHours?, description? }
     update: (id, body) => api.patch(`/api/cr/subjects/${id}`, body),
     archive: (id) => api.post(`/api/cr/subjects/${id}/archive`),
+    delete: (id) => api.del(`/api/cr/subjects/${id}`), // hard delete; blocked while notes/assignments/etc. exist
   },
 
   /* ---- Announcements ---- */
@@ -35,6 +36,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/announcements', body), // { title, content, pinned? }
     update: (id, body) => api.patch(`/api/cr/announcements/${id}`, body), // { title?, content?, pinned? }
     archive: (id) => api.post(`/api/cr/announcements/${id}/archive`),
+    delete: (id) => api.del(`/api/cr/announcements/${id}`), // permanently removes the announcement
   },
 
   /* ---- Notes (optional subject must belong to own section) ---- */
@@ -44,6 +46,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/notes', body), // { title, content?, subject? }
     update: (id, body) => api.patch(`/api/cr/notes/${id}`, body),
     archive: (id) => api.post(`/api/cr/notes/${id}/archive`),
+    delete: (id) => api.del(`/api/cr/notes/${id}`), // permanently removes the note + its files
   },
 
   /* ---- Assignments ---- */
@@ -53,6 +56,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/assignments', body), // { subject, title, instructions?, deadline }
     update: (id, body) => api.patch(`/api/cr/assignments/${id}`, body), // { subject?, title?, instructions?, deadline? }
     archive: (id) => api.post(`/api/cr/assignments/${id}/archive`),
+    delete: (id) => api.del(`/api/cr/assignments/${id}`), // permanently removes the assignment + all submissions
     submissions: (id, params) => api.get(`/api/cr/assignments/${id}/submissions${qs(params)}`),
   },
 
@@ -62,6 +66,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/timetable', body), // { subject, day, startTime, endTime, room? }
     update: (id, body) => api.patch(`/api/cr/timetable/${id}`, body),
     archive: (id) => api.post(`/api/cr/timetable/${id}/archive`),
+    delete: (id) => api.del(`/api/cr/timetable/${id}`), // permanently removes the slot
   },
 
   /* ---- Attendance (code + QR returned EXACTLY ONCE at creation) ---- */
@@ -82,6 +87,7 @@ export const crApi = {
     open: (id) => api.post(`/api/cr/assessments/${id}/open`),
     finalize: (id) => api.post(`/api/cr/assessments/${id}/finalize`),
     archive: (id) => api.post(`/api/cr/assessments/${id}/archive`),
+    delete: (id) => api.del(`/api/cr/assessments/${id}`), // permanently removes the assessment (marks cascade)
     marks: {
       list: (id) => api.get(`/api/cr/assessments/${id}/marks`), // → { assessment, items, missing, counts }
       bulk: (id, rows) => api.post(`/api/cr/assessments/${id}/marks/bulk`, { rows }), // [{ student, marksObtained }]

@@ -67,6 +67,9 @@ export default function DepartmentsPage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
   const { items, loading, error, reload } = useAdminQuery(
@@ -80,6 +83,21 @@ export default function DepartmentsPage() {
     if (!q) return items;
     return items.filter((d) => d.name?.toLowerCase().includes(q) || d.code?.toLowerCase().includes(q));
   }, [items, debouncedSearch]);
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await adminApi.departments.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Department deleted.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const confirmArchive = async () => {
     setArchiveBusy(true);
@@ -107,6 +125,7 @@ export default function DepartmentsPage() {
         <div className="flex justify-end gap-1">
           <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', dept: d })}>Edit</Button>
           <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(d); setArchiveError(null); }}>Archive</Button>
+          <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(d); setDeleteError(null); }}>Delete</Button>
         </div>
       ) : <span className="text-xs text-slate-400">—</span>,
     },
@@ -164,6 +183,18 @@ export default function DepartmentsPage() {
           </p>
         }
         onConfirm={confirmArchive}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete department?"
+        body={<p><span className="font-medium text-slate-800">{deleteTarget?.name}</span> will be permanently deleted. A department can only be deleted once it has no sections left — archive or delete those first.</p>}
+        confirmLabel="Delete department"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
+        danger
       />
     </>
   );

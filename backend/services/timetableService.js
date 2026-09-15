@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Timetable, Section, Subject } from '../models/index.js';
+import { Timetable, Section, Subject, Notification } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
@@ -327,6 +327,28 @@ async function archiveEntry(req, doc) {
     before: { status: 'active' }, after: { status: 'archived' },
   });
   return doc;
+}
+
+/** Hard delete — attendance sessions reference the section, not the slot, so removal is safe. */
+async function deleteEntry(req, doc) {
+  await Notification.deleteMany({ refType: 'Timetable', refId: doc._id });
+  await doc.deleteOne();
+  await auditFromReq(req, {
+    action: 'timetable.delete', entityType: 'timetable', entityId: doc._id, section: doc.section,
+    before: { subject: doc.subject, day: doc.day, startTime: doc.startTime }, after: { deleted: true },
+  });
+  return { deleted: true, id: doc._id };
+}
+
+export async function deleteTimetableAdmin(req) {
+  const id = v.assertObjectId(req.params.id, 'timetable entry id');
+  const doc = await Timetable.findById(id);
+  if (!doc) throw new ApiError(404, 'Timetable entry not found');
+  return deleteEntry(req, doc);
+}
+
+export async function deleteTimetableCr(req) {
+  return deleteEntry(req, await findOwnEntry(req));
 }
 
 export async function archiveTimetableAdmin(req) {

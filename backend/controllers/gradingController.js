@@ -29,6 +29,7 @@ export const updateAssessment = wrap(gradingSvc.updateAssessment);
 export const openAssessment = wrap(gradingSvc.openAssessment);
 export const finalizeAssessment = wrap(gradingSvc.finalizeAssessment);
 export const archiveAssessment = wrap(gradingSvc.archiveAssessment);
+export const deleteAssessment = wrap(gradingSvc.deleteAssessment);
 export const createMark = wrap(gradingSvc.createMark);
 export const updateMark = wrap(gradingSvc.updateMark);
 export const bulkUpsertMarks = wrap(gradingSvc.bulkUpsertMarks);

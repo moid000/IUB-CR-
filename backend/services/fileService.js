@@ -389,7 +389,7 @@ export async function removeAttachment(req) {
   });
 
   // Best-effort Cloudinary destroy — failures never surface internals.
-  destroyAsset({ cloudName, apiKey, apiSecret, publicId }).catch(() => {});
+  destroyAsset({ cloudName, apiKey, apiSecret, publicId, resourceType: target.resourceType || 'image' }).catch(() => {});
   return { removed: true };
 }
 
@@ -397,15 +397,30 @@ export async function removeAttachment(req) {
  * Signed Cloudinary destroy call. The signature uses the same official sha1
  * scheme; the apiSecret never crosses the API boundary.
  */
-export function destroyAsset({ cloudName, apiKey, apiSecret, publicId }) {
+export function destroyAsset({ cloudName, apiKey, apiSecret, publicId, resourceType = 'image' }) {
   const timestamp = Math.floor(now() / 1000);
   const signature = cloudinarySignature({ public_id: publicId, timestamp }, apiSecret);
   const body = new URLSearchParams({ public_id: publicId, timestamp: String(timestamp), api_key: apiKey, signature });
-  return fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`, {
+  return fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/destroy`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   });
+}
+
+/**
+ * Best-effort destroy of every Cloudinary asset in an array of FileMeta.
+ * NEVER throws — a failed destroy must never block a database delete.
+ */
+export function destroyAttachmentMetas(metas = []) {
+  for (const meta of metas ?? []) {
+    const publicId = meta?.publicId;
+    if (!publicId) continue;
+    try {
+      const { cloudName, apiKey, apiSecret } = getConfig();
+      destroyAsset({ cloudName, apiKey, apiSecret, publicId, resourceType: meta.resourceType || 'image' }).catch(() => {});
+    } catch { /* config unavailable — the DB delete stays authoritative */ }
+  }
 }
 
 /* ============================ STEP 18 — avatar =========================== */

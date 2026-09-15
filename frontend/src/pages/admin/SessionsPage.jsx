@@ -79,12 +79,30 @@ export default function SessionsPage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
   const { items, loading, error, reload } = useAdminQuery(
     () => adminApi.sessions.list(status !== 'all' ? { status } : {}),
     [status]
   );
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await adminApi.sessions.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Session deleted.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const confirmArchive = async () => {
     setArchiveBusy(true);
@@ -121,6 +139,7 @@ export default function SessionsPage() {
         <div className="flex justify-end gap-1">
           <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', session: s })}>Edit</Button>
           <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(s); setArchiveError(null); }}>Archive</Button>
+          <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(s); setDeleteError(null); }}>Delete</Button>
         </div>
       ) : (
         <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', session: s })}>Edit</Button>
@@ -178,6 +197,18 @@ export default function SessionsPage() {
           </p>
         }
         onConfirm={confirmArchive}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete session?"
+        body={<p><span className="font-medium text-slate-800">{deleteTarget?.name}</span> will be permanently deleted. A session can only be deleted once it has no sections left — archive or delete those first.</p>}
+        confirmLabel="Delete session"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
+        danger
       />
     </>
   );

@@ -100,6 +100,9 @@ export default function SubjectsPage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
   const { items, pagination, loading, error, reload } = useAdminQuery(
@@ -118,6 +121,21 @@ export default function SubjectsPage() {
   const [lastKey, setLastKey] = useState('');
   const key = `${debouncedSearch}|${sectionId}|${status}`;
   if (key !== lastKey) { setLastKey(key); setPage(1); }
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await adminApi.subjects.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Subject deleted.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const confirmArchive = async () => {
     setArchiveBusy(true);
@@ -154,6 +172,7 @@ export default function SubjectsPage() {
             <>
               <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', subject: s })}>Edit</Button>
               <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(s); setArchiveError(null); }}>Archive</Button>
+              <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(s); setDeleteError(null); }}>Delete</Button>
             </>
           )}
         </div>
@@ -220,6 +239,18 @@ export default function SubjectsPage() {
           </p>
         }
         onConfirm={confirmArchive}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete subject?"
+        body={<p><span className="font-medium text-slate-800">{deleteTarget?.name}</span> ({deleteTarget?.code}) will be permanently deleted. A subject can only be deleted once it has no notes, assignments, timetable slots, or assessments left.</p>}
+        confirmLabel="Delete subject"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
+        danger
       />
     </>
   );

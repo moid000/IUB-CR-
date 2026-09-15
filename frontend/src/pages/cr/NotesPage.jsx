@@ -12,7 +12,7 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { EmptyState } from '../../components/ui/EmptyState.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive, IconFileText, IconPaperclip } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash, IconFileText, IconPaperclip } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 
@@ -108,6 +108,9 @@ export default function NotesPage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
   const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), []);
@@ -127,6 +130,21 @@ export default function NotesPage() {
   if (key !== lastKey) { setLastKey(key); setPage(1); }
 
   if (!section) return <NoSection />;
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await crApi.notes.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Note deleted permanently.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const confirmArchive = async () => {
     setArchiveBusy(true);
@@ -201,6 +219,7 @@ export default function NotesPage() {
                     <Button variant="ghost" size="sm" icon={IconPaperclip} onClick={() => setAttachItem(n)}>Files</Button>
                     <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: n })}>Edit</Button>
                     <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(n); setArchiveError(null); }}>Archive</Button>
+                    <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(n); setDeleteError(null); }}>Delete</Button>
                   </div>
                 )}
               </div>
@@ -256,6 +275,18 @@ export default function NotesPage() {
         onConfirm={confirmArchive}
         busy={archiveBusy}
         error={archiveError}
+        danger
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete note?"
+        body={<p><span className="font-medium">{deleteTarget?.title}</span> will be permanently deleted along with its attached files. Students will no longer see it. This cannot be undone.</p>}
+        confirmLabel="Delete note"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
         danger
       />
     </div>

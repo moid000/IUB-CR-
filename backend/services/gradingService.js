@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Assessment, Mark, Section, Subject, User } from '../models/index.js';
+import { Assessment, Mark, Section, Subject, User, Notification } from '../models/index.js';
 import { ASSESSMENT_TYPES } from '../models/Assessment.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
@@ -385,6 +385,20 @@ export async function finalizeAssessment(req) {
     });
   }
   return safeAssessment(locked.updated, { lockedMarks: locked.lockedMarks });
+}
+
+/** Hard delete an assessment together with its marks and notifications. */
+export async function deleteAssessment(req) {
+  const scopeSection = req.user.role !== 'admin';
+  const doc = await findScopedAssessment(req.params.id, scopeSection ? req.user.section : null);
+  await Mark.deleteMany({ assessment: doc._id });
+  await Notification.deleteMany({ refType: 'Assessment', refId: doc._id });
+  await doc.deleteOne();
+  await auditFromReq(req, {
+    action: 'assessment.delete', entityType: 'assessment', entityId: doc._id, section: doc.section,
+    before: { title: doc.title, status: doc.status }, after: { deleted: true },
+  });
+  return { deleted: true, id: doc._id };
 }
 
 export async function archiveAssessment(req) {

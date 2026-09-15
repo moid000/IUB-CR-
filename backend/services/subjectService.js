@@ -1,4 +1,4 @@
-import { Section, Subject } from '../models/index.js';
+import { Section, Subject, Assignment, Note, Timetable, Assessment } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
@@ -155,6 +155,69 @@ export async function archiveSubjectAdmin(req) {
     before: { status: 'active' }, after: { status: 'archived' },
   });
   return doc;
+}
+
+/**
+ * Hard delete. Refusing while dependent records exist keeps every historical
+ * reference valid — the owner deletes dependents bottom-up. The error lists
+ * exactly WHAT is blocking, so nothing is a dead end.
+ */
+/** CR delete — same guards, but scoped to the CR's own section only. */
+export async function deleteSubjectCr(req) {
+  if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
+  const id = v.assertObjectId(req.params.id, 'subject id');
+  const doc = await Subject.findOne({ _id: id, section: req.user.section });
+  if (!doc) throw new ApiError(404, 'Subject not found');
+
+  const [assignments, notes, slots, assessments] = await Promise.all([
+    Assignment.countDocuments({ subject: id }),
+    Note.countDocuments({ subject: id }),
+    Timetable.countDocuments({ subject: id }),
+    Assessment.countDocuments({ subject: id }),
+  ]);
+  const blocking = [];
+  if (assignments) blocking.push(`${assignments} assignment(s)`);
+  if (notes) blocking.push(`${notes} note(s)`);
+  if (slots) blocking.push(`${slots} timetable slot(s)`);
+  if (assessments) blocking.push(`${assessments} assessment(s)`);
+  if (blocking.length) {
+    throw new ApiError(400, `Cannot delete this subject yet — it still has ${blocking.join(', ')}. Delete those first.`);
+  }
+
+  await doc.deleteOne();
+  await auditFromReq(req, {
+    action: 'subject.delete', entityType: 'subject', entityId: doc._id, section: doc.section,
+    before: { name: doc.name }, after: { deleted: true },
+  });
+  return { deleted: true, id: doc._id };
+}
+
+export async function deleteSubjectAdmin(req) {
+  const id = v.assertObjectId(req.params.id, 'subject id');
+  const doc = await Subject.findById(id);
+  if (!doc) throw new ApiError(404, 'Subject not found');
+
+  const [assignments, notes, slots, assessments] = await Promise.all([
+    Assignment.countDocuments({ subject: id }),
+    Note.countDocuments({ subject: id }),
+    Timetable.countDocuments({ subject: id }),
+    Assessment.countDocuments({ subject: id }),
+  ]);
+  const blocking = [];
+  if (assignments) blocking.push(`${assignments} assignment(s)`);
+  if (notes) blocking.push(`${notes} note(s)`);
+  if (slots) blocking.push(`${slots} timetable slot(s)`);
+  if (assessments) blocking.push(`${assessments} assessment(s)`);
+  if (blocking.length) {
+    throw new ApiError(400, `Cannot delete this subject yet — it still has ${blocking.join(', ')}. Delete those first.`);
+  }
+
+  await doc.deleteOne();
+  await auditFromReq(req, {
+    action: 'subject.delete', entityType: 'subject', entityId: doc._id, section: doc.section,
+    before: { name: doc.name }, after: { deleted: true },
+  });
+  return { deleted: true, id: doc._id };
 }
 
 /* ============================= CR endpoints ============================= */

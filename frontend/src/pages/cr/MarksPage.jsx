@@ -12,7 +12,7 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { Spinner } from '../../components/ui/Spinner.jsx';
 import { PageHeader, FilterBar, FilterSelect, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconCheckCircle, IconArchive, IconInfo } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconCheckCircle, IconArchive, IconTrash, IconInfo } from '../../components/icons.jsx';
 
 const ASSESSMENT_TYPES = ['quiz', 'assignment', 'midterm', 'final', 'practical', 'viva', 'project', 'other'];
 const STATUS_STYLES = {
@@ -296,6 +296,9 @@ export default function MarksPage() {
   const [openError, setOpenError] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
   const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), []);
@@ -321,6 +324,21 @@ export default function MarksPage() {
       setOpenError(err);
     } finally {
       setOpenBusy(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await crApi.assessments.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Assessment and its marks deleted permanently.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -405,7 +423,10 @@ export default function MarksPage() {
                     <Button variant="ghost" size="sm" onClick={() => setMarksFor(a)}>Enter marks</Button>
                   )}
                   {a.status !== 'archived' && (
-                    <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(a); setArchiveError(null); }}>Archive</Button>
+                    <>
+                      <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(a); setArchiveError(null); }}>Archive</Button>
+                      <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(a); setDeleteError(null); }}>Delete</Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -466,6 +487,18 @@ export default function MarksPage() {
         onConfirm={confirmArchive}
         busy={archiveBusy}
         error={archiveError}
+        danger
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete assessment?"
+        body={<p><span className="font-medium">{deleteTarget?.title}</span> will be permanently deleted along with <span className="font-medium">all entered marks</span> for it. This cannot be undone.</p>}
+        confirmLabel="Delete assessment"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
         danger
       />
     </div>

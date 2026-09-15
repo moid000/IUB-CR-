@@ -34,23 +34,28 @@ export const listDepartments = wrap(svc.listDepartments);
 export const getDepartment = wrap(svc.getDepartment);
 export const updateDepartment = wrap(svc.updateDepartment);
 export const archiveDepartment = wrap(svc.archiveDepartment);
+export const deleteDepartment = wrap(svc.deleteDepartment);
 
 export const createSession = wrap(svc.createSession);
 export const listSessions = wrap(svc.listSessions);
 export const getSession = wrap(svc.getSession);
 export const updateSession = wrap(svc.updateSession);
 export const archiveSession = wrap(svc.archiveSession);
+export const deleteSession = wrap(svc.deleteSession);
 
 export const createSection = wrap(svc.createSection);
 export const listSections = wrap(svc.listSections);
 export const getSection = wrap(svc.getSection);
 export const updateSection = wrap(svc.updateSection);
 export const archiveSection = wrap(svc.archiveSection);
+export const deleteSection = wrap(svc.deleteSection);
 export const assignCr = wrap(svc.assignCr);
 export const reassignCr = wrap(svc.reassignCr);
 export const removeCr = wrap(svc.removeCr);
+export const deleteCr = wrap(svc.deleteCr);
 export const listCrsAdmin = wrapList(svc.listCrsAdmin);
 export const listStudentsAdmin = wrapList(svc.listStudentsAdmin);
+export const deleteStudent = wrap(svc.deleteStudent);
 
 // Subjects (admin — any active section, explicitly)
 export const createSubjectAdmin = wrap(subjectSvc.createSubjectAdmin);
@@ -58,6 +63,7 @@ export const listSubjectsAdmin = wrapList(subjectSvc.listSubjectsAdmin);
 export const getSubjectAdmin = wrap(subjectSvc.getSubjectAdmin);
 export const updateSubjectAdmin = wrap(subjectSvc.updateSubjectAdmin);
 export const archiveSubjectAdmin = wrap(subjectSvc.archiveSubjectAdmin);
+export const deleteSubjectAdmin = wrap(subjectSvc.deleteSubjectAdmin);
 
 // Announcements (admin — any active section, explicitly)
 export const createAnnouncementAdmin = wrap(announcementSvc.createAdmin);
@@ -65,6 +71,7 @@ export const listAnnouncementsAdmin = wrapList(announcementSvc.listAdmin);
 export const getAnnouncementAdmin = wrap(announcementSvc.getAdmin);
 export const updateAnnouncementAdmin = wrap(announcementSvc.updateAdmin);
 export const archiveAnnouncementAdmin = wrap(announcementSvc.archiveAdmin);
+export const deleteAnnouncementAdmin = wrap(announcementSvc.deleteAdmin);
 
 // Assignments + submissions (admin — cross-section, read-only on submissions)
 export const createAssignmentAdmin = wrap(assignmentSvc.createAssignmentAdmin);
@@ -72,6 +79,7 @@ export const listAssignmentsAdmin = wrapList(assignmentSvc.listAssignmentsAdmin)
 export const getAssignmentAdmin = wrap(assignmentSvc.getAssignmentAdmin);
 export const updateAssignmentAdmin = wrap(assignmentSvc.updateAssignmentAdmin);
 export const archiveAssignmentAdmin = wrap(assignmentSvc.archiveAssignmentAdmin);
+export const deleteAssignmentAdmin = wrap(assignmentSvc.deleteAssignmentAdmin);
 export const listSubmissionsAdmin = wrapList(assignmentSvc.listSubmissionsAdmin);
 export const getSubmissionAdmin = wrap(assignmentSvc.getSubmissionAdmin);
 
@@ -81,6 +89,7 @@ export const listTimetable = wrapList(timetableSvc.listTimetableAdmin);
 export const getTimetable = wrap(timetableSvc.getTimetableAdmin);
 export const updateTimetable = wrap(timetableSvc.updateTimetableAdmin);
 export const archiveTimetable = wrap(timetableSvc.archiveTimetableAdmin);
+export const deleteTimetable = wrap(timetableSvc.deleteTimetableAdmin);
 
 // Attendance — read-only cross-section views; no plaintext code/hash ever exposed
 export const listAttendanceSessions = wrapList(attendanceSvc.listSessionsAdmin);
@@ -93,5 +102,6 @@ export const listNotesAdmin = wrapList(noteSvc.listAdmin);
 export const getNoteAdmin = wrap(noteSvc.getAdmin);
 export const updateNoteAdmin = wrap(noteSvc.updateAdmin);
 export const archiveNoteAdmin = wrap(noteSvc.archiveAdmin);
+export const deleteNoteAdmin = wrap(noteSvc.deleteAdmin);
 
 export const precreateCr = wrap(svc.precreateCr);

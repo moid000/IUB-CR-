@@ -36,6 +36,7 @@ function assertContent(value) {
 export default makeSectionContentService({
   Model: Announcement,
   kind: 'announcement',
+  notifyRefType: 'Announcement',
   searchFields: ['title', 'content'],
   defaults: { status: 'published', statusEnum: ['published', 'archived'] },
   hooks: {

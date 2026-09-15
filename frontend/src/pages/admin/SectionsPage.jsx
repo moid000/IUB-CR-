@@ -11,7 +11,7 @@ import { Select } from '../../components/ui/Select.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { Spinner } from '../../components/ui/Spinner.jsx';
-import { IconPlus, IconPencil, IconArchive, IconUserPlus, IconUserMinus, IconSwap } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash, IconUserPlus, IconUserMinus, IconSwap } from '../../components/icons.jsx';
 
 const SECTION_NAME_RE = /^[A-Z0-9-]{1,16}$/;
 
@@ -178,6 +178,9 @@ export default function SectionsPage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
   const params = {
@@ -193,6 +196,21 @@ export default function SectionsPage() {
   // Filter options — small reference lists
   const { items: departments } = useAdminQuery(() => adminApi.departments.list({}), []);
   const { items: sessions } = useAdminQuery(() => adminApi.sessions.list({}), []);
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await adminApi.sections.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Section deleted.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const confirmArchive = async () => {
     setArchiveBusy(true);
@@ -251,7 +269,10 @@ export default function SectionsPage() {
           )}
           <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', section: s })}>Edit</Button>
           {s.status === 'active' && (
-            <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(s); setArchiveError(null); }}>Archive</Button>
+            <>
+              <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(s); setArchiveError(null); }}>Archive</Button>
+              <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(s); setDeleteError(null); }}>Delete</Button>
+            </>
           )}
         </div>
       ),
@@ -346,6 +367,18 @@ export default function SectionsPage() {
           </p>
         }
         onConfirm={confirmArchive}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete section?"
+        body={<p>Section <span className="font-medium text-slate-800">{deleteTarget?.name}</span> will be permanently deleted. A section can only be deleted once it has no assigned CR, no students, and no subjects left — remove those first.</p>}
+        confirmLabel="Delete section"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
+        danger
       />
     </>
   );

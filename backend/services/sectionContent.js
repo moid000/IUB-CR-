@@ -1,4 +1,5 @@
-import { Section, Subject } from '../models/index.js';
+import { Section, Subject, Notification } from '../models/index.js';
+import { destroyAttachmentMetas } from './fileService.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
@@ -17,7 +18,7 @@ import { parsePagination, paginationMeta, searchFilter } from '../utils/paginati
  * `hooks` lets each content type add validation (e.g. Note → Subject checks).
  */
 export function makeSectionContentService({
-  Model, kind, searchFields, defaults, hooks = {},
+  Model, kind, searchFields, defaults, hooks = {}, notifyRefType = null,
 }) {
   const {
     extraFields = [],    // e.g. ['subject'] for Notes — pickable, validated
@@ -102,6 +103,31 @@ export function makeSectionContentService({
     await doc.save();
     await audit(req, 'update', doc, { before, after: { title: doc.title } });
     return doc;
+  }
+
+  /** Hard delete: destroys Cloudinary assets + related notifications, then the doc. */
+  async function deleteDoc(req, doc) {
+    destroyAttachmentMetas(doc.attachments);
+    if (notifyRefType) {
+      await Notification.deleteMany({ refType: notifyRefType, refId: doc._id });
+    }
+    const title = doc.title;
+    await doc.deleteOne();
+    await audit(req, 'delete', doc, { before: { title } });
+    return { deleted: true, id: doc._id };
+  }
+
+  async function deleteAdmin(req) {
+    const id = v.assertObjectId(req.params.id, `${kind} id`);
+    const doc = await Model.findById(id);
+    if (!doc) throw new ApiError(404, `${KIND_LABEL} not found`);
+    return deleteDoc(req, doc);
+  }
+
+  async function deleteCr(req) {
+    if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
+    const doc = await findOwn(req);
+    return deleteDoc(req, doc);
   }
 
   async function archiveAdmin(req) {
@@ -225,8 +251,8 @@ export function makeSectionContentService({
   }
 
   return {
-    createAdmin, listAdmin, getAdmin, updateAdmin, archiveAdmin,
-    createCr, listCr, getCr, updateCr, archiveCr,
+    createAdmin, listAdmin, getAdmin, updateAdmin, archiveAdmin, deleteAdmin,
+    createCr, listCr, getCr, updateCr, archiveCr, deleteCr,
     listStudent, getStudent,
   };
 }

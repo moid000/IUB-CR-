@@ -64,12 +64,14 @@ export const createAnnouncement = wrapDoc(announcementSvc.createCr);
 export const getAnnouncement = wrapDoc(announcementSvc.getCr);
 export const updateAnnouncement = wrapDoc(announcementSvc.updateCr);
 export const archiveAnnouncement = wrapDoc(announcementSvc.archiveCr);
+export const deleteAnnouncement = wrapDoc(announcementSvc.deleteCr);
 
 export const listNotes = wrapList(noteSvc.listCr);
 export const createNote = wrapDoc(noteSvc.createCr);
 export const getNote = wrapDoc(noteSvc.getCr);
 export const updateNote = wrapDoc(noteSvc.updateCr);
 export const archiveNote = wrapDoc(noteSvc.archiveCr);
+export const deleteNote = wrapDoc(noteSvc.deleteCr);
 
 /* ---- Assignments — ALWAYS scoped to req.user.section ---- */
 export const listAssignments = wrapList(assignmentSvc.listAssignmentsCr);
@@ -77,6 +79,7 @@ export const createAssignment = wrapDoc(assignmentSvc.createAssignmentCr);
 export const getAssignment = wrapDoc(assignmentSvc.getAssignmentCr);
 export const updateAssignment = wrapDoc(assignmentSvc.updateAssignmentCr);
 export const archiveAssignment = wrapDoc(assignmentSvc.archiveAssignmentCr);
+export const deleteAssignment = wrapDoc(assignmentSvc.deleteAssignmentCr);
 export const listSubmissions = wrapList(assignmentSvc.listSubmissionsCr);
 export const getSubmission = wrapDoc(assignmentSvc.getSubmissionCr);
 
@@ -86,6 +89,7 @@ export const createTimetable = wrapDoc(timetableSvc.createTimetableCr);
 export const getTimetable = wrapDoc(timetableSvc.getTimetableCr);
 export const updateTimetable = wrapDoc(timetableSvc.updateTimetableCr);
 export const archiveTimetable = wrapDoc(timetableSvc.archiveTimetableCr);
+export const deleteTimetable = wrapDoc(timetableSvc.deleteTimetableCr);
 
 /* ---- Attendance — section ALWAYS req.user.section; code shown once at create ---- */
 export const createAttendanceSession = wrapDoc(attendanceSvc.createSession);
@@ -97,6 +101,7 @@ export const createSubject = wrapDoc(subjectSvc.createSubjectCr);
 export const getSubject = wrapDoc(subjectSvc.getSubjectCr);
 export const updateSubject = wrapDoc(subjectSvc.updateSubjectCr);
 export const archiveSubject = wrapDoc(subjectSvc.archiveSubjectCr);
+export const deleteSubject = wrapDoc(subjectSvc.deleteSubjectCr);
 
 /**
  * Pre-creates a pending student INSIDE the CR's own section.

@@ -9,7 +9,7 @@ import { Select } from '../../components/ui/Select.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive, IconClock } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash, IconClock } from '../../components/icons.jsx';
 
 const DAYS = [
   { value: 'monday', label: 'Monday' },
@@ -91,6 +91,9 @@ export default function TimetablePage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
   const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), []);
@@ -108,6 +111,21 @@ export default function TimetablePage() {
   }, [items]);
 
   if (!section) return <NoSection />;
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await crApi.timetable.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Timetable slot deleted permanently.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const confirmArchive = async () => {
     setArchiveBusy(true);
@@ -135,6 +153,7 @@ export default function TimetablePage() {
       <div className="flex shrink-0 gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
         <Button variant="ghost" size="sm" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
         <Button variant="ghost" size="sm" icon={IconArchive} aria-label={`Archive ${t.subject?.name} slot`} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(t); setArchiveError(null); }}>Archive</Button>
+        <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(t); setDeleteError(null); }}>Delete</Button>
       </div>
     </li>
   );
@@ -207,6 +226,18 @@ export default function TimetablePage() {
         onConfirm={confirmArchive}
         busy={archiveBusy}
         error={archiveError}
+        danger
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete timetable slot?"
+        body={<p><span className="font-medium">{deleteTarget?.subject?.name}</span> ({deleteTarget?.day}, {deleteTarget?.startTime}–{deleteTarget?.endTime}) will be permanently removed from the weekly timetable. This cannot be undone.</p>}
+        confirmLabel="Delete slot"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
         danger
       />
     </div>

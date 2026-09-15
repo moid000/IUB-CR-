@@ -11,7 +11,7 @@ import { Select } from '../../components/ui/Select.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Spinner } from '../../components/ui/Spinner.jsx';
-import { IconUserPlus, IconInfo } from '../../components/icons.jsx';
+import { IconUserPlus, IconTrash, IconInfo } from '../../components/icons.jsx';
 
 /**
  * Pre-create CR — backend activation model: admin creates name + email
@@ -193,6 +193,9 @@ export default function CrsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState(null);
   const [flash, showFlash] = useFlash();
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const { items, pagination, loading, error, reload } = useAdminQuery(
     () => adminApi.crs.list({ search: debouncedSearch || undefined, page, limit: 20 }),
@@ -206,6 +209,21 @@ export default function CrsPage() {
   const { items: sections } = useAdminQuery(() => adminApi.sections.list({ status: 'active' }), []);
   const { items: departments } = useAdminQuery(() => adminApi.departments.list({}), []);
   const { items: sessions } = useAdminQuery(() => adminApi.sessions.list({}), []);
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await adminApi.crs.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('CR account deleted and unlinked from their section.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const columns = [
     {
@@ -230,9 +248,14 @@ export default function CrsPage() {
     { key: 'createdAt', header: 'Created', className: 'hidden md:table-cell', render: (c) => <span className="text-slate-500">{formatDate(c.createdAt)}</span> },
     {
       key: 'actions', header: '', headerClassName: 'text-right', className: 'text-right',
-      render: (c) => !(c.section?._id ?? c.section)
-        ? <Button variant="ghost" size="sm" icon={IconUserPlus} onClick={() => setAssignTarget(c)}>Assign to section</Button>
-        : <span className="text-xs text-slate-400">Managed from Sections</span>,
+      render: (c) => (
+        <span className="inline-flex items-center gap-1">
+          {!(c.section?._id ?? c.section)
+            ? <Button variant="ghost" size="sm" icon={IconUserPlus} onClick={() => setAssignTarget(c)}>Assign to section</Button>
+            : <span className="text-xs text-slate-400">Managed from Sections</span>}
+          <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(c); setDeleteError(null); }}>Delete</Button>
+        </span>
+      ),
     },
   ];
 
@@ -280,6 +303,18 @@ export default function CrsPage() {
           onDone={() => { setAssignTarget(null); reload(); showFlash('CR assigned to section.'); }}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete CR account?"
+        body={<p><span className="font-medium text-slate-800">{deleteTarget?.name}</span> ({deleteTarget?.email}) will be permanently deleted and unlinked from their section. The person will lose access. This cannot be undone.</p>}
+        confirmLabel="Delete CR account"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
+        danger
+      />
     </>
   );
 }

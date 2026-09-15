@@ -19,12 +19,14 @@ export const adminApi = {
     create: (body) => api.post('/api/admin/departments', body), // { name, code }
     update: (id, body) => api.patch(`/api/admin/departments/${id}`, body), // { name?, code? }
     archive: (id) => api.post(`/api/admin/departments/${id}/archive`),
+    delete: (id) => api.del(`/api/admin/departments/${id}`), // hard delete; blocked while sections exist
   },
   sessions: {
     list: (params) => api.get(`/api/admin/sessions${qs(params)}`),
     create: (body) => api.post('/api/admin/sessions', body), // { name, startedAt?, endedAt?, status? }
     update: (id, body) => api.patch(`/api/admin/sessions/${id}`, body),
     archive: (id) => api.post(`/api/admin/sessions/${id}/archive`),
+    delete: (id) => api.del(`/api/admin/sessions/${id}`), // hard delete; blocked while sections exist
   },
   sections: {
     list: (params) => api.get(`/api/admin/sections${qs(params)}`), // department | session | status
@@ -35,18 +37,22 @@ export const adminApi = {
     assignCr: (sectionId, userId) => api.post(`/api/admin/sections/${sectionId}/cr`, { userId }),
     reassignCr: (sectionId, userId) => api.post(`/api/admin/sections/${sectionId}/cr/reassign`, { userId }),
     removeCr: (sectionId) => api.post(`/api/admin/sections/${sectionId}/cr/remove`),
+    delete: (id) => api.del(`/api/admin/sections/${id}`), // hard delete; blocked while CR/students/subjects exist
   },
   crs: {
     list: (params) => api.get(`/api/admin/crs${qs(params)}`), // search | section | page | limit
     precreate: (body) => api.post('/api/admin/crs', body), // { name, email, phone?, sectionId } OR { name, email, phone?, department, session, semester, sectionName }
+    delete: (id) => api.del(`/api/admin/crs/${id}`), // unlinks the CR from their section, removes the account
   },
   students: {
     list: (params) => api.get(`/api/admin/students${qs(params)}`), // search | section | department | session | page | limit
+    delete: (id) => api.del(`/api/admin/students/${id}`), // cascades submissions/marks/notifications
   },
   subjects: {
     list: (params) => api.get(`/api/admin/subjects${qs(params)}`), // search | sectionId | status | page | limit
     create: (body) => api.post('/api/admin/subjects', body), // { section, name, code, teacherName?, creditHours?, description? }
     update: (id, body) => api.patch(`/api/admin/subjects/${id}`, body),
     archive: (id) => api.post(`/api/admin/subjects/${id}/archive`),
+    delete: (id) => api.del(`/api/admin/subjects/${id}`), // hard delete; blocked while notes/assignments/timetable/assessments exist
   },
 };

@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { adminApi } from '../../api/admin.js';
-import { useAdminQuery, useDebounced } from '../../admin/hooks.js';
+import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import { formatDate } from '../../admin/format.js';
 import { DataTable } from '../../components/admin/DataTable.jsx';
 import { RegistrationBadge } from '../../components/admin/StatusBadge.jsx';
-import { PageHeader, FilterBar, FilterSelect, SearchInput } from '../../components/admin/controls.jsx';
+import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, SuccessFlash } from '../../components/admin/controls.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
-import { IconInfo } from '../../components/icons.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { IconInfo, IconTrash } from '../../components/icons.jsx';
 
 /**
  * Admin student directory — READ-ONLY.
@@ -21,6 +22,26 @@ export default function StudentsPage() {
   const [session, setSession] = useState('all');
   const [section, setSection] = useState('all');
   const [page, setPage] = useState(1);
+
+  const [flash, showFlash] = useFlash();
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await adminApi.students.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      reload();
+      showFlash('Student deleted along with their submissions and marks.');
+    } catch (err) {
+      setDeleteError(err);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const { items, pagination, loading, error, reload } = useAdminQuery(
     () => adminApi.students.list({
@@ -62,6 +83,10 @@ export default function StudentsPage() {
     },
     { key: 'registrationStatus', header: 'Account', render: (s) => <RegistrationBadge status={s.registrationStatus} emailVerified={s.emailVerified} /> },
     { key: 'createdAt', header: 'Added', className: 'hidden lg:table-cell', render: (s) => <span className="text-slate-500">{formatDate(s.createdAt)}</span> },
+    {
+      key: 'actions', header: '', headerClassName: 'text-right', className: 'text-right',
+      render: (s) => <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(s); setDeleteError(null); }}>Delete</Button>,
+    },
   ];
 
   return (
@@ -104,6 +129,20 @@ export default function StudentsPage() {
         emptyTitle="No students found"
         emptyDescription="Students appear here once their section's CR adds them. Try clearing the filters."
       />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete student?"
+        body={<p><span className="font-medium text-slate-800">{deleteTarget?.name}</span> ({deleteTarget?.email}) will be permanently deleted along with their submissions, marks, and notifications. This cannot be undone.</p>}
+        confirmLabel="Delete student"
+        onConfirm={confirmDelete}
+        busy={deleteBusy}
+        error={deleteError}
+        danger
+      />
+
+      {flash && <SuccessFlash message={flash} />}
     </>
   );
 }
