@@ -16,6 +16,8 @@ import StudentActivate from './pages/StudentActivate.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import NotFound from './pages/NotFound.jsx';
+import Terms from './pages/Terms.jsx';
+import Privacy from './pages/Privacy.jsx';
 import Forbidden from './pages/Forbidden.jsx';
 import AdminLayout from './admin/AdminLayout.jsx';
 import AdminOverview from './pages/admin/AdminOverview.jsx';
@@ -68,6 +70,8 @@ export default function App() {
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/forbidden" element={<Forbidden />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
 
             {/* Admin — nested layout with sidebar shell (UX protection only;
                 the backend remains the authorization boundary) */}

@@ -164,3 +164,41 @@ body {
   50% { opacity: 0.5; transform: scale(1.4); }
 }
 .animate-live-pulse { animation: live-pulse 1.6s ease-in-out infinite; }
+
+/* ---------- Landing V3.5 — additional product sections ---------- */
+
+/* Infinite marquee — supported file types band (pauses on hover) */
+@keyframes marquee-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee-x 30s linear infinite; }
+.animate-marquee:hover { animation-play-state: paused; }
+
+/* Traveling packet dots — workflow connectors */
+@keyframes dot-travel {
+  0% { left: 0; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { left: calc(100% - 8px); opacity: 0; }
+}
+.animate-dot-travel { animation: dot-travel 2.6s ease-in-out infinite; }
+
+/* Phone notifications — stack in, fade out, loop */
+@keyframes notif-cycle {
+  0% { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  7% { opacity: 1; transform: translateY(0) scale(1); }
+  86% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(0) scale(0.96); }
+}
+.animate-notif-1 { animation: notif-cycle 9s ease-in-out infinite; }
+.animate-notif-2 { animation: notif-cycle 9s ease-in-out infinite; animation-delay: 1.9s; }
+.animate-notif-3 { animation: notif-cycle 9s ease-in-out infinite; animation-delay: 3.8s; }
+.animate-notif-4 { animation: notif-cycle 9s ease-in-out infinite; animation-delay: 5.7s; }
+
+/* Gentle float — phone / device frames */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.animate-float { animation: float-y 6s ease-in-out infinite; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -7,7 +7,7 @@ import {
 import {
   IconGrid, IconUserSquare, IconGraduation, IconMegaphone, IconFileText,
   IconClipboard, IconQr, IconCheckCircle, IconMenu, IconX,
-  IconArrowRight, IconPlus, IconBell, IconClock, IconCheck,
+  IconArrowRight, IconPlus, IconBell, IconClock, IconCheck, IconBuilding,
 } from '../components/icons.jsx';
 
 /* ------------------------------------------------------------------ *
@@ -28,6 +28,7 @@ function useScrollTo() {
 /* =========================== NAVBAR ================================ */
 const NAV_LINKS = [
   { id: 'features', label: 'Features' },
+  { id: 'how', label: 'How it works' },
   { id: 'roles', label: 'Portals' },
   { id: 'faq', label: 'FAQ' },
 ];
@@ -321,19 +322,8 @@ function Hero() {
         </FadeIn>
       </div>
 
-      {/* trust trio */}
-      <div className="relative mx-auto mt-16 grid w-full max-w-7xl gap-6 border-t border-slate-200/70 px-4 pt-10 sm:grid-cols-3 sm:px-6 lg:px-8">
-        {[
-          { big: 'One section, one truth', small: 'Everything your CR posts — organized, searchable, permanent.' },
-          { big: 'Instant delivery', small: 'Every student is notified the moment something is posted.' },
-          { big: 'Every file type', small: 'PDFs, slides, sheets & archives — up to 10 MB each, stored in the cloud.' },
-        ].map((t, i) => (
-          <Reveal key={t.big} delay={i * 0.08}>
-            <p className="text-base font-semibold text-slate-900">{t.big}</p>
-            <p className="mt-1 text-sm text-slate-600">{t.small}</p>
-          </Reveal>
-        ))}
-      </div>
+      {/* animated stat counters */}
+      <StatsBand />
     </section>
   );
 }
@@ -468,6 +458,205 @@ function Features() {
         <Stagger className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => <FeatureCard key={f.title} {...f} />)}
         </Stagger>
+      </div>
+    </section>
+  );
+}
+
+
+/* =========================== STATS BAND ============================ *
+ *  Count-up numbers — the page's scale at a glance, zero paragraphs.
+ * */
+function CountUp({ to, suffix = '', duration = 1300 }) {
+  const ref = useRef(null);
+  const started = useRef(false);
+  const [val, setVal] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf;
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && !started.current) {
+        started.current = true;
+        const t0 = performance.now();
+        const tick = (t) => {
+          const p = Math.min((t - t0) / duration, 1);
+          setVal(Math.round(to * (1 - Math.pow(1 - p, 3))));
+          if (p < 1) raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        io.disconnect();
+      }
+    }, { threshold: 0.35 });
+    io.observe(el);
+    return () => { io.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, [to, duration]);
+
+  return <span ref={ref}>{val}{suffix}</span>;
+}
+
+const STATS = [
+  { n: 6, suffix: '', label: 'core modules' },
+  { n: 3, suffix: '', label: 'role portals' },
+  { n: 10, suffix: ' MB', label: 'per file upload' },
+  { n: 100, suffix: '%', label: 'section-isolated data' },
+];
+
+function StatsBand() {
+  return (
+    <div className="relative mx-auto mt-16 grid w-full max-w-7xl grid-cols-2 gap-8 border-t border-slate-200/70 px-4 pt-10 sm:grid-cols-4 sm:px-6 lg:px-8">
+      {STATS.map((st, i) => (
+        <Reveal key={st.label} delay={i * 0.07}>
+          <p className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+            <CountUp to={st.n} suffix={st.suffix} />
+          </p>
+          <p className="mt-1 text-sm text-slate-600">{st.label}</p>
+        </Reveal>
+      ))}
+    </div>
+  );
+}
+
+/* =========================== WORKFLOW ============================== *
+ *  Admin -> CR -> Student pipeline with packets traveling the wires.
+ * */
+function WorkflowStep({ icon: Icon, kicker, label }) {
+  return (
+    <div className="flex h-full w-full flex-col items-center rounded-2xl border border-slate-200/90 bg-white px-6 py-8 text-center shadow-[0_1px_2px_rgb(16_24_40/0.04)] transition-all duration-300 hover:-translate-y-1 hover:border-primary-200 hover:shadow-[0_18px_44px_-14px_rgb(37_99_235/0.25)]">
+      <span className="relative grid size-16 place-items-center rounded-2xl bg-primary-50 text-primary-600">
+        <span className="absolute inset-0 rounded-2xl border-2 border-primary-300 animate-live-pulse" aria-hidden="true" />
+        <Icon className="size-7 animate-icon-wiggle" />
+      </span>
+      <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-primary-600">{kicker}</p>
+      <p className="mt-1 text-sm font-semibold text-slate-900">{label}</p>
+    </div>
+  );
+}
+
+function Connector() {
+  return (
+    <div className="hidden items-center lg:flex lg:w-16" aria-hidden="true">
+      <span className="relative h-0.5 w-full rounded bg-primary-100">
+        <span className="absolute -top-[3px] left-0 size-2 rounded-full bg-primary-500 animate-dot-travel" />
+        <span className="absolute -top-[3px] left-0 size-2 rounded-full bg-sky-400 animate-dot-travel" style={{ animationDelay: '1.4s' }} />
+      </span>
+    </div>
+  );
+}
+
+function Workflow() {
+  return (
+    <section id="how" className="relative py-20 lg:py-28">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">How it works</p>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Provision. Publish. Delivered.</h2>
+        </Reveal>
+        <div className="mt-12 grid items-stretch gap-5 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+          <WorkflowStep icon={IconBuilding} kicker="Admin" label="Sets up your section & accounts" />
+          <Connector />
+          <WorkflowStep icon={IconMegaphone} kicker="CR" label="Posts once — announcements, notes, marks" />
+          <Connector />
+          <WorkflowStep icon={IconBell} kicker="Student" label="Receives everything, instantly" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ====================== INSTANT DELIVERY (PHONE) =================== *
+ *  A phone that keeps receiving — the delivery promise, animated.
+ * */
+const NOTIFS = [
+  { icon: IconMegaphone, tone: 'bg-amber-50 text-amber-600', title: 'New announcement', body: 'Quiz — Wednesday, room B-204', time: 'now' },
+  { icon: IconFileText, tone: 'bg-violet-50 text-violet-600', title: 'Notes uploaded', body: 'AI — Lecture 3.pdf', time: '1m' },
+  { icon: IconQr, tone: 'bg-primary-50 text-primary-600', title: 'Attendance live', body: 'QR session open — scan to mark', time: '2m' },
+  { icon: IconCheckCircle, tone: 'bg-emerald-50 text-emerald-600', title: 'Marks published', body: 'Assessment 1 — now visible', time: '4m' },
+];
+
+function PhoneDelivery() {
+  return (
+    <section className="relative overflow-hidden bg-slate-50/60 py-20 lg:py-28">
+      <div className="pointer-events-none absolute -left-24 bottom-0 size-[360px] rounded-full bg-sky-200/40 blur-[110px] animate-aurora-b" aria-hidden="true" />
+      <div className="relative mx-auto grid w-full max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:px-8">
+        <Reveal className="order-2 lg:order-1">
+          <div className="relative mx-auto w-[288px] sm:w-[310px]">
+            <div className="animate-float overflow-hidden rounded-[2.5rem] border-[8px] border-slate-800 bg-white shadow-[0_40px_90px_-30px_rgb(16_24_40/0.4)]">
+              <div className="flex items-center justify-between bg-slate-50/80 px-5 py-2 text-[10px] font-medium text-slate-500">
+                <span>9:41</span>
+                <span className="h-4 w-14 rounded-full bg-slate-800" aria-hidden="true" />
+                <span>PKT</span>
+              </div>
+              <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+                <IconBell className="size-4 text-primary-600 animate-icon-wiggle" />
+                <p className="text-xs font-semibold text-slate-900">Notifications</p>
+                <span className="ml-auto grid size-5 place-items-center rounded-full bg-primary-600 text-[10px] font-bold text-white">4</span>
+              </div>
+              <div className="h-[440px] space-y-2.5 p-3.5">
+                {NOTIFS.map((n, i) => (
+                  <div
+                    key={n.title}
+                    className={`flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white p-3 shadow-[0_1px_3px_rgb(16_24_40/0.05)] animate-notif-${i + 1}`}
+                  >
+                    <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${n.tone}`}>
+                      <n.icon className="size-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-slate-900">{n.title}</p>
+                      <p className="truncate text-[11px] text-slate-500">{n.body}</p>
+                    </div>
+                    <span className="text-[10px] text-slate-400">{n.time}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Reveal>
+        <div className="order-1 lg:order-2">
+          <Reveal>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">Instant delivery</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Posted once. Delivered everywhere.</h2>
+            <p className="mt-4 max-w-md text-slate-600">
+              The moment your CR posts, every student in the section sees it — announcements, files, attendance and marks, without a single forwarded message.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2.5">
+              {['No forwarding', 'No missed messages', 'Read receipts'].map((chip) => (
+                <span key={chip} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700">
+                  <IconCheck className="size-3.5 text-emerald-500" /> {chip}
+                </span>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ====================== FILE MARQUEE =============================== *
+ *  Infinite scroll of everything your class shares. Pure CSS.
+ * */
+const FILE_TYPES = ['PDF', 'DOCX', 'PPTX', 'XLSX', 'CSV', 'PNG', 'JPG', 'GIF', 'ZIP', 'RAR', '7Z', 'MP3', 'WAV', 'MP4', 'WEBM'];
+
+function FileMarquee() {
+  return (
+    <section className="relative py-14 lg:py-16" aria-label="Supported file types">
+      <div className="mx-auto mb-8 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <p className="text-center text-sm font-medium text-slate-600">
+            Every file your class shares — <span className="font-semibold text-slate-900">up to 10 MB each, stored in the cloud</span>
+          </p>
+        </Reveal>
+      </div>
+      <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
+        <div className="animate-marquee flex w-max">
+          {[...FILE_TYPES, ...FILE_TYPES].map((t, i) => (
+            <span key={i} className="mr-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold tracking-wide text-slate-600 shadow-[0_1px_2px_rgb(16_24_40/0.05)]">
+              <IconFileText className="size-3.5 text-primary-500" /> {t}
+            </span>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -640,6 +829,8 @@ function Footer() {
             </button>
           ))}
           <Link to="/login" className="text-sm text-slate-600 transition-colors hover:text-primary-600">Sign in</Link>
+          <Link to="/terms" className="text-sm text-slate-600 transition-colors hover:text-primary-600">Terms</Link>
+          <Link to="/privacy" className="text-sm text-slate-600 transition-colors hover:text-primary-600">Privacy</Link>
         </nav>
         <p className="text-xs text-slate-500">© 2026 IUB Class Management. All rights reserved.</p>
       </div>
@@ -655,6 +846,9 @@ export default function Landing() {
       <main>
         <Hero />
         <Features />
+        <Workflow />
+        <PhoneDelivery />
+        <FileMarquee />
         <Roles />
         <Faq />
         <FinalCta />
