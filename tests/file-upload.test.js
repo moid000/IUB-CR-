@@ -377,6 +377,24 @@ test('G2. URL verification: http / external domain / wrong account / asset misma
   }
 });
 
+test('G2b. REAL Cloudinary shape accepted: folder:null + versioned delivery URL', async () => {
+  // live-observed production behavior (2026-09-15): when public_id carries
+  // the full path, Cloudinary omits `folder` and serves a /upload/v<digits>/ URL
+  const s = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: PDF })).json.data;
+  const fullId = `${s.folder}/${s.publicId}`;
+  const res = await confirmFile(cr1, 'cr', {
+    parentType: 'note', parentId: noteA1,
+    result: {
+      public_id: fullId, folder: null,
+      secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/v1789442495/${fullId}.pdf`,
+      resource_type: 'raw', format: 'pdf', bytes: 2048, original_filename: 'doc.pdf',
+    },
+  });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.json.data.publicId, fullId);
+  assert.equal(res.json.data.folder, s.folder);
+});
+
 test('G3. resource_type/format pairing and size verification', async () => {
   const s = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: PDF })).json.data;
   const cases = [
@@ -424,7 +442,7 @@ test('H2. 10 concurrent confirms of the same asset → exactly one entry', async
 });
 
 test('H3. per-parent attachment limit (10) enforced atomically', async () => {
-  for (let i = 0; i < 9; i++) { // note already has 1 from G0
+  for (let i = 0; i < 8; i++) { // note already has 2 (G0 + G2b)
     const s = (await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: { originalName: `f${i}.txt`, mimeType: 'text/plain' } })).json.data;
     const res = await confirmFile(cr1, 'cr', {
       parentType: 'note', parentId: noteA1,

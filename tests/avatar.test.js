@@ -179,6 +179,20 @@ test('A6. confirm verification: wrong folder / foreign URL / wrong format → 40
   })).status, 400);
 });
 
+test('A6b. REAL Cloudinary shape accepted: folder:null + versioned delivery URL', async () => {
+  // live-observed production behavior (2026-09-15)
+  const sign = (await s1.api('POST', '/api/auth/avatar/sign', { file: PNG })).json.data;
+  const fullId = `${sign.folder}/${sign.publicId}`;
+  const r = await s1.api('POST', '/api/auth/avatar/confirm', {
+    result: {
+      public_id: fullId, folder: null,
+      secure_url: `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/v1789442495/${fullId}.png`,
+      resource_type: 'image', format: 'png', bytes: 2048, original_filename: 'me.png',
+    },
+  });
+  assert.equal(r.status, 200, r.text);
+});
+
 test('A7. avatar size limit: 5 MB enforced from the Cloudinary result', async () => {
   const sign = (await s1.api('POST', '/api/auth/avatar/sign', { file: JPG })).json.data;
   assert.equal((await s1.api('POST', '/api/auth/avatar/confirm', {

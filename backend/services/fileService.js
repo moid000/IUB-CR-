@@ -233,7 +233,9 @@ export async function confirmUpload(req) {
   };
 
   // 1. exact authorized namespace — folder AND publicId must be ours
-  if (folder !== expectedFolder) await reject('folder_mismatch');
+  // Cloudinary returns folder:null when public_id carries the full path —
+  // the namespace is then proven by the publicId prefix checks below.
+  if (folder && folder !== expectedFolder) await reject('folder_mismatch');
   if (!publicId.startsWith(`${expectedFolder}/`)) await reject('publicId_mismatch');
   const suffix = publicId.slice(expectedFolder.length + 1);
   if (!new RegExp(`^${parentType}-[0-9a-f]{24}-${PUBLIC_ID_RE.source.replace(/^\^|\$$/g, '')}$`).test(suffix)) {
@@ -247,8 +249,11 @@ export async function confirmUpload(req) {
   // 3. HTTPS URL on OUR Cloudinary account, pointing at this exact asset
   const accountPrefix = `https://res.cloudinary.com/${cloudName}/`;
   if (!secureUrl.startsWith(accountPrefix)) await reject('url_not_account');
+  // real delivery URLs carry a version segment (/upload/v<digits>/) — normalize
+  // it away so the URL is compared to the exact asset path
+  const normalizedUrl = secureUrl.replace(/\/upload\/v\d+\//, '/upload/');
   const expectedUrlSuffix = `/upload/${publicId}.${format}`;
-  if (!secureUrl.endsWith(expectedUrlSuffix)) await reject('url_asset_mismatch');
+  if (!normalizedUrl.endsWith(expectedUrlSuffix)) await reject('url_asset_mismatch');
 
   // 4. size from the CLOUDINARY result — never a client-declared number
   if (!Number.isFinite(bytes) || bytes <= 0) await reject('missing_size');
@@ -273,7 +278,7 @@ export async function confirmUpload(req) {
     resourceType,
     format,
     mimeType: type.mime,
-    folder,
+    folder: folder || expectedFolder,
     originalName,
     size: bytes,                // verified from the Cloudinary result
     uploadedBy: req.user._id,   // server-derived — never client input
@@ -438,7 +443,9 @@ export async function confirmAvatarUpload(req) {
     throw new ApiError(400, 'Invalid upload result');
   };
 
-  if (folder !== expectedFolder) await reject('folder_mismatch');
+  // Cloudinary returns folder:null when public_id carries the full path —
+  // the namespace is then proven by the publicId prefix checks below.
+  if (folder && folder !== expectedFolder) await reject('folder_mismatch');
   if (!publicId.startsWith(`${expectedFolder}/`)) await reject('publicId_mismatch');
   const suffix = publicId.slice(expectedFolder.length + 1);
   if (!new RegExp(`^avatar-${userId}-${PUBLIC_ID_RE.source.replace(/^\^|\$$/g, '')}$`).test(suffix)) {
@@ -450,7 +457,9 @@ export async function confirmAvatarUpload(req) {
 
   const accountPrefix = `https://res.cloudinary.com/${cloudName}/`;
   if (!secureUrl.startsWith(accountPrefix)) await reject('url_not_account');
-  if (!secureUrl.endsWith(`/upload/${publicId}.${format}`)) await reject('url_asset_mismatch');
+  // real delivery URLs carry a version segment (/upload/v<digits>/) — normalize
+  const normalizedUrl = secureUrl.replace(/\/upload\/v\d+\//, '/upload/');
+  if (!normalizedUrl.endsWith(`/upload/${publicId}.${format}`)) await reject('url_asset_mismatch');
 
   if (!Number.isFinite(bytes) || bytes <= 0) await reject('missing_size');
   if (bytes > MAX_AVATAR_BYTES) await reject('file_too_large');
@@ -460,7 +469,7 @@ export async function confirmAvatarUpload(req) {
 
   const fileMeta = {
     publicId, url: secureUrl, resourceType: 'image', format,
-    mimeType: type.mime, folder, originalName, size: bytes,
+    mimeType: type.mime, folder: folder || expectedFolder, originalName, size: bytes,
     uploadedBy: req.user._id,
   };
 
