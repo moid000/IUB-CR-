@@ -5,30 +5,18 @@ import { studentApi } from '../../api/student.js';
 import { formatDate, formatDateTime } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
+import { StatCard } from '../../components/ui/StatCard.jsx';
+import { MiniEmpty } from '../../components/ui/MiniEmpty.jsx';
+import { Stagger } from '../../components/motion/primitives.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import {
   IconBook, IconClipboard, IconCalendar, IconBell, IconQr,
-  IconArrowRight, IconClock,
+  IconArrowRight, IconClock, IconMegaphone, IconCheckCircle,
 } from '../../components/icons.jsx';
 
 const TZ = 'Asia/Karachi';
 
-function StatCard({ to, icon: Icon, label, value, hint }) {
-  return (
-    <Link
-      to={to}
-      className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift"
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-        <Icon className="size-4 text-primary-500" />
-      </div>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
-      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
-    </Link>
-  );
-}
 
 /**
  * Student dashboard — every number comes from a REAL backend count. Nothing
@@ -122,11 +110,11 @@ export default function StudentOverview() {
         </div>
       ) : (
         <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-          <StaggerItem><StatCard to="/student/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} /></StaggerItem>
-          <StaggerItem><StatCard to="/student/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} hint="published for your section" /></StaggerItem>
-          <StaggerItem><StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} /></StaggerItem>
-          <StaggerItem><StatCard to="/student/attendance" icon={IconQr} label="Attendance" value={counts.attendance ?? '—'} hint="sessions attended" /></StaggerItem>
-          <StaggerItem><StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" /></StaggerItem>
+          StatCard to="/student/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
+          StatCard to="/student/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} hint="published for your section" />
+          StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
+          StatCard to="/student/attendance" icon={IconQr} label="Attendance" value={counts.attendance ?? '—'} hint="sessions attended" />
+          StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
         </Stagger>
       )}
 
@@ -141,9 +129,7 @@ export default function StudentOverview() {
           </div>
           <div className="mt-3 space-y-2">
             {recent.todayClasses.length === 0 ? (
-              <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                Aaj koi class set nahi — CR update karega.
-              </p>
+              <MiniEmpty icon={IconCalendar} text="No classes scheduled for today — your CR publishes the daily schedule." />
             ) : recent.todayClasses.map((c) => (
               <div key={c._id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
                 <div className="min-w-0">
@@ -169,9 +155,7 @@ export default function StudentOverview() {
           </div>
           <div className="mt-3 space-y-2">
             {recent.assignments.length === 0 ? (
-              <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                No upcoming deadlines right now.
-              </p>
+              <MiniEmpty icon={IconCheckCircle} text="No upcoming deadlines — you're all caught up." />
             ) : recent.assignments.map((a) => (
               <Link key={a._id} to="/student/assignments" className="block rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 transition-colors hover:bg-slate-100/70">
                 <div className="flex items-center justify-between gap-3">
@@ -199,9 +183,7 @@ export default function StudentOverview() {
         </div>
         <div className="mt-3 space-y-2">
           {recent.announcements.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-              No announcements yet.
-            </p>
+            <MiniEmpty icon={IconMegaphone} text="No announcements yet — your CR's posts will appear here." />
           ) : recent.announcements.map((a) => (
             <div key={a._id} className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
               <div className="flex items-start justify-between gap-3">

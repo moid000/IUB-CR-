@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
+import { SkeletonRows } from '../ui/Skeleton.jsx';
 import { Modal } from '../ui/Modal.jsx';
 import { Button } from '../ui/Button.jsx';
-import { Spinner } from '../ui/Spinner.jsx';
 import { Alert } from '../ui/Alert.jsx';
 import { FileUploader } from './FileUploader.jsx';
 import { FileList } from './FileList.jsx';
@@ -73,7 +73,7 @@ export function AttachModal({
       footer={<Button variant="secondary" onClick={onClose}>Done</Button>}
     >
       {(loading && !item) ? (
-        <div className="flex items-center justify-center py-10" role="status"><Spinner /></div>
+        <SkeletonRows rows={3} />
       ) : error ? (
         <Alert variant="danger">
           <p className="font-medium">{error.message}</p>

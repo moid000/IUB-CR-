@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SkeletonRows } from '../../components/ui/Skeleton.jsx';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
@@ -7,10 +8,10 @@ import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
+import { Textarea } from '../../components/ui/Textarea.jsx';
 import { Select } from '../../components/ui/Select.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconClipboard, IconArrowRight, IconPaperclip } from '../../components/icons.jsx';
@@ -78,16 +79,7 @@ function AssignmentForm({ open, onClose, initial, subjects, onSaved }) {
             value={deadline} onChange={(e) => setDeadline(e.target.value)}
             hint="Shown to students in Pakistan time (PKT)." error={errors.deadline ?? fieldErrors?.deadline ?? null}
           />
-          <div>
-            <label htmlFor="asg-instructions" className="mb-1.5 block text-sm font-medium text-slate-700">Instructions (optional)</label>
-            <textarea
-              id="asg-instructions" rows="4" value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              className="block w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-300 focus:border-primary-500"
-              placeholder="What should students submit, and how?"
-            />
-            {fieldErrors?.instructions && <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">{fieldErrors.instructions}</p>}
-          </div>
+          <Textarea id="asg-instructions" rows={4} label="Instructions (optional)" value={instructions} onChange={(e) => setInstructions(e.target.value)} error={fieldErrors?.instructions} placeholder="What should students submit, and how?" />
         </>
       )}
     </FormModal>
@@ -115,7 +107,7 @@ function SubmissionsModal({ open, onClose, assignment }) {
       {error ? (
         <Alert variant="danger">{error.message}</Alert>
       ) : items === null ? (
-        <div className="grid place-items-center py-8" role="status" aria-label="Loading submissions"><Spinner className="size-6 text-primary-500" /></div>
+        <SkeletonRows rows={4} />
       ) : items.length === 0 ? (
         <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No submissions yet.</p>
       ) : (

@@ -108,7 +108,7 @@ export default function NotificationsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className={`text-sm ${n.read ? 'font-medium text-slate-700' : 'font-semibold text-slate-900'}`}>{n.title}</p>
                     {!n.read && <span className="rounded-full bg-primary-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">New</span>}
-                    {n.type && <Badge variant="gray">{TYPE_LABELS[n.type] ?? n.type}</Badge>}
+                    {n.type && <Badge variant="neutral">{TYPE_LABELS[n.type] ?? n.type}</Badge>}
                   </div>
                   {n.message && <p className="mt-0.5 text-sm text-slate-600">{n.message}</p>}
                   <p className="mt-1 text-xs text-slate-400">{formatDateTime(n.createdAt)} PKT · {timeAgo(n.createdAt)}</p>

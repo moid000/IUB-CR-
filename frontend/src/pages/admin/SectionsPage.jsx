@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SkeletonRows } from '../../components/ui/Skeleton.jsx';
 import { adminApi } from '../../api/admin.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import { formatDate } from '../../admin/format.js';
@@ -10,7 +11,6 @@ import { Input } from '../../components/ui/Input.jsx';
 import { Select } from '../../components/ui/Select.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconUserPlus, IconUserMinus, IconSwap } from '../../components/icons.jsx';
 
 const SECTION_NAME_RE = /^[A-Z0-9-]{1,16}$/;
@@ -121,7 +121,7 @@ function CrAssignDialog({ open, onClose, section, onDone }) {
           <SearchInput value={search} onChange={setSearch} placeholder="Search CRs by name or email…" label="Search CRs" />
           {actionError && <Alert variant="danger">{actionError.message}</Alert>}
           {loading ? (
-            <div className="flex justify-center py-6"><Spinner /></div>
+            <SkeletonRows rows={3} />
           ) : error ? (
             <Alert variant="danger">{error.message}</Alert>
           ) : items.length === 0 ? (

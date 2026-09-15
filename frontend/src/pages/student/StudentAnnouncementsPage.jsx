@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery } from '../../admin/hooks.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
@@ -8,7 +9,6 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconMegaphone, IconFileText } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
@@ -90,7 +90,7 @@ export default function StudentAnnouncementsPage() {
 
       <Modal open={openId != null} onClose={() => setOpenId(null)} title="Announcement">
         {detailLoading ? (
-          <div className="flex items-center justify-center py-10" role="status"><Spinner /></div>
+          <div className="space-y-3" role="status"><Skeleton className="h-5 w-2/3 rounded" /><SkeletonText lines={4} /></div>
         ) : detailError ? (
           <Alert variant="danger"><p className="font-medium">{detailError.message}</p></Alert>
         ) : detail ? (

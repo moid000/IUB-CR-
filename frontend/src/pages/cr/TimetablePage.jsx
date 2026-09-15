@@ -189,7 +189,7 @@ export default function TimetablePage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="Timetable" description={`Daily class schedule for ${section.name} — har din ka apna schedule set karein.`}>
+      <PageHeader title="Timetable" description={`Daily class schedule for ${section.name} — each day has its own slots.`}>
         <Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>Add class</Button>
       </PageHeader>
 
@@ -221,8 +221,8 @@ export default function TimetablePage() {
         <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft">
           <div className="flex flex-col items-center py-10 text-center">
             <IconClock className="size-10 text-slate-300" />
-            <h3 className="mt-3 text-sm font-semibold text-slate-700">{prettyDate(date)} pe koi class set nahi.</h3>
-            <p className="mt-1 max-w-sm text-sm text-slate-500">Is din ka schedule khud set karein, ya "Copy from another day" se pehle din ka schedule le aayen.</p>
+            <h3 className="mt-3 text-sm font-semibold text-slate-700">No classes scheduled for {prettyDate(date)}.</h3>
+            <p className="mt-1 max-w-sm text-sm text-slate-500">Add this day's classes yourself, or bring a previous day's schedule over with "Copy from another day".</p>
             <div className="mt-5 flex gap-2">
               <Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>Add class</Button>
               <Button variant="secondary" icon={IconCopy} onClick={() => setCopyOpen(true)}>Copy from another day</Button>

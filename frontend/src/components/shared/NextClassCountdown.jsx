@@ -143,9 +143,9 @@ export default function NextClassCountdown({ slots, loading = false }) {
       </>
     );
   } else if (todaySlots.length === 0) {
-    body = <p className="text-sm text-slate-500">Aaj koi class set nahi — CR time table update karega.</p>;
+    body = <p className="text-sm text-slate-500">No classes scheduled for today yet — your CR updates the timetable.</p>;
   } else {
-    body = <p className="text-sm text-slate-500">Aaj ki saari classes khatam ho chuki hain ✅</p>;
+    body = <p className="text-sm text-slate-500">All of today's classes are done.</p>;
   }
 
   const isAlert = state.mode === 'upcoming' && state.start - live <= ALERT_WINDOW_MS;

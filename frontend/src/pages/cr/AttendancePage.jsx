@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SkeletonRows } from '../../components/ui/Skeleton.jsx';
 import qrcode from 'qrcode-generator';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
@@ -10,7 +11,6 @@ import { Select } from '../../components/ui/Select.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconQr, IconCopy, IconCheckCircle, IconInfo } from '../../components/icons.jsx';
 
@@ -111,7 +111,7 @@ function RecordsModal({ open, onClose, session }) {
       {error ? (
         <Alert variant="danger">{error.message}</Alert>
       ) : items === null ? (
-        <div className="grid place-items-center py-8" role="status" aria-label="Loading attendance records"><Spinner className="size-6 text-primary-500" /></div>
+        <SkeletonRows rows={4} />
       ) : items.length === 0 ? (
         <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No attendance recorded yet.</p>
       ) : (

@@ -7,6 +7,7 @@ import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
+import { Textarea } from '../../components/ui/Textarea.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash } from '../../components/icons.jsx';
@@ -63,16 +64,7 @@ function SubjectForm({ open, onClose, initial, onSaved }) {
             <Input label="Teacher (optional)" id="cr-subject-teacher" value={teacherName} onChange={(e) => setTeacherName(e.target.value)} placeholder="Dr. Ahmed" error={fieldErrors?.teacherName ?? null} />
             <Input label="Credit hours (optional)" id="cr-subject-credits" type="number" min="1" step="1" value={creditHours} onChange={(e) => setCreditHours(e.target.value)} error={errors.creditHours ?? fieldErrors?.creditHours ?? null} />
           </div>
-          <div>
-            <label htmlFor="cr-subject-description" className="mb-1.5 block text-sm font-medium text-slate-700">Description (optional)</label>
-            <textarea
-              id="cr-subject-description" rows="3" value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="block w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-300 focus:border-primary-500"
-              placeholder="Brief outline of the subject…"
-            />
-            {fieldErrors?.description && <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">{fieldErrors.description}</p>}
-          </div>
+          <Textarea id="cr-subject-description" rows={3} label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} error={fieldErrors?.description} placeholder="Brief outline of the subject…" />
         </>
       )}
     </FormModal>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SkeletonRows } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery } from '../../admin/hooks.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
@@ -9,7 +10,6 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Card } from '../../components/ui/Card.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconQr, IconClock } from '../../components/icons.jsx';
 
@@ -122,7 +122,7 @@ export default function StudentAttendancePage() {
         {sessionsError ? (
           <Alert variant="danger" className="mt-3"><p className="font-medium">{sessionsError.message}</p></Alert>
         ) : sessions == null ? (
-          <div className="flex items-center justify-center py-10" role="status" aria-label="Checking active sessions"><Spinner /></div>
+          <SkeletonRows rows={2} circle={false} />
         ) : sessions.length === 0 ? (
           <p className="mt-3 rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
             No active attendance sessions right now. Ask your CR to start one.

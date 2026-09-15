@@ -7,6 +7,7 @@ import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
+import { Textarea } from '../../components/ui/Textarea.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Checkbox } from '../../components/ui/Checkbox.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
@@ -52,19 +53,7 @@ function AnnouncementForm({ open, onClose, initial, onSaved }) {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Quiz 1 syllabus" error={errors.title ?? fieldErrors?.title ?? null}
           />
-          <div>
-            <label htmlFor="ann-content" className="mb-1.5 block text-sm font-medium text-slate-700">Content <span className="text-red-500" aria-hidden="true">*</span></label>
-            <textarea
-              id="ann-content" rows="6" value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className={`block w-full rounded-lg border bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-300 focus:border-primary-500
-                ${errors.content || fieldErrors?.content ? 'border-red-300' : 'border-slate-200'}`}
-              placeholder="Write the announcement…"
-            />
-            {(errors.content || fieldErrors?.content) && (
-              <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">{errors.content ?? fieldErrors.content}</p>
-            )}
-          </div>
+          <Textarea id="ann-content" rows={6} label="Content" required value={content} onChange={(e) => setContent(e.target.value)} error={errors.content ?? fieldErrors?.content} placeholder="Write the announcement…" />
           <Checkbox
             label="Pin this announcement"
             checked={pinned}
@@ -81,7 +70,7 @@ function ViewAnnouncementModal({ open, onClose, item }) {
     <Modal open={open} onClose={onClose} title={item?.title ?? 'Announcement'} className="max-w-lg">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <Badge variant="gray">{item?.author?.name ?? 'CR'}</Badge>
+          <Badge variant="neutral">{item?.author?.name ?? 'CR'}</Badge>
           <span>{formatDate(item?.createdAt)}</span>
           <StatusBadge status={item?.status} />
           {item?.pinned && <Badge variant="primary">Pinned</Badge>}

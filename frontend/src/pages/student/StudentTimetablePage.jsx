@@ -91,8 +91,8 @@ export default function StudentTimetablePage() {
       ) : slots.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-6 py-14 text-center">
           <div className="mb-3 flex justify-center text-slate-300"><IconCalendar className="size-10" /></div>
-          <h3 className="text-sm font-semibold text-slate-700">{prettyDate(date)} pe koi class set nahi.</h3>
-          <p className="mt-1 text-sm text-slate-500">{isToday ? 'Aap ka CR aaj ka schedule update karega.' : 'Is din CR ne koi class set nahi ki.'}</p>
+          <h3 className="text-sm font-semibold text-slate-700">No classes scheduled for {prettyDate(date)}.</h3>
+          <p className="mt-1 text-sm text-slate-500">{isToday ? 'Your CR will publish today\'s schedule here.' : 'Your CR didn\'t schedule any classes for this day.'}</p>
         </div>
       ) : (
         <ul className="space-y-3">

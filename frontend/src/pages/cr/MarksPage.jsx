@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SkeletonColumns } from '../../components/ui/Skeleton.jsx';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useFlash } from '../../admin/hooks.js';
@@ -9,7 +10,6 @@ import { Input } from '../../components/ui/Input.jsx';
 import { Select } from '../../components/ui/Select.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { PageHeader, FilterBar, FilterSelect, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconCheckCircle, IconArchive, IconTrash, IconInfo } from '../../components/icons.jsx';
@@ -201,7 +201,7 @@ function MarksModal({ open, onClose, assessment, onFinalized }) {
       {error ? (
         <Alert variant="danger">{error.message}</Alert>
       ) : !data ? (
-        <div className="grid place-items-center py-8" role="status" aria-label="Loading marks"><Spinner className="size-6 text-primary-500" /></div>
+        <SkeletonColumns rows={4} />
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -402,7 +402,7 @@ export default function MarksPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-slate-900">{a.title}</p>
                     <AssessmentStatus status={a.status} />
-                    <Badge variant="gray">{a.type}</Badge>
+                    <Badge variant="neutral">{a.type}</Badge>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">
                     {a.subject?.name ?? '—'} · {a.totalMarks} marks · {formatDate(a.assessmentDate)}

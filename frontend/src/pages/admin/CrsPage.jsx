@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SkeletonRows } from '../../components/ui/Skeleton.jsx';
 import { adminApi } from '../../api/admin.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import { formatDate } from '../../admin/format.js';
@@ -10,7 +11,6 @@ import { Input } from '../../components/ui/Input.jsx';
 import { Select } from '../../components/ui/Select.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { IconUserPlus, IconTrash, IconInfo } from '../../components/icons.jsx';
 
 /**
@@ -155,7 +155,7 @@ function AssignToSectionDialog({ open, onClose, cr, onDone }) {
         <div className="space-y-3">
           {actionError && <Alert variant="danger">{actionError.message}</Alert>}
           {loading ? (
-            <div className="flex justify-center py-6"><Spinner /></div>
+            <SkeletonRows rows={3} />
           ) : error ? (
             <Alert variant="danger">{error.message}</Alert>
           ) : freeSections.length === 0 ? (

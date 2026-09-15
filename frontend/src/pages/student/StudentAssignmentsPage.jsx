@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery, useFlash } from '../../admin/hooks.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
@@ -8,7 +9,6 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
-import { Spinner } from '../../components/ui/Spinner.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconClipboard } from '../../components/icons.jsx';
 import { FileUploader } from '../../components/files/FileUploader.jsx';
@@ -261,7 +261,7 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
   return (
     <Modal open onClose={onClose} title="Assignment" className="sm:max-w-2xl">
       {loading ? (
-        <div className="flex items-center justify-center py-12" role="status"><Spinner /></div>
+        <div className="space-y-4" role="status"><Skeleton className="h-6 w-3/4 rounded" /><SkeletonText lines={5} /></div>
       ) : loadError ? (
         <Alert variant="danger"><p className="font-medium">{loadError.message}</p></Alert>
       ) : assignment ? (
@@ -337,7 +337,7 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
                   value={textAnswer}
                   onChange={(e) => setTextAnswer(e.target.value)}
                   placeholder="Type your answer here…"
-                  className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                  className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-colors hover:border-slate-300 focus:border-primary-500"
                   aria-describedby={saveError ? 'submission-error' : undefined}
                 />
               </div>

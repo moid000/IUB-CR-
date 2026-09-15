@@ -100,3 +100,35 @@ export function SkeletonDashboard({ stats = 4 }) {
     </div>
   );
 }
+
+/** Compact plain rows — leading circle + text lines; for lists inside modals. */
+export function SkeletonRows({ rows = 4, circle = true, className = '' }) {
+  return (
+    <div className={`space-y-3 ${className}`} role="status" aria-label="Loading list">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          {circle && <div className="skeleton-shimmer size-9 shrink-0 rounded-full" />}
+          <div className="flex-1 space-y-2">
+            <div className="skeleton-shimmer h-3.5 rounded w-3/5" />
+            <div className="skeleton-shimmer h-3 rounded w-2/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Compact table-shaped rows — for tabular content inside cards. */
+export function SkeletonColumns({ rows = 5, className = '' }) {
+  return (
+    <div className={`space-y-3 ${className}`} role="status" aria-label="Loading table">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4">
+          <div className="skeleton-shimmer h-4 flex-1 rounded" />
+          <div className="skeleton-shimmer hidden h-4 w-24 rounded sm:block" />
+          <div className="skeleton-shimmer h-4 w-16 rounded" />
+        </div>
+      ))}
+    </div>
+  );
+}

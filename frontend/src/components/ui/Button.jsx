@@ -20,6 +20,8 @@ export function Button({
       'bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 shadow-sm disabled:bg-primary-600/50',
     secondary:
       'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 active:bg-slate-100 shadow-sm',
+    outline:
+      'bg-transparent text-slate-700 border border-slate-300 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100',
     ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 active:bg-slate-200',
     danger: 'bg-danger text-white hover:bg-red-700 active:bg-red-800 shadow-sm',
   };
@@ -28,12 +30,14 @@ export function Button({
     md: 'h-11 px-4 text-sm gap-2',
     lg: 'h-12 px-5 text-base gap-2',
   };
+  // Icon-only buttons stay square and carry their name via aria-label.
+  const iconOnly = !children && Boolean(Icon);
   const isDisabled = disabled || loading;
   return (
     <MotionButton
       className={`inline-flex items-center justify-center rounded-lg font-medium transition-colors
         focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed
-        disabled:opacity-60 ${variants[variant] ?? variants.primary} ${sizes[size] ?? sizes.md} ${className}`}
+        disabled:opacity-60 ${variants[variant] ?? variants.primary} ${iconOnly ? `${sizes[size] ?? sizes.md} !px-0 ${size === 'sm' ? 'w-9' : size === 'lg' ? 'w-12' : 'w-11'} aspect-square` : sizes[size] ?? sizes.md} ${className}`}
       disabled={isDisabled}
       aria-busy={loading || undefined}
       /* Subtle, consistent feedback — 1px lift on hover, a hair under 1 on press.

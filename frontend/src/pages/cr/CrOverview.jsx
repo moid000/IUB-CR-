@@ -6,6 +6,9 @@ import { useAdminQuery } from '../../admin/hooks.js';
 import { formatDate, formatDateTime, timeAgo } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
+import { StatCard } from '../../components/ui/StatCard.jsx';
+import { MiniEmpty } from '../../components/ui/MiniEmpty.jsx';
+import { Stagger } from '../../components/motion/primitives.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
@@ -16,21 +19,7 @@ import {
 
 const TZ = 'Asia/Karachi';
 
-function StatCard({ to, icon: Icon, label, value, hint }) {
-  return (
-    <Link
-      to={to}
-      className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift"
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-        <Icon className="size-4 text-primary-500" />
-      </div>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
-      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
-    </Link>
-  );
-}
+
 
 export default function CrOverview() {
   const { user } = useAuth();
@@ -119,11 +108,11 @@ export default function CrOverview() {
         </div>
       ) : (
         <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-          <StaggerItem><StatCard to="/cr/students" icon={IconUsers} label="Students" value={counts.students ?? '—'} /></StaggerItem>
-          <StaggerItem><StatCard to="/cr/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} /></StaggerItem>
-          <StaggerItem><StatCard to="/cr/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} /></StaggerItem>
-          <StaggerItem><StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} /></StaggerItem>
-          <StaggerItem><StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" /></StaggerItem>
+          <StatCard to="/cr/students" icon={IconUsers} label="Students" value={counts.students ?? '—'} />
+          <StatCard to="/cr/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
+          <StatCard to="/cr/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} />
+          <StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
+          <StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
         </Stagger>
       )}
 
@@ -139,9 +128,7 @@ export default function CrOverview() {
           {!loaded ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
           ) : recent.todayClasses.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-              Aaj koi class set nahi — timetable page se add karein.
-            </p>
+            <MiniEmpty icon={IconCalendar} text="No classes scheduled for today — add your first slot from the timetable." />
           ) : (
             <ul className="space-y-2">
               {recent.todayClasses.map((t) => (
@@ -171,7 +158,7 @@ export default function CrOverview() {
           {!loaded ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
           ) : recent.announcements.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No announcements yet.</p>
+            <MiniEmpty icon={IconMegaphone} text="No announcements yet — everything you publish here reaches your section." />
           ) : (
             <ul className="space-y-2">
               {recent.announcements.map((a) => (
@@ -199,7 +186,7 @@ export default function CrOverview() {
         {!loaded ? (
           <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
         ) : recent.assignments.length === 0 ? (
-          <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No assignments created yet.</p>
+          <MiniEmpty icon={IconClipboard} text="No assignments yet — publish one and your section is notified automatically." />
         ) : (
           <ul className="divide-y divide-slate-100">
             {recent.assignments.map((a) => (

@@ -111,7 +111,7 @@ export default function StudentsPage() {
         <div className="space-x-1.5 space-y-1.5 whitespace-nowrap">
           <StatusBadge status={s.registrationStatus} />
           {s.registrationStatus === 'active' && !s.emailVerified && (
-            <Badge variant="gray">Email unverified</Badge>
+            <Badge variant="neutral">Email unverified</Badge>
           )}
         </div>
       ),

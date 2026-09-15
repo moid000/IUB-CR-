@@ -23,10 +23,27 @@ export function Modal({ open, onClose, title, children, footer = null, className
     const firstField = dialogRef.current?.querySelector('input, select, textarea');
     (firstField ?? dialogRef.current?.querySelector('button, [href]'))?.focus();
     const onKey = (e) => { if (e.key === 'Escape') onCloseRef.current?.(); };
+    // Focus trap — Tab (and Shift+Tab) cycle within the dialog only.
+    const onTab = (e) => {
+      if (e.key !== 'Tab') return;
+      const focusables = dialogRef.current?.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusables || focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+        e.preventDefault(); first.focus();
+      }
+    };
     document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onTab);
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onTab);
       document.body.style.overflow = '';
       previouslyFocused.current?.focus?.();
     };

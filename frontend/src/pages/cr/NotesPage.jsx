@@ -7,6 +7,7 @@ import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
+import { Textarea } from '../../components/ui/Textarea.jsx';
 import { Select } from '../../components/ui/Select.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
@@ -55,16 +56,7 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
             {activeSubjects.map((s) => <option key={s._id} value={s._id}>{s.code} — {s.name}</option>)}
             {activeSubjects.length === 0 && <option value="" disabled>No active subjects — create a subject first.</option>}
           </Select>
-          <div>
-            <label htmlFor="note-content" className="mb-1.5 block text-sm font-medium text-slate-700">Content (optional)</label>
-            <textarea
-              id="note-content" rows="6" value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="block w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-300 focus:border-primary-500"
-              placeholder="Write the note… files can be attached after saving."
-            />
-            {fieldErrors?.content && <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">{fieldErrors.content}</p>}
-          </div>
+          <Textarea id="note-content" rows={6} label="Content (optional)" value={content} onChange={(e) => setContent(e.target.value)} error={fieldErrors?.content} placeholder="Write the note… files can be attached after saving." />
         </>
       )}
     </FormModal>
@@ -77,7 +69,7 @@ function ViewNoteModal({ open, onClose, item }) {
     <Modal open={open} onClose={onClose} title={item?.title ?? 'Note'} className="max-w-lg">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          {subjectName && <Badge variant="gray">{subjectName}</Badge>}
+          {subjectName && <Badge variant="neutral">{subjectName}</Badge>}
           <StatusBadge status={item?.status} />
           <span>{timeAgo(item?.createdAt)}</span>
         </div>
@@ -206,7 +198,7 @@ export default function NotesPage() {
                 <button type="button" onClick={() => setViewTarget(n)} className="min-w-0 flex-1 text-left">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-slate-900">{n.title}</p>
-                    {n.subject?.name && <Badge variant="gray">{n.subject.name}</Badge>}
+                    {n.subject?.name && <Badge variant="neutral">{n.subject.name}</Badge>}
                     <StatusBadge status={n.status} />
                   </div>
                   {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
