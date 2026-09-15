@@ -17,3 +17,7 @@ const wrap = (fn) => async (req, res, next) => {
 
 export const signFileUpload = wrap(fileSvc.signUpload);
 export const confirmFileUpload = wrap(fileSvc.confirmUpload);
+export const removeFileUpload = wrap(fileSvc.removeAttachment);
+export const signAvatarUpload = wrap(fileSvc.signAvatarUpload);
+export const confirmAvatarUpload = wrap(fileSvc.confirmAvatarUpload);
+export const removeAvatar = wrap(fileSvc.removeAvatar);

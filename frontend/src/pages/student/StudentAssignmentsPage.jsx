@@ -10,7 +10,12 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Spinner } from '../../components/ui/Spinner.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
-import { IconClipboard, IconFileText } from '../../components/icons.jsx';
+import { IconClipboard } from '../../components/icons.jsx';
+import { FileUploader } from '../../components/files/FileUploader.jsx';
+import { FileList } from '../../components/files/FileList.jsx';
+import {
+  ACCEPT_ATTR, MAX_FILE_BYTES, formatBytes, matchType, uploadToCloudinary,
+} from '../../api/upload.js';
 
 const FILTERS = ['All', 'Pending', 'Submitted', 'Overdue'];
 
@@ -139,9 +144,10 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
   const [textAnswer, setTextAnswer] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
-  const [uploading, setUploading] = useState(null); // { name, progress }
-  const [uploadError, setUploadError] = useState(null);
-  const [maxBytes, setMaxBytes] = useState(null);
+  const [pending, setPending] = useState([]); // files chosen BEFORE the first submit
+  const [removingFileId, setRemovingFileId] = useState(null);
+  const [pendingNotice, setPendingNotice] = useState(null);
+  const [afterUpload, setAfterUpload] = useState(null); // { done, failed } summary
 
   const load = async () => {
     setLoading(true);
@@ -168,17 +174,39 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
     e.preventDefault();
     setSaveError(null);
     const hasPriorFiles = (submission?.files?.length ?? 0) > 0;
-    if (!textAnswer.trim() && !hasPriorFiles) {
-      setSaveError('Write your answer, or attach a file after your first submission.');
+    const files = [...pending]; // snapshot
+    if (!textAnswer.trim() && !hasPriorFiles && files.length === 0) {
+      setSaveError('Write your answer, or attach at least one file.');
       return;
     }
     setSaving(true);
+    setAfterUpload(null);
     try {
       const isNew = !submission;
-      await studentApi.assignments.submit(assignmentId, { textAnswer: textAnswer.trim() || null });
-      const sub = (await studentApi.assignments.submission(assignmentId))?.data ?? null;
+      await studentApi.assignments.submit(assignmentId, {
+        textAnswer: textAnswer.trim() || null,
+        // server accepts a file-only FIRST submission when we declare intent
+        ...(isNew && !textAnswer.trim() && files.length > 0 ? { pendingFiles: files.length } : {}),
+      });
+      let sub = (await studentApi.assignments.submission(assignmentId))?.data ?? null;
       setSubmission(sub);
-      onSaved(isNew ? 'Assignment submitted.' : 'Submission updated.');
+
+      // The flow completes now: selected files upload against the fresh submission.
+      if (isNew && files.length > 0 && sub?._id) {
+        const failures = [];
+        for (const f of files) {
+          try { await uploadOne(sub._id, f); } catch { failures.push(f); }
+        }
+        setPending(failures);
+        sub = (await studentApi.assignments.submission(assignmentId))?.data ?? null;
+        setSubmission(sub);
+        const doneCount = files.length - failures.length;
+        setAfterUpload({ done: doneCount, failed: failures.length });
+        if (failures.length === 0) onSaved(`Assignment submitted with ${files.length} file${files.length === 1 ? '' : 's'}.`);
+        else onSaved('Assignment submitted — some files could not be attached.');
+      } else {
+        onSaved(isNew ? 'Assignment submitted.' : 'Submission updated.');
+      }
     } catch (err) {
       setSaveError(err);
     } finally {
@@ -186,56 +214,48 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
     }
   };
 
-  const attachFile = async (file) => {
-    if (!file) return;
-    setUploadError(null);
-    setUploading({ name: file.name, progress: 0 });
+  const refreshSubmission = async () => {
+    try { setSubmission((await studentApi.assignments.submission(assignmentId))?.data ?? null); } catch { /* keep previous */ }
+  };
+
+  /* Remove a confirmed submission file (server-side, audited). */
+  const removeSubmissionFile = async (f) => {
+    if (!submission?._id || !f.publicId) return;
+    setRemovingFileId(f._id ?? f.publicId);
+    setSaveError(null);
     try {
-      // Step 1 — server signs the upload (own submission + deadline enforced)
-      const sign = await studentApi.files.sign({
-        parentType: 'submission',
-        parentId: submission._id,
-        file: { originalName: file.name, mimeType: file.type },
-      }).then((r) => { const d = r?.data ?? null; if (d?.maxSizeBytes) setMaxBytes(d.maxSizeBytes); return d; });
-
-      // Step 2 — browser uploads DIRECTLY to Cloudinary (signed, scoped namespace)
-      const cloudResult = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', sign.uploadUrl);
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable) setUploading({ name: file.name, progress: Math.round((ev.loaded / ev.total) * 100) });
-        };
-        xhr.onload = () => {
-          try {
-            const body = JSON.parse(xhr.responseText);
-            xhr.status >= 200 && xhr.status < 300 ? resolve(body) : reject(new Error(body?.error?.message ?? 'Upload failed'));
-          } catch { reject(new Error('Upload failed')); }
-        };
-        xhr.onerror = () => reject(new Error('Upload failed'));
-        const fd = new FormData();
-        fd.append('api_key', sign.apiKey);
-        fd.append('timestamp', sign.timestamp);
-        fd.append('signature', sign.signature);
-        fd.append('folder', sign.folder);
-        fd.append('public_id', sign.publicId);
-        fd.append('file', file);
-        xhr.send(fd);
-      });
-
-      // Step 3 — server verifies + attaches the metadata (idempotent)
-      await studentApi.files.confirm({
-        parentType: 'submission',
-        parentId: submission._id,
-        result: cloudResult,
-      });
-      const sub = (await studentApi.assignments.submission(assignmentId))?.data ?? null;
-      setSubmission(sub);
-      onSaved('File attached to your submission.');
+      await studentApi.files.remove({ parentType: 'submission', parentId: submission._id, publicId: f.publicId });
+      refreshSubmission();
     } catch (err) {
-      setUploadError(err instanceof Error ? err : err?.message ? err : new Error('Upload failed'));
+      setSaveError(err);
     } finally {
-      setUploading(null);
+      setRemovingFileId(null);
     }
+  };
+
+
+  /* Files picked before the very first submit — client-side mirror of the
+     server allowlist; uploads only happen once a submission exists. */
+  const addPending = (fileList) => {
+    const files = [...fileList];
+    let notice = null;
+    for (const f of files) {
+      if (!matchType(f)) { notice = "This file type isn't supported."; continue; }
+      if (f.size > MAX_FILE_BYTES) { notice = 'File must be 10 MB or smaller.'; continue; }
+      if (pending.length + 1 > 10) { notice = 'You can attach up to 10 files.'; continue; }
+      setPending((p) => [...p, f]);
+    }
+    setPendingNotice(notice);
+  };
+
+  /* Sign → direct Cloudinary upload → confirm, against the now-existing submission. */
+  const uploadOne = async (parentId, file) => {
+    const sign = (await studentApi.files.sign({
+      parentType: 'submission', parentId,
+      file: { originalName: file.name, mimeType: file.type },
+    }))?.data;
+    const result = await uploadToCloudinary(sign, file);
+    await studentApi.files.confirm({ parentType: 'submission', parentId, result });
   };
 
   return (
@@ -268,17 +288,8 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
 
           {(assignment.attachments?.length ?? 0) > 0 && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Assignment files</p>
-              <ul className="mt-2 space-y-1.5">
-                {assignment.attachments.map((f) => (
-                  <li key={f._id ?? f.publicId}>
-                    <a href={f.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline">
-                      <IconFileText className="size-4" />{f.originalName ?? 'Attachment'}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Assignment files from your CR</p>
+              <div className="mt-2"><FileList files={assignment.attachments} /></div>
             </div>
           )}
 
@@ -292,16 +303,13 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
                 {submission.isLate && <Badge variant="warning">Late</Badge>}
               </div>
               {(submission.files?.length ?? 0) > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {submission.files.map((f) => (
-                    <li key={f._id ?? f.publicId}>
-                      <a href={f.url} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline">
-                        <IconFileText className="size-4" />{f.originalName ?? 'Attachment'}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
+                <div className="mt-2">
+                  <FileList
+                    files={submission.files}
+                    onRemove={studentApi.files?.remove ? removeSubmissionFile : null}
+                    removeBusyId={removingFileId}
+                  />
+                </div>
               )}
             </div>
           ) : (
@@ -334,37 +342,51 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
                 />
               </div>
 
-              {submission && (
+              {submission ? (
+                <FileUploader
+                  parentType="submission"
+                  parentId={submission._id}
+                  api={studentApi.files}
+                  existing={submission.files ?? []}
+                  label="Attach files to your submission"
+                  onAttached={refreshSubmission}
+                  onRemoved={refreshSubmission}
+                />
+              ) : (
                 <div>
-                  <label htmlFor="submission-file" className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Attach file (PDF, images, documents){maxBytes ? ` — max ${Math.ceil(maxBytes / 1048576)} MB` : ''}
+                  <label htmlFor="pending-files" className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Files — they upload right after you submit
                   </label>
                   <input
-                    id="submission-file"
-                    type="file"
+                    id="pending-files" type="file" multiple accept={ACCEPT_ATTR}
                     className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary-700"
-                    disabled={uploading != null}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = '';
-                      if (f) attachFile(f);
-                    }}
-                    aria-describedby={uploadError ? 'upload-error' : undefined}
+                    onChange={(e) => { addPending(e.target.files ?? []); e.target.value = ''; }}
                   />
-                  {uploading && (
-                    <div className="mt-2" role="status">
-                      <p className="text-xs text-slate-500">Uploading {uploading.name}… {uploading.progress}%</p>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${uploading.progress}%` }} />
-                      </div>
-                    </div>
+                  {pendingNotice && (
+                    <p role="alert" className="mt-1.5 text-xs text-red-600">{pendingNotice}</p>
                   )}
-                  {uploadError && (
-                    <p id="upload-error" role="alert" className="mt-2 text-xs text-red-600">
-                      {uploadError.message} — the file was NOT attached.
-                    </p>
+                  {pending.length > 0 && (
+                    <ul className="mt-2 space-y-1.5" aria-label="Files waiting to upload">
+                      {pending.map((f, i) => (
+                        <li key={`${f.name}-${f.size}-${i}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2">
+                          <span className="min-w-0 truncate text-sm text-slate-700">
+                            {f.name} <span className="text-xs text-slate-400">({formatBytes(f.size)})</span>
+                          </span>
+                          <Button type="button" variant="ghost" size="sm"
+                            aria-label={`Remove ${f.name} from selection`}
+                            onClick={() => setPending((p) => p.filter((_, idx) => idx !== i))}>Remove</Button>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
+              )}
+              {afterUpload && (
+                <p role="status" className={`text-xs font-medium ${afterUpload.failed ? 'text-red-600' : 'text-emerald-600'}`}>
+                  {afterUpload.failed > 0
+                    ? `${afterUpload.failed} file${afterUpload.failed === 1 ? '' : 's'} could not be attached — retry below.`
+                    : `${afterUpload.done} file${afterUpload.done === 1 ? '' : 's'} attached.`}
+                </p>
               )}
 
               {saveError && (

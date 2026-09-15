@@ -9,7 +9,7 @@ import {
   createMark as createMarkAdmin, updateMark as updateMarkAdmin,
   bulkUpsertMarks as bulkUpsertMarksAdmin, listMarks as listMarksAdmin,
 } from '../controllers/gradingController.js';
-import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
+import { signFileUpload, confirmFileUpload, removeFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
 
@@ -100,6 +100,7 @@ router.get('/assessments/:assessmentId/marks', listMarksAdmin);
 // Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
 router.post('/files/sign', signFileUpload);
 router.post('/files/confirm', confirmFileUpload);
+router.post('/files/remove', removeFileUpload);
 
 // In-app notifications — READ-ONLY visibility; no admin mutation route exists
 router.get('/notifications', listNotificationsAdmin);

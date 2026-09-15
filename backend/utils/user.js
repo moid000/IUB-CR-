@@ -16,6 +16,15 @@ export function publicUser(user) {
     emailVerified: u.emailVerified ?? false,
     activationAt: u.activationAt ?? null,
     lastLoginAt: u.lastLoginAt ?? null,
+    // STEP 18 — minimal safe avatar projection: display fields only.
+    // publicId/folder/uploadedBy (Cloudinary internals) never leave the server.
+    avatar: u.avatar ? {
+      url: u.avatar.url ?? null,
+      format: u.avatar.format ?? null,
+      size: u.avatar.size ?? null,
+      originalName: u.avatar.originalName ?? null,
+      uploadedAt: u.avatar.createdAt ?? null,
+    } : null,
   };
 }
 

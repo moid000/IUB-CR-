@@ -12,7 +12,9 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { EmptyState } from '../../components/ui/EmptyState.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive, IconFileText } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconFileText, IconPaperclip } from '../../components/icons.jsx';
+import { FileList, FileChips } from '../../components/files/FileList.jsx';
+import { AttachModal } from '../../components/files/AttachModal.jsx';
 
 /**
  * CR notes — section-scoped, optionally linked to an ACTIVE subject of the
@@ -37,9 +39,10 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
     if (content.trim()) body.content = content.trim();
     if (subject) body.subject = subject;
 
+    let created = null;
     if (isEdit) await crApi.notes.update(initial._id, body);
-    else await crApi.notes.create(body);
-    onSaved(isEdit ? 'Note updated.' : 'Note created.');
+    else created = (await crApi.notes.create(body))?.data;
+    onSaved(isEdit ? 'Note updated.' : 'Note created.', created);
   };
 
   return (
@@ -58,7 +61,7 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
               id="note-content" rows="6" value={content}
               onChange={(e) => setContent(e.target.value)}
               className="block w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-300 focus:border-primary-500"
-              placeholder="Write the note… (attachments can be added after Cloudinary is enabled)"
+              placeholder="Write the note… files can be attached after saving."
             />
             {fieldErrors?.content && <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">{fieldErrors.content}</p>}
           </div>
@@ -79,6 +82,12 @@ function ViewNoteModal({ open, onClose, item }) {
           <span>{timeAgo(item?.createdAt)}</span>
         </div>
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{item?.content || 'No written content.'}</p>
+        {(item?.attachments?.length ?? 0) > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Attachments</p>
+            <div className="mt-2"><FileList files={item.attachments} /></div>
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -94,6 +103,7 @@ export default function NotesPage() {
   const [status, setStatus] = useState('published');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(null);
+  const [attachItem, setAttachItem] = useState(null); // attachment manager target (separate state — no close race)
   const [viewTarget, setViewTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
@@ -182,10 +192,13 @@ export default function NotesPage() {
                     <StatusBadge status={n.status} />
                   </div>
                   {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
-                  <p className="mt-2 text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
+                  <p className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                    {timeAgo(n.createdAt)} <FileChips files={n.attachments} />
+                  </p>
                 </button>
                 {n.status === 'published' && (
                   <div className="flex shrink-0 gap-1">
+                    <Button variant="ghost" size="sm" icon={IconPaperclip} onClick={() => setAttachItem(n)}>Files</Button>
                     <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: n })}>Edit</Button>
                     <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(n); setArchiveError(null); }}>Archive</Button>
                   </div>
@@ -212,7 +225,23 @@ export default function NotesPage() {
           onClose={() => setModal(null)}
           initial={modal.mode === 'edit' ? modal.item : null}
           subjects={subjects}
-          onSaved={(msg) => { showFlash(msg); reload(); }}
+          onSaved={(msg, created) => {
+            showFlash(msg);
+            reload();
+            if (modal.mode === 'create' && created?._id) setAttachItem(created); // polished flow: straight to attachments
+          }}
+        />
+      )}
+
+      {attachItem && (
+        <AttachModal
+          open
+          onClose={() => { setAttachItem(null); reload(); }}
+          parentType="note"
+          parentLabel="note"
+          fetchItem={async () => (await crApi.notes.get(attachItem._id))?.data}
+          api={crApi.files}
+          onDone={reload}
         />
       )}
 

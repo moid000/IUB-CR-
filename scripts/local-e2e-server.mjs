@@ -15,7 +15,12 @@ process.env.ADMIN_PASSWORD = 'Step14Admin!2026';
 process.env.BREVO_API_KEY = 'mock';
 process.env.BREVO_SENDER_EMAIL = 'e2e@local.test'; // mocked below — no real email is ever sent
 process.env.BREVO_SENDER_NAME = 'IUB E2E';
-process.env.ATTENDANCE_SECRET = 'local-e2e-attendance-secret'; // QR signing (503 if unset) // emails never sent locally (OTP flows not exercised here)
+process.env.ATTENDANCE_SECRET = 'local-e2e-attendance-secret';
+// Fake Cloudinary — signs are generated locally; UI E2E intercepts the
+// browser-direct upload so NO real API call is ever made.
+process.env.CLOUDINARY_CLOUD_NAME = 'e2e-cloud';
+process.env.CLOUDINARY_API_KEY = 'e2e-key-123456';
+process.env.CLOUDINARY_API_SECRET = 'e2e-secret-abcdef'; // QR signing (503 if unset) // emails never sent locally (OTP flows not exercised here)
 
 const { MongoMemoryReplSet } = await import('mongodb-memory-server');
 const mongod = await MongoMemoryReplSet.create({ replSetCount: 1 });

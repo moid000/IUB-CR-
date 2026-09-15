@@ -5,7 +5,7 @@ import AuditLog from '../models/AuditLog.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { audit } from '../utils/audit.js';
-import { normalizeEmail } from '../utils/validators.js';
+import { normalizeEmail, assertPassword } from '../utils/validators.js';
 import { AUTH_COOKIE, JWT_MAX_AGE_SECONDS } from '../utils/constants.js';
 
 const THROTTLE_WINDOW_MS = 15 * 60 * 1000;
@@ -118,4 +118,34 @@ export async function login(rawEmail, rawPassword, meta = {}) {
   });
 
   return { user, token: issueToken(user) };
+}
+
+/* ==================== STEP 18 — change password (self) =================== */
+
+/**
+ * POST /api/auth/change-password — authenticated self-service rotation.
+ * Requires the CURRENT password (re-authentication), enforces the standard
+ * password policy, and writes ONLY a bcrypt hash. The JWT session cookie is
+ * untouched — the user stays signed in. Never returns the old or new value.
+ */
+export async function changePassword(user, currentPassword, newPassword) {
+  const doc = await User.findById(user._id).select('+password');
+  if (!doc) throw new ApiError(401, 'Account no longer exists');
+
+  const ok = doc.password && await bcrypt.compare(String(currentPassword ?? ''), doc.password);
+  if (!ok) throw new ApiError(401, 'Current password is incorrect');
+
+  assertPassword(newPassword, 'new password');
+  if (String(newPassword) === String(currentPassword)) {
+    throw new ApiError(400, 'New password must be different from the current one');
+  }
+
+  doc.password = await bcrypt.hash(newPassword, 12);
+  await doc.save();
+
+  await audit({
+    actor: doc._id, actorRole: doc.role, action: 'auth.change_password',
+    entityType: 'user', entityId: doc._id,
+  });
+  return { changed: true };
 }

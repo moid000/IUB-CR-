@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { Announcement, Note, Assignment, Submission, Section } from '../models/index.js';
+import { Announcement, Note, Assignment, Submission, Section, User } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import { now } from '../utils/clock.js';
@@ -304,4 +304,211 @@ export async function confirmUpload(req) {
   });
 
   return (updated[field]).find((f) => f.publicId === publicId) ?? fileMeta;
+}
+
+/* ============================ STEP 18 — removal ========================== */
+
+/**
+ * POST /api/<role>/files/remove
+ * Detaches a CONFIRMED attachment from its parent (scoped by loadParent's
+ * role matrix) and best-effort destroys the Cloudinary asset. The destroy
+ * call is signed with the apiSecret server-side and NEVER blocks the API
+ * response on network failure (the DB removal is the authoritative part).
+ */
+export async function removeAttachment(req) {
+  const { cloudName, apiKey, apiSecret } = getConfig();
+  const parentType = v.assertEnum(String(req.body?.parentType ?? ''), Object.keys(SUPPORTED_PARENTS), 'parentType');
+  const publicId = String(req.body?.publicId ?? '').trim();
+  const { parent, def, id } = await loadParent(req, parentType, req.body?.parentId);
+  const field = def.field;
+
+  const current = parent[field] ?? [];
+  const target = current.find((f) => f.publicId === publicId);
+  if (!target) throw new ApiError(404, 'Attachment not found');
+
+  // Students may only remove their OWN submission files — loadParent already
+  // guarantees parent ownership; here the file must also belong to the caller
+  // (a CR cannot strip a file another CR confirmed — impossible cross-section,
+  // but a student's submission could theoretically hold a file confirmed by
+  // someone else; that case is denied too, by construction below).
+  if (req.user.role === 'student' && String(target.uploadedBy ?? '') !== String(req.user._id)) {
+    throw new ApiError(403, 'You can only remove your own files');
+  }
+
+  const updated = await def.Model.findOneAndUpdate(
+    { _id: id, [`${field}.publicId`]: publicId },
+    { $pull: { [field]: { publicId } } },
+    { new: true },
+  );
+  if (!updated) throw new ApiError(404, 'Attachment not found');
+
+  await auditFromReq(req, {
+    action: 'file.upload.remove', entityType: parentType, entityId: id,
+    section: parent.section, after: { parentType, publicId }, // metadata only
+  });
+
+  // Best-effort Cloudinary destroy — failures never surface internals.
+  destroyAsset({ cloudName, apiKey, apiSecret, publicId }).catch(() => {});
+  return { removed: true };
+}
+
+/**
+ * Signed Cloudinary destroy call. The signature uses the same official sha1
+ * scheme; the apiSecret never crosses the API boundary.
+ */
+export function destroyAsset({ cloudName, apiKey, apiSecret, publicId }) {
+  const timestamp = Math.floor(now() / 1000);
+  const signature = cloudinarySignature({ public_id: publicId, timestamp }, apiSecret);
+  const body = new URLSearchParams({ public_id: publicId, timestamp: String(timestamp), api_key: apiKey, signature });
+  return fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+}
+
+/* ============================ STEP 18 — avatar =========================== */
+
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5 MB — avatars only
+const AVATAR_TYPES = ALLOWED_TYPES.filter((t) => t.resourceType === 'image');
+
+function avatarFolder(userId) {
+  return `${NAMESPACE}/avatar/${String(userId)}`;
+}
+
+function avatarPublicId(userId) {
+  return `${avatarFolder(userId)}/avatar-${String(userId)}-${crypto.randomBytes(6).toString('hex')}`;
+}
+
+/**
+ * POST /api/auth/avatar/sign — any authenticated user, self ONLY.
+ * The client never supplies userId/folder/publicId; everything derives from
+ * req.user. Images only, 5 MB max.
+ */
+export async function signAvatarUpload(req) {
+  const { cloudName, apiKey, apiSecret } = getConfig();
+  const userId = String(req.user._id);
+  const type = assertTypePair(req.body?.file?.originalName, req.body?.file?.mimeType);
+  if (type.resourceType !== 'image') throw new ApiError(400, 'Profile pictures must be PNG, JPG, JPEG or WEBP');
+
+  const timestamp = Math.floor(now() / 1000);
+  const folder = avatarFolder(userId);
+  const publicId = avatarPublicId(userId);
+  const signature = cloudinarySignature({ folder, public_id: publicId, timestamp }, apiSecret);
+
+  await auditFromReq(req, {
+    action: 'avatar.upload.signature', entityType: 'user', entityId: userId,
+    after: { resourceType: 'image' },
+  });
+
+  return {
+    cloudName, apiKey, timestamp, signature, folder, publicId,
+    resourceType: 'image',
+    uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+    maxSizeBytes: MAX_AVATAR_BYTES,
+  };
+}
+
+/**
+ * POST /api/auth/avatar/confirm — verifies the upload against the SAME
+ * invariants as academic files, then atomically REPLACES req.user.avatar.
+ * Replacing an existing avatar destroys the superseded asset (best-effort).
+ */
+export async function confirmAvatarUpload(req) {
+  const { cloudName, apiKey, apiSecret } = getConfig();
+  const userId = String(req.user._id);
+
+  const result = req.body?.result ?? {};
+  const publicId = String(result.public_id ?? '').trim();
+  const folder = String(result.folder ?? '').trim();
+  const secureUrl = String(result.secure_url ?? '').trim();
+  const resourceType = String(result.resource_type ?? '').trim().toLowerCase();
+  const format = String(result.format ?? '').trim().toLowerCase();
+  const bytes = Number(result.bytes);
+
+  const expectedFolder = avatarFolder(userId);
+  const reject = async (reason) => {
+    await auditFromReq(req, {
+      action: 'avatar.upload.reject', entityType: 'user', entityId: userId, reason,
+    });
+    throw new ApiError(400, 'Invalid upload result');
+  };
+
+  if (folder !== expectedFolder) await reject('folder_mismatch');
+  if (!publicId.startsWith(`${expectedFolder}/`)) await reject('publicId_mismatch');
+  const suffix = publicId.slice(expectedFolder.length + 1);
+  if (!new RegExp(`^avatar-${userId}-${PUBLIC_ID_RE.source.replace(/^\^|\$$/g, '')}$`).test(suffix)) {
+    await reject('publicId_pattern');
+  }
+
+  const type = AVATAR_TYPES.find((t) => t.ext === format);
+  if (!type || resourceType !== 'image') await reject('type_not_allowed');
+
+  const accountPrefix = `https://res.cloudinary.com/${cloudName}/`;
+  if (!secureUrl.startsWith(accountPrefix)) await reject('url_not_account');
+  if (!secureUrl.endsWith(`/upload/${publicId}.${format}`)) await reject('url_asset_mismatch');
+
+  if (!Number.isFinite(bytes) || bytes <= 0) await reject('missing_size');
+  if (bytes > MAX_AVATAR_BYTES) await reject('file_too_large');
+
+  const rawName = String(result.original_filename ?? '').trim();
+  const originalName = rawName.slice(Math.max(0, rawName.lastIndexOf('/') + 1)).slice(0, 255) || `avatar.${format}`;
+
+  const fileMeta = {
+    publicId, url: secureUrl, resourceType: 'image', format,
+    mimeType: type.mime, folder, originalName, size: bytes,
+    uploadedBy: req.user._id,
+  };
+
+  // capture the SUPPLANTED avatar first (replaced asset = cleanup target)
+  const before = await User.findById(req.user._id).select('avatar');
+  const superseded = before?.avatar?.publicId ?? null;
+
+  const updated = await User.findOneAndUpdate(
+    { _id: req.user._id },
+    { $set: { avatar: fileMeta } },
+    { new: true },
+  );
+  if (!updated) throw new ApiError(404, 'Account no longer exists');
+
+  await auditFromReq(req, {
+    action: 'avatar.upload.confirm', entityType: 'user', entityId: userId,
+    after: { format, size: bytes, publicId }, // metadata only — never secrets
+  });
+
+  // best-effort cleanup of the superseded asset (never the new one)
+  if (superseded && superseded !== publicId) {
+    destroyAsset({ cloudName, apiKey, apiSecret, publicId: superseded }).catch(() => {});
+  }
+
+  return {
+    avatar: {
+      url: secureUrl, format, size: bytes, originalName,
+      uploadedAt: now(),
+    },
+  };
+}
+
+/**
+ * DELETE /api/auth/avatar — self-service removal (avatar → null).
+ * Best-effort destroys the Cloudinary asset afterwards.
+ */
+export async function removeAvatar(req) {
+  const { cloudName, apiKey, apiSecret } = getConfig();
+  const user = await User.findById(req.user._id).select('avatar');
+  const existing = user?.avatar;
+  if (!existing) throw new ApiError(404, 'No profile picture to remove');
+
+  await User.findOneAndUpdate(
+    { _id: req.user._id, 'avatar.publicId': existing.publicId },
+    { $set: { avatar: null } },
+  );
+
+  await auditFromReq(req, {
+    action: 'avatar.remove', entityType: 'user', entityId: String(req.user._id),
+    after: { publicId: existing.publicId },
+  });
+
+  destroyAsset({ cloudName, apiKey, apiSecret, publicId: existing.publicId }).catch(() => {});
+  return { removed: true };
 }

@@ -11,6 +11,7 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { Spinner } from '../../components/ui/Spinner.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconMegaphone, IconFileText } from '../../components/icons.jsx';
+import { FileList, FileChips } from '../../components/files/FileList.jsx';
 
 /** Read-only announcements — the CR authors these; students never modify. */
 export default function StudentAnnouncementsPage() {
@@ -80,7 +81,7 @@ export default function StudentAnnouncementsPage() {
                   {a.pinned && <Badge variant="primary">Pinned</Badge>}
                 </div>
                 <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{a.content}</p>
-                <p className="mt-2.5 text-xs text-slate-400">{timeAgo(a.createdAt)}</p>
+                <p className="mt-2.5 flex items-center gap-2 text-xs text-slate-400">{timeAgo(a.createdAt)} <FileChips files={a.attachments} /></p>
               </button>
             </li>
           ))}
@@ -103,19 +104,7 @@ export default function StudentAnnouncementsPage() {
             {(detail.attachments?.length ?? 0) > 0 && (
               <div className="border-t border-slate-100 pt-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Attachments</p>
-                <ul className="mt-2 space-y-1.5">
-                  {detail.attachments.map((f) => (
-                    <li key={f._id ?? f.publicId}>
-                      <a
-                        href={f.url} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline"
-                      >
-                        <IconFileText className="size-4" />
-                        {f.originalName ?? 'Attachment'}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
+                <div className="mt-2"><FileList files={detail.attachments} /></div>
               </div>
             )}
           </div>

@@ -62,6 +62,7 @@ export const studentApi = {
   files: {
     sign: (body) => api.post('/api/student/files/sign', body), // { parentType: 'submission', parentId, file: { originalName, mimeType } }
     confirm: (body) => api.post('/api/student/files/confirm', body), // { parentType, parentId, result }
+    remove: (body) => api.post('/api/student/files/remove', body), // { parentType, parentId, publicId }
   },
 
   /* ---- Notifications (own mailbox only) ---- */

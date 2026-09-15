@@ -172,11 +172,14 @@ test('/auth/me returns safe fields only', async () => {
   const u = res.json.user;
   assert.equal(u.email, 'admin@test.local');
   assert.equal(u.role, 'admin');
+  // STEP 18: 'avatar' is the new safe projection (display fields only —
+  // no publicId/folder/uploadedBy Cloudinary internals).
   assert.deepEqual(
     Object.keys(u).sort(),
-    ['activationAt', 'email', 'emailVerified', 'id', 'lastLoginAt', 'name',
+    ['activationAt', 'avatar', 'email', 'emailVerified', 'id', 'lastLoginAt', 'name',
      'phone', 'registrationStatus', 'role', 'rollNo', 'section'].sort()
   );
+  assert.equal(u.avatar, null, 'no avatar by default');
   const raw = JSON.stringify(res.json);
   assert.ok(!raw.includes('password'), 'no password key');
   assert.ok(!raw.includes('createdBy'), 'no audit internals');

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { Avatar } from '../components/files/Avatar.jsx';
 import { studentApi } from '../api/student.js';
 import { Badge } from '../components/ui/Badge.jsx';
 import {
@@ -180,9 +181,7 @@ export default function StudentLayout() {
                 onClick={() => setMenuOpen((o) => !o)}
                 className="flex items-center gap-2 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-3 text-sm font-medium text-slate-700 shadow-soft hover:border-slate-300"
               >
-                <span className="grid size-7 place-items-center rounded-full bg-primary-600 text-xs font-semibold text-white" aria-hidden="true">
-                  {(user?.name ?? 'S').slice(0, 1).toUpperCase()}
-                </span>
+                <Avatar user={user} size={7} />
                 <span className="hidden max-w-32 truncate sm:block">{user?.name ?? 'Student'}</span>
               </button>
               {menuOpen && (

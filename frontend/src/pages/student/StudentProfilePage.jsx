@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
+import { AvatarEditor } from '../../components/files/Avatar.jsx';
+import { ChangePasswordCard } from '../../components/files/ChangePasswordCard.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { Button } from '../../components/ui/Button.jsx';
@@ -40,9 +42,7 @@ export default function StudentProfilePage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft sm:p-8">
         <div className="flex flex-wrap items-center gap-4">
-          <span className="grid size-14 place-items-center rounded-2xl bg-primary-600 text-xl font-semibold text-white" aria-hidden="true">
-            {(user?.name ?? 'S').slice(0, 1).toUpperCase()}
-          </span>
+          <AvatarEditor user={user} />
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">{user?.name}</h2>
             <p className="text-sm text-slate-500">{user?.email}</p>
@@ -96,6 +96,8 @@ export default function StudentProfilePage() {
           <p className="text-sm text-slate-500">No section is assigned to you yet. Once the administration assigns you to your class section, your portal unlocks automatically.</p>
         </div>
       )}
+
+      <ChangePasswordCard />
 
       <Card className="flex flex-wrap items-center justify-between gap-3 p-6">
         <div>

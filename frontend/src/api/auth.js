@@ -13,6 +13,16 @@ export const authApi = {
   setActivationPassword: (role, activationToken, password) =>
     api.post(`/api/auth/${role}/set-password`, { activationToken, password }),
 
+  changePassword: (currentPassword, newPassword) =>
+    api.post('/api/auth/change-password', { currentPassword, newPassword }),
+
+  /* STEP 18 — self-service avatar (folder/publicId derived server-side) */
+  avatar: {
+    sign: (body) => api.post('/api/auth/avatar/sign', body), // { file: { originalName, mimeType } }
+    confirm: (body) => api.post('/api/auth/avatar/confirm', body), // { result }
+    remove: () => api.post('/api/auth/avatar/remove'),
+  },
+
   requestResetOtp: (email) => api.post('/api/auth/forgot-password/request-otp', { email }),
   verifyResetOtp: (email, otp) => api.post('/api/auth/forgot-password/verify-otp', { email, otp }),
   setResetPassword: (resetToken, password) =>

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import FileMetaSchema from './FileMeta.js';
 
 const { Schema } = mongoose;
 
@@ -24,6 +25,10 @@ const userSchema = new Schema(
       index: { unique: true },
     },
     phone: { type: String, trim: true },
+    // STEP 18 — self-service profile picture. Reuses the existing embedded
+    // FileMeta subdocument (no new collection). Populated ONLY through the
+    // verified avatar sign→upload→confirm flow; never client-injectable.
+    avatar: FileMetaSchema,
     // bcrypt hash — set only by the auth service; never plaintext
     password: { type: String, select: false },
     role: { type: String, enum: ['admin', 'cr', 'student'], required: true },

@@ -19,7 +19,7 @@ import {
   openAssessment, finalizeAssessment, archiveAssessment,
   createMark, updateMark, bulkUpsertMarks, listMarks,
 } from '../controllers/gradingController.js';
-import { signFileUpload, confirmFileUpload } from '../controllers/fileController.js';
+import { signFileUpload, confirmFileUpload, removeFileUpload } from '../controllers/fileController.js';
 
 const router = Router();
 
@@ -42,6 +42,7 @@ router.get('/assessments/:assessmentId/marks', listMarks);
 // Cloudinary direct-upload flow — signature + confirmation (no file bytes ever reach this API)
 router.post('/files/sign', signFileUpload);
 router.post('/files/confirm', confirmFileUpload);
+router.post('/files/remove', removeFileUpload);
 
 // In-app notifications — own mailbox only; lazy reminders generated on poll
 router.get('/notifications', listMyNotifications);

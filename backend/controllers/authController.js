@@ -57,3 +57,20 @@ export async function me(req, res, next) {
     next(err);
   }
 }
+
+/**
+ * STEP 18 — authenticated self-service password rotation.
+ * Requires the CURRENT password; the response never echoes old or new values.
+ */
+export async function changePassword(req, res, next) {
+  try {
+    const data = await authService.changePassword(
+      req.user,
+      req.body?.currentPassword,
+      req.body?.newPassword,
+    );
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}

@@ -1,0 +1,10 @@
+import { MongoClient } from 'mongodb';
+const c = new MongoClient('mongodb://127.0.0.1:42092/?directConnection=true', { serverSelectionTimeoutMS: 4000 });
+await c.connect();
+const db = c.db('local_e2e');
+const cols = await db.listCollections().toArray();
+console.log('collections:', cols.map((x) => x.name).join(', '));
+const auditCol = cols.find((x) => /audit/i.test(x.name))?.name ?? 'audits';
+const docs = await db.collection(auditCol).find({}).sort({ _id: -1 }).limit(8).toArray();
+for (const d of docs) console.log(d.action ?? d.type, '|', JSON.stringify(d.reason ?? d.after ?? '').slice(0, 80), '|', String(d.entityId));
+await c.close();

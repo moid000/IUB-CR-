@@ -100,5 +100,6 @@ export const crApi = {
   files: {
     sign: (body) => api.post('/api/cr/files/sign', body), // { parentType, parentId, file: { originalName, mimeType } }
     confirm: (body) => api.post('/api/cr/files/confirm', body), // { parentType, parentId, result }
+    remove: (body) => api.post('/api/cr/files/remove', body), // { parentType, parentId, publicId }
   },
 };

@@ -11,7 +11,9 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { Checkbox } from '../../components/ui/Checkbox.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive, IconMegaphone } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconMegaphone, IconPaperclip } from '../../components/icons.jsx';
+import { FileList, FileChips } from '../../components/files/FileList.jsx';
+import { AttachModal } from '../../components/files/AttachModal.jsx';
 
 /**
  * CR announcements — always created in the CR's OWN section (server-derived).
@@ -32,9 +34,10 @@ function AnnouncementForm({ open, onClose, initial, onSaved }) {
     if (Object.keys(next).length) throw new Error('Please fix the highlighted fields.');
 
     const body = { title: title.trim(), content: content.trim(), pinned };
+    let created = null;
     if (isEdit) await crApi.announcements.update(initial._id, body);
-    else await crApi.announcements.create(body);
-    onSaved(isEdit ? 'Announcement updated.' : 'Announcement published — your section has been notified.');
+    else created = (await crApi.announcements.create(body))?.data;
+    onSaved(isEdit ? 'Announcement updated.' : 'Announcement published — your section has been notified.', created);
   };
 
   return (
@@ -84,6 +87,12 @@ function ViewAnnouncementModal({ open, onClose, item }) {
           {item?.pinned && <Badge variant="primary">Pinned</Badge>}
         </div>
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{item?.content}</p>
+        {(item?.attachments?.length ?? 0) > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Attachments</p>
+            <div className="mt-2"><FileList files={item.attachments} /></div>
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -98,6 +107,7 @@ export default function AnnouncementsPage() {
   const [status, setStatus] = useState('published');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(null);
+  const [attachItem, setAttachItem] = useState(null); // attachment manager target (separate state — no close race)
   const [viewTarget, setViewTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
@@ -185,10 +195,13 @@ export default function AnnouncementsPage() {
                     <StatusBadge status={a.status} />
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm text-slate-500">{a.content}</p>
-                  <p className="mt-2 text-xs text-slate-400">{a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)}</p>
+                  <p className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                    {a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)} <FileChips files={a.attachments} />
+                  </p>
                 </button>
                 {a.status === 'published' && (
                   <div className="flex shrink-0 gap-1">
+                    <Button variant="ghost" size="sm" icon={IconPaperclip} onClick={() => setAttachItem(a)}>Files</Button>
                     <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: a })}>Edit</Button>
                     <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(a); setArchiveError(null); }}>Archive</Button>
                   </div>
@@ -214,7 +227,24 @@ export default function AnnouncementsPage() {
           open
           onClose={() => setModal(null)}
           initial={modal.mode === 'edit' ? modal.item : null}
-          onSaved={(msg) => { showFlash(msg); reload(); }}
+          onSaved={(msg, created) => {
+            showFlash(msg);
+            reload();
+            // polished flow: a brand-new announcement goes straight to attachments
+            if (modal.mode === 'create' && created?._id) setAttachItem(created); // polished flow: straight to attachments
+          }}
+        />
+      )}
+
+      {attachItem && (
+        <AttachModal
+          open
+          onClose={() => { setAttachItem(null); reload(); }}
+          parentType="announcement"
+          parentLabel="announcement"
+          fetchItem={async () => (await crApi.announcements.get(attachItem._id))?.data}
+          api={crApi.files}
+          onDone={reload}
         />
       )}
 

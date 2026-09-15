@@ -13,7 +13,9 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { Spinner } from '../../components/ui/Spinner.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive, IconClipboard, IconArrowRight } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconClipboard, IconArrowRight, IconPaperclip } from '../../components/icons.jsx';
+import { FileList, FileChips } from '../../components/files/FileList.jsx';
+import { AttachModal } from '../../components/files/AttachModal.jsx';
 
 /** datetime-local default: tomorrow 23:59 in Pakistan time, value for <input> */
 function defaultDeadline() {
@@ -55,9 +57,10 @@ function AssignmentForm({ open, onClose, initial, subjects, onSaved }) {
     };
     if (instructions.trim()) body.instructions = instructions.trim();
 
+    let created = null;
     if (isEdit) await crApi.assignments.update(initial._id, body);
-    else await crApi.assignments.create(body);
-    onSaved(isEdit ? 'Assignment updated.' : 'Assignment created.');
+    else created = (await crApi.assignments.create(body))?.data;
+    onSaved(isEdit ? 'Assignment updated.' : 'Assignment created.', created);
   };
 
   return (
@@ -121,7 +124,13 @@ function SubmissionsModal({ open, onClose, assignment }) {
             <li key={s._id} className="flex items-center gap-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-slate-800">{s.student?.name ?? '—'}</p>
-                <p className="text-xs text-slate-500">{s.student?.rollNo} · {formatDateTime(s.submittedAt)}</p>
+                <p className="text-xs text-slate-500">{s.student?.rollNo} · {formatDateTime(s.submittedAt)} <FileChips files={s.files} /></p>
+                {(s.files?.length ?? 0) > 0 && (
+                  <details className="mt-1.5">
+                    <summary className="cursor-pointer text-xs font-medium text-primary-600 hover:text-primary-700">View files</summary>
+                    <div className="mt-1.5"><FileList files={s.files} /></div>
+                  </details>
+                )}
               </div>
               {s.isLate
                 ? <Badge variant="danger">Late</Badge>
@@ -144,6 +153,7 @@ export default function AssignmentsPage() {
   const [status, setStatus] = useState('published');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(null);
+  const [attachItem, setAttachItem] = useState(null); // attachment manager target (separate state — no close race)
   const [submissionsFor, setSubmissionsFor] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
@@ -236,11 +246,13 @@ export default function AssignmentsPage() {
                     {a.deadlinePassed ? 'Deadline passed' : 'Due'} · {formatDateTime(a.deadline)} PKT
                   </p>
                   {a.instructions && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{a.instructions}</p>}
+                  <p className="mt-2 flex items-center gap-2 text-xs text-slate-400"><FileChips files={a.attachments} /></p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1">
                   <Button variant="ghost" size="sm" onClick={() => setSubmissionsFor(a)}>Submissions</Button>
                   {a.status === 'published' && (
                     <>
+                      <Button variant="ghost" size="sm" icon={IconPaperclip} onClick={() => setAttachItem(a)}>Files</Button>
                       <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: a })}>Edit</Button>
                       <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(a); setArchiveError(null); }}>Archive</Button>
                     </>
@@ -268,7 +280,23 @@ export default function AssignmentsPage() {
           onClose={() => setModal(null)}
           initial={modal.mode === 'edit' ? modal.item : null}
           subjects={subjects}
-          onSaved={(msg) => { showFlash(msg); reload(); }}
+          onSaved={(msg, created) => {
+            showFlash(msg);
+            reload();
+            if (modal.mode === 'create' && created?._id) setAttachItem(created); // polished flow: straight to attachments
+          }}
+        />
+      )}
+
+      {attachItem && (
+        <AttachModal
+          open
+          onClose={() => { setAttachItem(null); reload(); }}
+          parentType="assignment"
+          parentLabel="assignment"
+          fetchItem={async () => (await crApi.assignments.get(attachItem._id))?.data}
+          api={crApi.files}
+          onDone={reload}
         />
       )}
 

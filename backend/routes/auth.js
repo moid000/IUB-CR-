@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { login, logout, me } from '../controllers/authController.js';
+import { login, logout, me, changePassword } from '../controllers/authController.js';
+import { signAvatarUpload, confirmAvatarUpload, removeAvatar } from '../controllers/fileController.js';
 import * as activation from '../controllers/activationController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -9,6 +10,12 @@ const router = Router();
 router.post('/login', login);
 router.post('/logout', logout);
 router.get('/me', protect, me);
+
+// STEP 18 — self-service credential & avatar management (any authenticated role)
+router.post('/change-password', protect, changePassword);
+router.post('/avatar/sign', protect, signAvatarUpload);
+router.post('/avatar/confirm', protect, confirmAvatarUpload);
+router.post('/avatar/remove', protect, removeAvatar);
 
 // CR activation (public — email enumeration safe)
 router.post('/cr/request-otp', activation.crRequestOtp);

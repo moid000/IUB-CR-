@@ -298,12 +298,17 @@ export async function submitSubmission(req) {
   // `files` is deliberately NOT picked: attachment metadata reaches a
   // Submission ONLY via the verified Cloudinary confirm flow (Step 10) — a
   // client can never inject arbitrary attachment objects through this route.
-  const body = v.pick(req.body, ['textAnswer']);
+  const body = v.pick(req.body, ['textAnswer', 'pendingFiles']);
   const text = assertTextAnswer(body.textAnswer);
   const filter = { assignment: assignment._id, student: req.user._id };
   const prior = await Submission.findOne(filter).select('files');
   const hasFiles = (prior?.files?.length ?? 0) > 0;
-  if (!text && !hasFiles) throw new ApiError(400, 'Submission requires text and/or files');
+  // First submission may legitimately carry ONLY files (chosen pre-submit, they
+  // upload right after this call creates the parent). The client declares how
+  // many files are about to be confirmed; resubmissions rely on confirmed files.
+  const pendingFiles = Number(body.pendingFiles);
+  const intendsFiles = Number.isInteger(pendingFiles) && pendingFiles > 0 && pendingFiles <= 10;
+  if (!text && !hasFiles && !intendsFiles) throw new ApiError(400, 'Submission requires text and/or files');
 
   const existedBefore = await Submission.exists(filter);
   const update = {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { Avatar } from '../components/files/Avatar.jsx';
 import { Badge } from '../components/ui/Badge.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import {
@@ -154,9 +155,7 @@ export default function AdminLayout() {
               aria-haspopup="menu"
               className="flex items-center gap-2.5 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-3 text-left shadow-sm hover:border-slate-300"
             >
-              <span className="grid size-7 place-items-center rounded-full bg-primary-600 text-xs font-semibold text-white" aria-hidden="true">
-                {(user?.name ?? user?.email ?? '?').slice(0, 1).toUpperCase()}
-              </span>
+              <Avatar user={user} size={7} />
               <span className="hidden max-w-[180px] sm:block">
                 <span className="block truncate text-xs font-semibold text-slate-800">{user?.name ?? 'Administrator'}</span>
                 <span className="block truncate text-[11px] text-slate-500">{user?.email}</span>
