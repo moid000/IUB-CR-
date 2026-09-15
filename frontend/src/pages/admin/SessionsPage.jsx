@@ -10,7 +10,7 @@ import { Input } from '../../components/ui/Input.jsx';
 import { Select } from '../../components/ui/Select.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
-import { IconPlus, IconPencil, IconArchive } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash } from '../../components/icons.jsx';
 
 function SessionForm({ open, onClose, initial, onSaved }) {
   const isEdit = Boolean(initial?._id);

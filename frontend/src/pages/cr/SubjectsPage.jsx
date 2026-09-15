@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash } from '../../components/icons.jsx';
 
 const CODE_RE = /^[A-Z0-9-]{2,12}$/;
 
