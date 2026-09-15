@@ -40,6 +40,8 @@ export function clearAuthCookie(res) {
  * same normalized email in the previous 15 minutes. Works across all Vercel
  * instances (MongoDB is the arbiter). Never permanently locks an account.
  */
+// Owner decision 2026-09-15: login attempts are NOT throttled — wrong credentials simply
+// return "Invalid email or password". Failures are still audited below for traceability.
 export async function isLoginThrottled(email) {
   const since = new Date(Date.now() - THROTTLE_WINDOW_MS);
   const failures = await AuditLog.countDocuments({
@@ -57,11 +59,6 @@ export async function isLoginThrottled(email) {
 export async function login(rawEmail, rawPassword, meta = {}) {
   const email = normalizeEmail(rawEmail);
   if (!email || !rawPassword) throw new ApiError(400, 'Email and password are required');
-
-  // Throttle first — also covers unknown emails, and the error must not leak existence
-  if (await isLoginThrottled(email)) {
-    throw new ApiError(429, 'Too many failed attempts. Please try again in a few minutes.');
-  }
 
   const fail = async (reason, targetUser = null) => {
     await audit({

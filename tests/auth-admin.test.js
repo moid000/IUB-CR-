@@ -206,24 +206,24 @@ test('logout clears the auth cookie', async () => {
 });
 
 // ---------- 11. throttle ----------
-test('login throttle activates after 5 failures within 15 minutes', async () => {
+test('login has no attempt limit: repeated failures never lock the account', async () => {
   const s = makeSession();
   const email = 'throttle-victim@test.local';
-  // create a real user so the password path is exercised, then fail 5 times
+  // create a real user so the password path is exercised, then fail 7 times
   await User.create({
     name: 'Throttle User', email, role: 'cr', registrationStatus: 'active',
     password: await hash('Real1234!'),
   });
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
     const r = await s.api('POST', '/api/auth/login', { email, password: `BadPass${i}!x` });
-    assert.equal(r.status, 401);
+    assert.equal(r.status, 401, `failure ${i} must stay a plain 401, never 429`);
+    assert.match(r.json.message, /invalid email or password/i);
   }
-  const blocked = await s.api('POST', '/api/auth/login', { email, password: 'Real1234!' });
-  assert.equal(blocked.status, 429);
-  assert.match(blocked.json.message, /too many failed attempts/i);
-  // correct credentials are also throttled (no lock bypass)
-  const blockedCorrect = await s.api('POST', '/api/auth/login', { email, password: 'Real1234!' });
-  assert.equal(blockedCorrect.status, 429);
+  // correct credentials must work immediately — no lock bypass to wait for
+  const ok = await s.api('POST', '/api/auth/login', { email, password: 'Real1234!' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.success, true, 'login must succeed right after failures');
+  assert.equal(ok.json.user?.email, email);
 });
 
 // ---------- fixtures: dept / session / section / users ----------
