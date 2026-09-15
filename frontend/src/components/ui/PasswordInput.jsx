@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { Input } from './Input.jsx';
 
 /** Password input with show/hide toggle — the ONLY password affordance. */
-export function PasswordInput({ label, error, hint, id, className, ...rest }) {
+export function PasswordInput({ label, error, hint, id, className, autoComplete = 'off', ...rest }) {
   const [visible, setVisible] = useState(false);
   const toggleId = useId();
 
@@ -14,7 +14,7 @@ export function PasswordInput({ label, error, hint, id, className, ...rest }) {
         error={error}
         hint={hint}
         type={visible ? 'text' : 'password'}
-        autoComplete="off"
+        autoComplete={autoComplete}
         className="[&_input]:pr-12"
         {...rest}
       />

@@ -89,6 +89,7 @@ export default function Login() {
         <PasswordInput
           label="Password"
           name="password"
+          autoComplete="current-password"
           placeholder="Your password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
