@@ -4,6 +4,7 @@ import { adminApi } from '../../api/admin.js';
 import { useAdminQuery } from '../../admin/hooks.js';
 import { timeAgo } from '../../admin/format.js';
 import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
+import { CountUp } from '../../components/ui/CountUp.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
@@ -22,14 +23,16 @@ function MetricCard({ icon: Icon, label, value, sub, to }) {
     >
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-slate-500">{label}</p>
-        <span className="grid size-9 place-items-center rounded-lg bg-primary-50 text-primary-600">
-          <Icon className="size-4.5" />
+        <span className="grid size-9 place-items-center rounded-lg bg-primary-50 text-primary-600 transition-all duration-300 group-hover:scale-110 group-hover:bg-primary-100">
+          <Icon className="size-4.5 transition-transform duration-300 group-hover:-rotate-6" />
         </span>
       </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
+      <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
+        {value === '' || value === null || value === undefined ? '' : <CountUp value={value} />}
+      </p>
       {sub && <p className="mt-1 text-xs text-slate-500">{sub}</p>}
-      <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary-600 opacity-0 transition-opacity group-hover:opacity-100">
-        Manage <IconArrowRight className="size-3" />
+      <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary-600 opacity-0 transition-all duration-300 group-hover:translate-x-0.5 group-hover:opacity-100">
+        Manage <IconArrowRight className="size-3 transition-transform duration-300 group-hover:translate-x-0.5" />
       </span>
     </Link>
   );

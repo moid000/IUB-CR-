@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Button } from '../ui/Button.jsx';
 import { Modal } from '../ui/Modal.jsx';
 import { Alert } from '../ui/Alert.jsx';
@@ -7,19 +8,33 @@ import { IconSearch } from '../icons.jsx';
 /** Page header: title, description, and primary action slot. */
 export function PageHeader({ title, description, children }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      className="mb-6 flex flex-wrap items-start justify-between gap-3"
+    >
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h1>
         {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
       </div>
       {children && <div className="flex items-center gap-2.5">{children}</div>}
-    </div>
+    </motion.div>
   );
 }
 
 /** Filter toolbar — wraps search + selects, collapses gracefully on mobile. */
 export function FilterBar({ children }) {
-  return <div className="mb-4 flex flex-wrap items-center gap-2.5">{children}</div>;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
+      className="mb-4 flex flex-wrap items-center gap-2.5"
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 export function SearchInput({ value, onChange, placeholder = 'Search…', label = 'Search' }) {
@@ -155,8 +170,19 @@ export function FormModal({ open, onClose, title, submitLabel = 'Save', onSubmit
 
 /** Subtle inline success feedback strip (shown briefly after a mutation). */
 export function SuccessFlash({ message }) {
-  if (!message) return null;
   return (
-    <Alert variant="success" className="mb-4" role="status">{message}</Alert>
+    <AnimatePresence>
+      {message && (
+        <motion.div
+          initial={{ opacity: 0, y: -8, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -6, scale: 0.99 }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          className="mb-4"
+        >
+          <Alert variant="success" role="status">{message}</Alert>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

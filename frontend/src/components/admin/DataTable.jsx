@@ -1,3 +1,4 @@
+import { motion } from 'motion/react';
 import { Alert } from '../ui/Alert.jsx';
 import { Button } from '../ui/Button.jsx';
 import { EmptyState } from '../ui/EmptyState.jsx';
@@ -72,14 +73,20 @@ export function DataTable({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={rowKey(row)} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition-colors">
+                {rows.map((row, i) => (
+                  <motion.tr
+                    key={rowKey(row)}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.22, delay: Math.min(i * 0.035, 0.4), ease: [0.22, 1, 0.36, 1] }}
+                    className="border-b border-slate-100 last:border-0 transition-colors hover:bg-slate-50/70"
+                  >
                     {columns.map((col) => (
                       <td key={col.key} className={`px-4 py-3 align-middle text-slate-700 ${col.className ?? ''}`}>
                         {col.render ? col.render(row) : row[col.key] ?? '—'}
                       </td>
                     ))}
-                  </tr>
+                  </motion.tr>
                 ))}
               </tbody>
             </table>

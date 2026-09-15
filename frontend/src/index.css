@@ -202,3 +202,35 @@ body {
   50% { transform: translateY(-10px); }
 }
 .animate-float { animation: float-y 6s ease-in-out infinite; }
+
+/* ---------- Buttons: soft glow + light-sweep shine on hover ---------- */
+.btn-glow {
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              background-color 0.15s ease, transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.08);
+}
+.btn-glow:hover {
+  box-shadow: 0 6px 18px -6px rgb(37 99 235 / 0.45);
+}
+.btn-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgb(255 255 255 / 0.28) 50%, transparent 60%);
+  transform: translateX(-120%);
+  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+.btn-glow:hover::after {
+  transform: translateX(120%);
+}
+.btn-glow-danger:hover {
+  box-shadow: 0 6px 18px -6px rgb(239 68 68 / 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-glow, .btn-glow::after { transition: none; }
+  .btn-glow:hover::after { transform: translateX(-120%); }
+}

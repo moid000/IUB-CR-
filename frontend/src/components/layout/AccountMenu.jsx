@@ -29,7 +29,7 @@ export function AccountMenu({ user, roleLabel, roleVariant = 'primary', menuItem
       <button
         type="button" aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-2 text-left shadow-sm transition-colors hover:border-slate-300 sm:pr-3"
+        className="flex items-center gap-2 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-2 text-left shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-slate-300 hover:shadow-lift active:translate-y-0 sm:pr-3"
       >
         <Avatar user={user} size={7} />
         <span className="hidden max-w-[140px] sm:block">

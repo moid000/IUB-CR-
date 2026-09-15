@@ -52,7 +52,7 @@ export function NavItem({ to, label, icon: Icon, end, badge, collapsed = false }
             className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full rounded-l-none bg-primary-600 transition-all duration-200
               ${isActive ? 'opacity-100' : 'opacity-0'}`}
           />
-          <Icon className={`size-4.5 shrink-0 transition-colors ${isActive ? 'text-primary-600' : 'text-slate-400 group-hover:text-slate-500'}`} />
+          <Icon className={`size-4.5 shrink-0 transition-all duration-200 ${isActive ? 'text-primary-600' : 'text-slate-400 group-hover:scale-110 group-hover:text-primary-500'}`} />
           <span className={collapsed ? 'lg:hidden' : ''}>{label}</span>
           {badge != null && badge > 0 && (
             <span
