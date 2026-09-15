@@ -90,12 +90,77 @@ body {
   font-weight: 700;
 }
 
-/* ---------- Vault-style landing backdrop ---------- */
-.vault-grid {
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 44px 44px;
-  -webkit-mask-image: radial-gradient(ellipse 90% 65% at 50% 0%, black 25%, transparent 78%);
-  mask-image: radial-gradient(ellipse 90% 65% at 50% 0%, black 25%, transparent 78%);
+
+/* ---------------------------------------------------------------
+   Landing — premium motion vocabulary (white theme, blue accent).
+   All infinite loops are pure-CSS (GPU transform/opacity only) so the
+   page stays light — JS (motion/react) handles one-shot scroll reveals.
+---------------------------------------------------------------- */
+
+/* Soft aurora blobs — slow drifting glow behind hero / CTA */
+@keyframes aurora-drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, 30px) scale(1.12); }
 }
+@keyframes aurora-drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-35px, 25px) scale(1.08); }
+}
+.animate-aurora-a { animation: aurora-drift-a 14s ease-in-out infinite; }
+.animate-aurora-b { animation: aurora-drift-b 17s ease-in-out infinite; }
+
+/* Bell wiggle — Announcements card */
+@keyframes icon-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(-12deg); }
+  20% { transform: rotate(10deg); }
+  30% { transform: rotate(-8deg); }
+  40% { transform: rotate(5deg); }
+  50%, 100% { transform: rotate(0deg); }
+}
+.animate-icon-wiggle { animation: icon-wiggle 3.2s ease-in-out infinite; transform-origin: top center; }
+
+/* Upload arrow — Notes & files card */
+@keyframes icon-upload {
+  0% { transform: translateY(6px); opacity: 0; }
+  35% { opacity: 1; }
+  70% { transform: translateY(-8px); opacity: 1; }
+  100% { transform: translateY(-8px); opacity: 0; }
+}
+.animate-icon-upload { animation: icon-upload 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+
+/* Checkmark self-draw — Assignments card */
+@keyframes dash-draw {
+  0%, 15% { stroke-dashoffset: 24; }
+  55%, 100% { stroke-dashoffset: 0; }
+}
+.animate-dash-draw { stroke-dasharray: 24; animation: dash-draw 2.6s ease-in-out infinite; }
+
+/* Clock hand sweep — Timetable card */
+@keyframes clock-tick {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-clock-tick { animation: clock-tick 4s linear infinite; transform-origin: 12px 12px; }
+
+/* QR scan beam — Attendance card */
+@keyframes scan-beam {
+  0%, 100% { transform: translateY(-7px); opacity: 0.35; }
+  50% { transform: translateY(7px); opacity: 1; }
+}
+.animate-scan-beam { animation: scan-beam 1.8s ease-in-out infinite; }
+
+/* Bars grow — Marks & assessments card */
+@keyframes bar-grow-1 { 0%, 100% { height: 35%; } 50% { height: 85%; } }
+@keyframes bar-grow-2 { 0%, 100% { height: 65%; } 50% { height: 30%; } }
+@keyframes bar-grow-3 { 0%, 100% { height: 45%; } 50% { height: 95%; } }
+.animate-bar-1 { animation: bar-grow-1 2.4s ease-in-out infinite; }
+.animate-bar-2 { animation: bar-grow-2 2.4s ease-in-out infinite; animation-delay: 0.2s; }
+.animate-bar-3 { animation: bar-grow-3 2.4s ease-in-out infinite; animation-delay: 0.4s; }
+
+/* Live pulse dot — reused across badges */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.4); }
+}
+.animate-live-pulse { animation: live-pulse 1.6s ease-in-out infinite; }

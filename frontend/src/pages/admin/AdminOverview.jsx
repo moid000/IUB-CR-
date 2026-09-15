@@ -18,7 +18,7 @@ function MetricCard({ icon: Icon, label, value, sub, to }) {
   return (
     <Link
       to={to}
-      className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lift"
+      className="group block rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lift"
     >
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-slate-500">{label}</p>

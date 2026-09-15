@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -6,18 +6,16 @@ import {
 } from '../components/motion/primitives.jsx';
 import {
   IconGrid, IconUserSquare, IconGraduation, IconMegaphone, IconFileText,
-  IconClipboard, IconCalendar, IconQr, IconCheckCircle, IconMenu, IconX,
-  IconArrowRight, IconPlus,
+  IconClipboard, IconQr, IconCheckCircle, IconMenu, IconX,
+  IconArrowRight, IconPlus, IconBell, IconClock, IconCheck,
 } from '../components/icons.jsx';
 
 /* ------------------------------------------------------------------ *
  *  Landing — the public face of IUB Class Management.
- *  Dark, confident, terminal-flavored. No stock art, no fake claims:
- *  every module shown is a real feature of the product.
+ *  White, premium, product-first. No stock art, no fake claims:
+ *  every module shown is a real feature of the product. Visuals carry
+ *  the story (animated product mock + live feature vignettes).
  * ------------------------------------------------------------------ */
-
-const RED = '#f23d3d';
-const GREEN = '#22c55e';
 
 /* ---------- smooth anchor scrolling (no global css side-effects) -- */
 function useScrollTo() {
@@ -49,15 +47,15 @@ function Navbar() {
   return (
     <header
       className={`fixed inset-x-0 top-0 z-50 transition-all duration-300
-        ${scrolled ? 'border-b border-white/10 bg-[#0a0a0c]/85 backdrop-blur-xl' : 'bg-transparent'}`}
+        ${scrolled ? 'border-b border-slate-200/70 bg-white/85 shadow-[0_1px_12px_rgb(16_24_40/0.04)] backdrop-blur-xl' : 'border-b border-transparent bg-transparent'}`}
     >
       <nav className="mx-auto flex h-16 w-full max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8" aria-label="Main">
         <Link to="/" className="flex items-center gap-2.5" aria-label="IUB Class Management home">
-          <span className="grid size-9 place-items-center rounded-lg bg-[#f23d3d] font-bold text-white shadow-[0_0_24px_rgba(242,61,61,0.35)]">
+          <span className="grid size-9 place-items-center rounded-xl bg-primary-600 text-sm font-bold text-white shadow-[0_6px_16px_rgb(37_99_235/0.35)]">
             IU
           </span>
-          <span className="text-sm font-semibold tracking-widest text-white">
-            IUB <span className="text-[#f23d3d]">CLASS MANAGEMENT</span>
+          <span className="text-sm font-semibold tracking-widest text-slate-900">
+            IUB <span className="text-primary-600">CLASS MANAGEMENT</span>
           </span>
         </Link>
 
@@ -67,7 +65,7 @@ function Navbar() {
               <button
                 type="button"
                 onClick={() => scrollTo(l.id)}
-                className="text-sm font-medium text-[#a0a0a0] transition-colors hover:text-white"
+                className="text-sm font-medium text-slate-600 transition-colors hover:text-primary-600"
               >
                 {l.label}
               </button>
@@ -76,8 +74,8 @@ function Navbar() {
         </ul>
 
         <Link
-          to="/frontend/login"
-          className="ml-auto hidden items-center rounded-full bg-[#f23d3d] px-5 py-2 text-sm font-semibold text-white transition-all hover:bg-[#e62e2e] hover:shadow-[0_0_28px_rgba(242,61,61,0.45)] md:ml-0 md:inline-flex"
+          to="/login"
+          className="ml-auto hidden items-center rounded-full bg-primary-600 px-5 py-2 text-sm font-semibold text-white shadow-[0_6px_20px_rgb(37_99_235/0.3)] transition-all hover:bg-primary-700 hover:shadow-[0_8px_28px_rgb(37_99_235/0.42)] md:ml-0 md:inline-flex"
         >
           Sign in
         </Link>
@@ -85,7 +83,7 @@ function Navbar() {
         <button
           type="button" aria-label="Toggle menu" aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className="ml-auto grid size-10 place-items-center rounded-lg text-white transition-colors hover:bg-white/10 md:hidden"
+          className="ml-auto grid size-10 place-items-center rounded-lg text-slate-700 transition-colors hover:bg-slate-100 md:hidden"
         >
           {open ? <IconX className="size-5" /> : <IconMenu className="size-5" />}
         </button>
@@ -94,21 +92,21 @@ function Navbar() {
       <AnimatePresence>
         {open && (
           <motion.div
-            className="border-b border-white/10 bg-[#0a0a0c]/95 px-4 pb-5 pt-2 backdrop-blur-xl md:hidden"
+            className="border-b border-slate-200 bg-white px-4 pb-5 pt-2 shadow-lg md:hidden"
             initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: EASE }}
           >
             {NAV_LINKS.map((l) => (
               <button
                 key={l.id} type="button" onClick={() => { scrollTo(l.id); setOpen(false); }}
-                className="block w-full py-3 text-left text-sm font-medium text-[#a0a0a0] transition-colors hover:text-white"
+                className="block w-full py-3 text-left text-sm font-medium text-slate-600 transition-colors hover:text-primary-600"
               >
                 {l.label}
               </button>
             ))}
             <Link
-              to="/frontend/login" onClick={() => setOpen(false)}
-              className="mt-3 block rounded-full bg-[#f23d3d] px-5 py-2.5 text-center text-sm font-semibold text-white"
+              to="/login" onClick={() => setOpen(false)}
+              className="mt-3 block rounded-full bg-primary-600 px-5 py-2.5 text-center text-sm font-semibold text-white"
             >
               Sign in
             </Link>
@@ -119,74 +117,142 @@ function Navbar() {
   );
 }
 
-/* =========================== TERMINAL ============================== */
-const TERMINAL_STEPS = [
-  { cmd: 'iubcr post announcement --pinned', out: 'delivered to every student', done: true },
-  { cmd: 'iubcr upload notes "AI — Lecture 3"', out: '2 files attached', done: true },
-  { cmd: 'iubcr open attendance --qr', out: 'session live — scanning…', live: true },
+/* ==================== HERO PRODUCT MOCK ============================ *
+ *  A living miniature of the real app: an announcement slides in,
+ *  delivery confirms, a QR session opens. Pure CSS/motion — no
+ *  screenshots, sample content only.
+ * */
+const MOCK_STEPS = [
+  { id: 'post', chip: 'Announcement', title: 'Quiz — Wednesday, room B-204', meta: 'pinned · by CR' },
+  { id: 'notes', chip: 'Notes', title: 'AI — Lecture 3.pdf', meta: '2 files attached' },
+  { id: 'qr', chip: 'Attendance', title: 'QR session live', meta: 'scanning…' },
 ];
 
-function Terminal() {
-  const [step, setStep] = useState(0);
+function HeroMock() {
+  const [step, setStep] = useState(1);
 
   useEffect(() => {
-    if (step >= TERMINAL_STEPS.length) return;
-    const t = setTimeout(() => setStep((s) => s + 1), 900);
+    const t = setTimeout(() => setStep((s) => (s % MOCK_STEPS.length) + 1), 2100);
     return () => clearTimeout(t);
   }, [step]);
 
+  const visible = MOCK_STEPS.slice(0, step);
+
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f1a] shadow-2xl shadow-black/60">
-      {/* red glow */}
-      <div className="pointer-events-none absolute -right-16 -top-16 size-56 rounded-full bg-[#f23d3d]/20 blur-3xl" aria-hidden="true" />
-
-      {/* title bar */}
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-        <span className="size-3 rounded-full bg-[#ff5f57]" aria-hidden="true" />
-        <span className="size-3 rounded-full bg-[#febc2e]" aria-hidden="true" />
-        <span className="size-3 rounded-full bg-[#28c840]" aria-hidden="true" />
-        <span className="ml-3 font-mono text-xs text-[#a0a0a0]">cr@iub:~/section-1M</span>
-        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-[#f23d3d]/40 bg-[#f23d3d]/10 px-2.5 py-0.5 text-[10px] font-bold tracking-widest text-[#f23d3d]">
-          <span className="relative flex size-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#f23d3d] opacity-75 motion-reduce:animate-none" />
-            <span className="relative inline-flex size-1.5 rounded-full bg-[#f23d3d]" />
-          </span>
-          LIVE
+    <div className="relative">
+      {/* floating confirmation chips */}
+      <motion.div
+        className="absolute -right-2 top-10 z-10 hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-[0_10px_36px_rgb(16_24_40/0.12)] sm:flex"
+        animate={{ y: [0, -7, 0] }} transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <span className="grid size-6 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+          <IconCheck className="size-3.5" />
         </span>
-      </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-900">Assignment submitted</p>
+          <p className="text-[10px] text-slate-500">just now</p>
+        </div>
+      </motion.div>
+      <motion.div
+        className="absolute -left-2 bottom-14 z-10 hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-[0_10px_36px_rgb(16_24_40/0.12)] sm:flex"
+        animate={{ y: [0, 8, 0] }} transition={{ duration: 5.2, repeat: Infinity, ease: 'easeInOut', delay: 0.6 }}
+      >
+        <span className="grid size-6 place-items-center rounded-full bg-primary-50 text-primary-600">
+          <IconCheckCircle className="size-3.5" />
+        </span>
+        <div>
+          <p className="text-xs font-semibold text-slate-900">Attendance recorded</p>
+          <p className="text-[10px] text-slate-500">via QR · verified</p>
+        </div>
+      </motion.div>
 
-      {/* body */}
-      <div className="min-h-44 space-y-4 p-5 font-mono text-[13px] leading-relaxed">
-        {TERMINAL_STEPS.slice(0, step).map((s, i) => (
-          <motion.div
-            key={s.cmd} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: EASE }}
-          >
-            <p className="text-white">
-              <span className="text-[#f23d3d]">$</span> {s.cmd}
-            </p>
-            <p className="mt-1 flex items-center gap-2 text-[#a0a0a0]">
-              {s.done && <IconCheckCircle className="size-4 shrink-0" style={{ color: GREEN }} aria-label="done" />}
-              {s.live && (
-                <span className="relative flex size-2 shrink-0">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#f23d3d] opacity-75 motion-reduce:animate-none" />
-                  <span className="relative inline-flex size-2 rounded-full bg-[#f23d3d]" />
-                </span>
-              )}
-              {s.out}
-            </p>
-            {i === TERMINAL_STEPS.length - 1 && step >= TERMINAL_STEPS.length && (
-              <p className="mt-3 text-white">
-                <span className="text-[#f23d3d]">$</span> <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-[#f23d3d] align-middle motion-reduce:animate-none" aria-hidden="true" />
+      {/* the app window */}
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_24px_80px_-24px_rgb(16_24_40/0.25),0_4px_16px_rgb(16_24_40/0.06)]">
+        {/* window bar */}
+        <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+          <span className="size-2.5 rounded-full bg-slate-300" aria-hidden="true" />
+          <span className="size-2.5 rounded-full bg-slate-300" aria-hidden="true" />
+          <span className="size-2.5 rounded-full bg-slate-300" aria-hidden="true" />
+          <span className="ml-3 hidden rounded-md border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-500 sm:block">
+            iubcr · Section 1M · Fall 2026
+          </span>
+          <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold tracking-widest text-emerald-600">
+            <span className="size-1.5 rounded-full bg-emerald-500 animate-live-pulse" />
+            LIVE
+          </span>
+        </div>
+
+        {/* body */}
+        <div className="p-4 sm:p-5">
+          {/* sidebar hint */}
+          <div className="mb-4 flex items-center gap-1.5">
+            {['Overview', 'Announcements', 'Timetable', 'Marks'].map((t, i) => (
+              <span
+                key={t}
+                className={`hidden rounded-lg px-2.5 py-1 text-[11px] font-medium sm:block ${i === 1 ? 'bg-primary-50 text-primary-700' : 'text-slate-400'}`}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+
+          {/* animated feed */}
+          <div className="min-h-56 space-y-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 sm:p-4">
+            <AnimatePresence mode="popLayout">
+              {visible.map((s) => (
+                <motion.div
+                  key={s.id}
+                  layout
+                  initial={{ opacity: 0, y: 14, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.4, ease: EASE }}
+                  className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_3px_rgb(16_24_40/0.05)]"
+                >
+                  {s.id === 'qr' ? (
+                    <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                      <IconQr className="size-5" />
+                    </span>
+                  ) : s.id === 'notes' ? (
+                    <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-600">
+                      <IconFileText className="size-5" />
+                    </span>
+                  ) : (
+                    <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600">
+                      <IconMegaphone className="size-5" />
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-[13px] font-semibold text-slate-900">{s.title}</p>
+                      {s.id === 'post' && (
+                        <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600">pinned</span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-slate-500">{s.meta}</p>
+                  </div>
+                  {s.id === 'qr' ? (
+                    <span className="relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-900">
+                      <span className="absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded bg-primary-400/90 animate-scan-beam" />
+                    </span>
+                  ) : (
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-500">
+                      <IconCheck className="size-4" />
+                    </span>
+                  )}
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            {/* delivery hint */}
+            <div className="flex items-center gap-2.5 px-1 pt-1">
+              <IconBell className="size-3.5 text-primary-500 animate-icon-wiggle" aria-hidden="true" />
+              <p className="text-[11px] font-medium text-slate-500">
+                Delivered instantly to every student in the section
               </p>
-            )}
-          </motion.div>
-        ))}
-        {step < TERMINAL_STEPS.length && (
-          <p className="text-white">
-            <span className="text-[#f23d3d]">$</span> <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-[#f23d3d] align-middle motion-reduce:animate-none" aria-hidden="true" />
-          </p>
-        )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -196,33 +262,34 @@ function Terminal() {
 function Hero() {
   const scrollTo = useScrollTo();
   return (
-    <section className="relative overflow-hidden pb-16 pt-32 sm:pt-36 lg:pb-24 lg:pt-40">
-      {/* backdrop: grid + glow */}
-      <div className="vault-grid pointer-events-none absolute inset-0" aria-hidden="true" />
-      <div className="pointer-events-none absolute left-1/2 top-0 h-[480px] w-[880px] -translate-x-1/2 rounded-full bg-[#f23d3d]/12 blur-[120px]" aria-hidden="true" />
+    <section className="relative overflow-hidden pb-16 pt-28 sm:pt-32 lg:pb-24 lg:pt-36">
+      {/* backdrop: dot grid + drifting aurora glow */}
+      <div className="hero-dot-grid pointer-events-none absolute inset-0" aria-hidden="true" />
+      <div className="pointer-events-none absolute -left-24 top-8 size-[420px] rounded-full bg-primary-200/45 blur-[110px] animate-aurora-a" aria-hidden="true" />
+      <div className="pointer-events-none absolute -right-24 top-40 size-[380px] rounded-full bg-sky-200/40 blur-[110px] animate-aurora-b" aria-hidden="true" />
 
-      <div className="relative mx-auto grid w-full max-w-7xl items-center gap-14 px-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8">
+      <div className="relative mx-auto grid w-full max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:px-8">
         <div>
           <FadeIn delay={0.05}>
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-[#a0a0a0]">
+            <span className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50/80 px-3.5 py-1.5 text-xs font-medium text-primary-700">
               <span className="relative flex size-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#22c55e] opacity-75 motion-reduce:animate-none" />
-                <span className="relative inline-flex size-1.5 rounded-full bg-[#22c55e]" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75 motion-reduce:animate-none" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
               </span>
               Live portal for IUB sections — CRs &amp; students
             </span>
           </FadeIn>
 
           <FadeIn delay={0.12}>
-            <h1 className="mt-6 text-4xl font-bold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-[3.4rem]">
+            <h1 className="mt-6 text-4xl font-bold leading-[1.06] tracking-tight text-slate-900 sm:text-5xl lg:text-[3.4rem]">
               Your class deserves
               <br />
-              <span className="text-[#f23d3d]">better than a WhatsApp group.</span>
+              <span className="bg-gradient-to-r from-primary-600 via-blue-500 to-sky-500 bg-clip-text text-transparent">better than a WhatsApp group.</span>
             </h1>
           </FadeIn>
 
           <FadeIn delay={0.2}>
-            <p className="mt-6 max-w-xl text-base leading-relaxed text-[#a0a0a0] sm:text-lg">
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
               Announcements, notes, assignments, timetable, attendance and marks — posted once by your CR,
               delivered instantly to every student in your section. One professional home for your whole class.
             </p>
@@ -231,39 +298,39 @@ function Hero() {
           <FadeIn delay={0.28}>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link
-                to="/frontend/login"
-                className="inline-flex items-center gap-2 rounded-full bg-[#f23d3d] px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-[#e62e2e] hover:shadow-[0_0_36px_rgba(242,61,61,0.5)]"
+                to="/login"
+                className="inline-flex items-center gap-2 rounded-full bg-primary-600 px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_-6px_rgb(37_99_235/0.5)] transition-all hover:bg-primary-700 hover:shadow-[0_14px_38px_-6px_rgb(37_99_235/0.55)]"
               >
                 Sign in to your portal <IconArrowRight className="size-4" />
               </Link>
               <button
                 type="button" onClick={() => scrollTo('features')}
-                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-transparent px-6 py-3 text-sm font-semibold text-white transition-colors hover:border-white/40 hover:bg-white/5"
+                className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/70 px-6 py-3 text-sm font-semibold text-slate-700 backdrop-blur transition-all hover:border-primary-300 hover:bg-primary-50/60 hover:text-primary-700"
               >
                 Explore features
               </button>
             </div>
-            <p className="mt-4 text-xs text-[#6b6b6b]">
+            <p className="mt-4 text-xs text-slate-500">
               Free for IUB sections · Accounts are issued by your admin or CR
             </p>
           </FadeIn>
         </div>
 
-        <FadeIn delay={0.35}>
-          <Terminal />
+        <FadeIn delay={0.35} className="lg:pl-4">
+          <HeroMock />
         </FadeIn>
       </div>
 
       {/* trust trio */}
-      <div className="relative mx-auto mt-16 grid w-full max-w-7xl gap-6 border-t border-white/5 px-4 pt-10 sm:grid-cols-3 sm:px-6 lg:px-8">
+      <div className="relative mx-auto mt-16 grid w-full max-w-7xl gap-6 border-t border-slate-200/70 px-4 pt-10 sm:grid-cols-3 sm:px-6 lg:px-8">
         {[
           { big: 'One section, one truth', small: 'Everything your CR posts — organized, searchable, permanent.' },
           { big: 'Instant delivery', small: 'Every student is notified the moment something is posted.' },
           { big: 'Every file type', small: 'PDFs, slides, sheets & archives — up to 10 MB each, stored in the cloud.' },
         ].map((t, i) => (
           <Reveal key={t.big} delay={i * 0.08}>
-            <p className="text-base font-semibold text-white">{t.big}</p>
-            <p className="mt-1 text-sm text-[#a0a0a0]">{t.small}</p>
+            <p className="text-base font-semibold text-slate-900">{t.big}</p>
+            <p className="mt-1 text-sm text-slate-600">{t.small}</p>
           </Reveal>
         ))}
       </div>
@@ -271,25 +338,113 @@ function Hero() {
   );
 }
 
-/* =========================== FEATURES ============================== */
+/* ==================== FEATURE VIGNETTES ============================ *
+ *  Each card carries a small living visual — the feature explains
+ *  itself before you read a word. All loops are GPU-friendly CSS.
+ * */
+function VAnnouncements() {
+  return (
+    <div className="relative flex h-full items-center justify-center gap-2">
+      {['A+', 'B-', 'C+'].map((m, i) => (
+        <span key={m} className="grid size-9 place-items-center rounded-lg bg-primary-50 text-xs font-bold text-primary-700" style={{ opacity: 0.55 + i * 0.22 }}>{m}</span>
+      ))}
+      <span className="grid size-12 place-items-center rounded-xl bg-primary-600 text-white shadow-[0_8px_20px_rgb(37_99_235/0.35)]">
+        <IconBell className="size-5 animate-icon-wiggle" />
+      </span>
+      <span className="absolute right-4 top-3 grid size-6 place-items-center rounded-full bg-emerald-500 text-white shadow-md">
+        <IconCheck className="size-3.5" />
+      </span>
+    </div>
+  );
+}
+function VNotes() {
+  return (
+    <div className="relative flex h-full items-center justify-center">
+      <span className="grid size-14 place-items-center rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgb(16_24_40/0.1)]">
+        <IconFileText className="size-6 text-slate-400" />
+      </span>
+      <span className="absolute right-[30%] top-4 grid size-9 place-items-center rounded-xl bg-primary-600 text-white shadow-[0_6px_16px_rgb(37_99_235/0.4)]">
+        <IconArrowRight className="size-4 -rotate-90 animate-icon-upload" />
+      </span>
+    </div>
+  );
+}
+function VAssignments() {
+  return (
+    <div className="relative flex h-full items-center justify-center">
+      <span className="grid size-14 place-items-center rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgb(16_24_40/0.1)]">
+        <IconClipboard className="size-6 text-slate-400" />
+      </span>
+      <svg className="absolute left-1/2 top-1/2 -translate-x-[38%] -translate-y-[88%]" width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M5 13l4 4 10-11" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="animate-dash-draw" />
+      </svg>
+    </div>
+  );
+}
+function VTimetable() {
+  return (
+    <div className="relative flex h-full items-center justify-center gap-3">
+      <span className="relative grid size-14 place-items-center rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgb(16_24_40/0.1)]">
+        <IconClock className="size-7 text-slate-300" />
+        <span className="absolute left-1/2 top-1/2 -translate-x-[3px] -translate-y-[13px]">
+          <span className="block h-4 w-0.5 origin-bottom rounded bg-primary-500 animate-clock-tick" />
+        </span>
+      </span>
+      <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700">
+        <span className="size-1.5 rounded-full bg-amber-500 animate-live-pulse" /> Next class · 25m
+      </span>
+    </div>
+  );
+}
+function VAttendance() {
+  return (
+    <div className="relative flex h-full items-center justify-center">
+      <span className="relative grid size-20 place-items-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgb(16_24_40/0.1)]">
+        <span className="absolute left-2 top-2 size-3.5 rounded-tl-md border-l-[3px] border-t-[3px] border-primary-500" />
+        <span className="absolute right-2 top-2 size-3.5 rounded-tr-md border-r-[3px] border-t-[3px] border-primary-500" />
+        <span className="absolute bottom-2 left-2 size-3.5 rounded-bl-md border-b-[3px] border-l-[3px] border-primary-500" />
+        <span className="absolute bottom-2 right-2 size-3.5 rounded-br-md border-b-[3px] border-r-[3px] border-primary-500" />
+        <span className="absolute inset-x-3 top-1/2 h-1 -translate-y-1/2 rounded bg-gradient-to-r from-transparent via-primary-400 to-transparent animate-scan-beam" />
+      </span>
+      <span className="absolute right-[24%] top-5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+        <IconCheck className="size-3" /> present
+      </span>
+    </div>
+  );
+}
+function VMarks() {
+  return (
+    <div className="relative flex h-full flex-col items-center justify-center gap-2">
+      <div className="flex h-16 items-end gap-2.5">
+        <span className="w-4 rounded-t-md bg-primary-200 animate-bar-1" style={{ height: '35%' }} />
+        <span className="w-4 rounded-t-md bg-primary-400 animate-bar-2" style={{ height: '65%' }} />
+        <span className="w-4 rounded-t-md bg-primary-600 animate-bar-3" style={{ height: '45%' }} />
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">assessments · published to your section</span>
+    </div>
+  );
+}
+
 const FEATURES = [
-  { icon: IconMegaphone, title: 'Announcements', text: 'Pinned notices, instant delivery, read receipts — the end of “check the group”.' },
-  { icon: IconFileText, title: 'Notes & files', text: 'Lecture notes with cloud uploads — any file type, organized by subject.' },
-  { icon: IconClipboard, title: 'Assignments', text: 'Deadlines, instructions and student submissions — all in one place, on time.' },
-  { icon: IconCalendar, title: 'Daily timetable', text: 'A calendar day-by-day schedule with rooms, plus live next-class countdown.' },
-  { icon: IconQr, title: 'QR attendance', text: 'CR opens a session, students scan — verified presence in seconds.' },
-  { icon: IconCheckCircle, title: 'Marks & assessments', text: 'Assessments, marks and results published straight to your section.' },
+  { Visual: VAnnouncements, title: 'Announcements', text: 'Pinned notices, instant delivery, read receipts — the end of “check the group”.' },
+  { Visual: VNotes, title: 'Notes & files', text: 'Lecture notes with cloud uploads — any file type, organized by subject.' },
+  { Visual: VAssignments, title: 'Assignments', text: 'Deadlines, instructions and student submissions — all in one place, on time.' },
+  { Visual: VTimetable, title: 'Daily timetable', text: 'A calendar day-by-day schedule with rooms, plus live next-class countdown.' },
+  { Visual: VAttendance, title: 'QR attendance', text: 'CR opens a session, students scan — verified presence in seconds.' },
+  { Visual: VMarks, title: 'Marks & assessments', text: 'Assessments, marks and results published straight to your section.' },
 ];
 
-function FeatureCard({ icon: Icon, title, text }) {
+function FeatureCard({ Visual, title, text }) {
   return (
     <StaggerItem>
-      <div className="group h-full rounded-2xl border border-white/10 bg-[#0b111e] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-[#f23d3d]/40 hover:shadow-[0_12px_40px_rgba(242,61,61,0.12)]">
-        <span className="grid size-11 place-items-center rounded-xl border border-[#f23d3d]/30 bg-[#f23d3d]/10">
-          <Icon className="size-5" style={{ color: RED }} />
-        </span>
-        <h3 className="mt-5 text-sm font-bold uppercase tracking-wider text-white">{title}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-[#a0a0a0]">{text}</p>
+      <div className="group h-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)] transition-all duration-300 hover:-translate-y-1 hover:border-primary-200 hover:shadow-[0_18px_44px_-14px_rgb(37_99_235/0.25)]">
+        <div className="relative h-32 border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white">
+          <Visual />
+        </div>
+        <div className="p-6">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900">{title}</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">{text}</p>
+        </div>
       </div>
     </StaggerItem>
   );
@@ -297,14 +452,15 @@ function FeatureCard({ icon: Icon, title, text }) {
 
 function Features() {
   return (
-    <section id="features" className="relative py-20 lg:py-28">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+    <section id="features" className="relative bg-slate-50/60 py-20 lg:py-28">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-primary-50/50 to-transparent" aria-hidden="true" />
+      <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#f23d3d]">Features</p>
-          <h2 className="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">Features</p>
+          <h2 className="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
             Everything a section needs, in one place.
           </h2>
-          <p className="mt-4 max-w-2xl text-[#a0a0a0]">
+          <p className="mt-4 max-w-2xl text-slate-600">
             Built from real class workflows — not a generic noticeboard. Each module is designed for the way
             CRs actually run a section at IUB.
           </p>
@@ -320,7 +476,7 @@ function Features() {
 /* =========================== ROLES ================================= */
 const ROLES = [
   {
-    icon: IconUserSquare, name: 'ADMIN', accent: 'Admin',
+    icon: IconUserSquare, name: 'ADMIN', accent: 'Administrator',
     lines: ['Sets up departments, sessions & sections', 'Issues CR and student accounts', 'Keeps the whole campus organized'],
   },
   {
@@ -336,34 +492,34 @@ const ROLES = [
 function Roles() {
   return (
     <section id="roles" className="relative py-20 lg:py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-1/3 h-64 bg-[#f23d3d]/[0.06] blur-[120px]" aria-hidden="true" />
+      <div className="pointer-events-none absolute inset-x-0 top-1/3 h-64 bg-primary-100/40 blur-[120px]" aria-hidden="true" />
       <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#f23d3d]">Portals</p>
-          <h2 className="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">Portals</p>
+          <h2 className="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
             Three portals. One system.
           </h2>
-          <p className="mt-4 max-w-2xl text-[#a0a0a0]">
+          <p className="mt-4 max-w-2xl text-slate-600">
             Strict role separation — everyone sees exactly what they need, and nothing they shouldn&apos;t.
           </p>
         </Reveal>
         <Stagger className="mt-12 grid gap-5 lg:grid-cols-3">
           {ROLES.map((r) => (
             <StaggerItem key={r.name}>
-              <div className="h-full rounded-2xl border border-white/10 bg-[#0b111e] p-7 transition-all duration-300 hover:-translate-y-1 hover:border-[#f23d3d]/40">
+              <div className="h-full rounded-2xl border border-slate-200/90 bg-white p-7 shadow-[0_1px_2px_rgb(16_24_40/0.04)] transition-all duration-300 hover:-translate-y-1 hover:border-primary-200 hover:shadow-[0_18px_44px_-14px_rgb(37_99_235/0.25)]">
                 <div className="flex items-center gap-3">
-                  <span className="grid size-10 place-items-center rounded-xl bg-[#f23d3d]/10 border border-[#f23d3d]/30">
-                    <r.icon className="size-5" style={{ color: RED }} />
+                  <span className="grid size-10 place-items-center rounded-xl bg-primary-50 text-primary-600">
+                    <r.icon className="size-5" />
                   </span>
                   <div>
-                    <h3 className="text-sm font-bold tracking-widest text-white">{r.name}</h3>
-                    <p className="text-xs text-[#6b6b6b]">{r.accent}</p>
+                    <h3 className="text-sm font-bold tracking-widest text-slate-900">{r.name}</h3>
+                    <p className="text-xs text-slate-500">{r.accent}</p>
                   </div>
                 </div>
                 <ul className="mt-5 space-y-2.5">
                   {r.lines.map((l) => (
-                    <li key={l} className="flex items-start gap-2.5 text-sm text-[#a0a0a0]">
-                      <IconPlus className="mt-0.5 size-3.5 shrink-0 text-[#f23d3d]" aria-hidden="true" />
+                    <li key={l} className="flex items-start gap-2.5 text-sm text-slate-600">
+                      <IconPlus className="mt-0.5 size-3.5 shrink-0 text-primary-500" aria-hidden="true" />
                       {l}
                     </li>
                   ))}
@@ -388,15 +544,14 @@ const FAQS = [
 
 function FaqItem({ q, a, open, onToggle }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b111e]">
+    <div className={`overflow-hidden rounded-2xl border bg-white transition-colors ${open ? 'border-primary-200 shadow-[0_10px_32px_-12px_rgb(37_99_235/0.18)]' : 'border-slate-200'}`}>
       <button
         type="button" onClick={onToggle} aria-expanded={open}
         className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
       >
-        <span className="text-sm font-semibold text-white sm:text-base">{q}</span>
+        <span className="text-sm font-semibold text-slate-900 sm:text-base">{q}</span>
         <span
-          className={`grid size-7 shrink-0 place-items-center rounded-full border transition-all duration-300
-            ${open ? 'rotate-45 border-[#f23d3d] bg-[#f23d3d]/10 text-[#f23d3d]' : 'border-white/15 text-[#a0a0a0]'}`}
+          className={`grid size-7 shrink-0 place-items-center rounded-full border transition-all duration-300 ${open ? 'rotate-45 border-primary-200 bg-primary-50 text-primary-600' : 'border-slate-200 text-slate-500'}`}
           aria-hidden="true"
         >
           <IconPlus className="size-3.5" />
@@ -408,7 +563,7 @@ function FaqItem({ q, a, open, onToggle }) {
             initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.28, ease: EASE }}
           >
-            <p className="px-6 pb-6 text-sm leading-relaxed text-[#a0a0a0]">{a}</p>
+            <p className="px-6 pb-6 text-sm leading-relaxed text-slate-600">{a}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -419,11 +574,11 @@ function FaqItem({ q, a, open, onToggle }) {
 function Faq() {
   const [open, setOpen] = useState(0);
   return (
-    <section id="faq" className="relative py-20 lg:py-28">
+    <section id="faq" className="relative bg-slate-50/60 py-20 lg:py-28">
       <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:px-8">
         <Reveal>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#f23d3d]">FAQ</p>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Questions, answered.</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">FAQ</p>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Questions, answered.</h2>
         </Reveal>
         <div className="mt-10 space-y-3.5">
           {FAQS.map((f, i) => (
@@ -443,17 +598,18 @@ function FinalCta() {
     <section className="relative py-20 lg:py-28">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal>
-          <div className="relative overflow-hidden rounded-3xl border border-[#f23d3d]/25 bg-[#0b111e] px-6 py-14 text-center sm:px-12">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(242,61,61,0.16),transparent_60%)]" aria-hidden="true" />
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary-700 via-primary-600 to-blue-500 px-6 py-14 text-center shadow-[0_32px_80px_-20px_rgb(37_99_235/0.5)] sm:px-12">
+            <div className="pointer-events-none absolute -left-16 -top-16 size-64 rounded-full bg-white/15 blur-3xl animate-aurora-a" aria-hidden="true" />
+            <div className="pointer-events-none absolute -bottom-20 -right-10 size-72 rounded-full bg-sky-300/25 blur-3xl animate-aurora-b" aria-hidden="true" />
             <h2 className="relative mx-auto max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              Move your class off WhatsApp — <span className="text-[#f23d3d]">today.</span>
+              Move your class off WhatsApp — <span className="text-sky-200">today.</span>
             </h2>
-            <p className="relative mx-auto mt-4 max-w-xl text-[#a0a0a0]">
+            <p className="relative mx-auto mt-4 max-w-xl text-blue-100">
               Your admin and CR already have accounts. Sign in and see your section organized.
             </p>
             <Link
-              to="/frontend/login"
-              className="relative mt-8 inline-flex items-center gap-2 rounded-full bg-[#f23d3d] px-7 py-3.5 text-sm font-semibold text-white transition-all hover:bg-[#e62e2e] hover:shadow-[0_0_44px_rgba(242,61,61,0.55)]"
+              to="/login"
+              className="relative mt-8 inline-flex items-center gap-2 rounded-full bg-white px-7 py-3.5 text-sm font-semibold text-primary-700 shadow-[0_14px_36px_rgb(16_24_40/0.3)] transition-all hover:bg-blue-50"
             >
               Sign in to your portal <IconArrowRight className="size-4" />
             </Link>
@@ -468,24 +624,24 @@ function FinalCta() {
 function Footer() {
   const scrollTo = useScrollTo();
   return (
-    <footer className="border-t border-white/10 py-12">
+    <footer className="border-t border-slate-200 py-12">
       <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-8 px-4 sm:px-6 md:flex-row lg:px-8">
         <div className="flex items-center gap-2.5">
-          <span className="grid size-8 place-items-center rounded-lg bg-[#f23d3d] text-sm font-bold text-white">IU</span>
+          <span className="grid size-8 place-items-center rounded-lg bg-primary-600 text-sm font-bold text-white">IU</span>
           <div>
-            <p className="text-sm font-semibold tracking-widest text-white">IUB CLASS MANAGEMENT</p>
-            <p className="text-xs text-[#6b6b6b]">Class, handled.</p>
+            <p className="text-sm font-semibold tracking-widest text-slate-900">IUB CLASS MANAGEMENT</p>
+            <p className="text-xs text-slate-500">Class, handled.</p>
           </div>
         </div>
         <nav className="flex flex-wrap items-center justify-center gap-x-7 gap-y-2" aria-label="Footer">
           {NAV_LINKS.map((l) => (
-            <button key={l.id} type="button" onClick={() => scrollTo(l.id)} className="text-sm text-[#a0a0a0] transition-colors hover:text-white">
+            <button key={l.id} type="button" onClick={() => scrollTo(l.id)} className="text-sm text-slate-600 transition-colors hover:text-primary-600">
               {l.label}
             </button>
           ))}
-          <Link to="/frontend/login" className="text-sm text-[#a0a0a0] transition-colors hover:text-white">Sign in</Link>
+          <Link to="/login" className="text-sm text-slate-600 transition-colors hover:text-primary-600">Sign in</Link>
         </nav>
-        <p className="text-xs text-[#6b6b6b]">© 2026 IUB Class Management. All rights reserved.</p>
+        <p className="text-xs text-slate-500">© 2026 IUB Class Management. All rights reserved.</p>
       </div>
     </footer>
   );
@@ -494,7 +650,7 @@ function Footer() {
 /* =========================== PAGE ================================== */
 export default function Landing() {
   return (
-    <div className="min-h-dvh bg-[#0a0a0c] text-white antialiased">
+    <div className="min-h-dvh bg-white text-slate-900 antialiased">
       <Navbar />
       <main>
         <Hero />
