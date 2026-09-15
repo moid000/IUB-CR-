@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'motion/react';
+import { PageTransition } from '../components/motion/primitives.jsx';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Avatar } from '../components/files/Avatar.jsx';
 import { studentApi } from '../api/student.js';
@@ -184,10 +186,15 @@ export default function StudentLayout() {
                 <Avatar user={user} size={7} />
                 <span className="hidden max-w-32 truncate sm:block">{user?.name ?? 'Student'}</span>
               </button>
+              <AnimatePresence>
               {menuOpen && (
-                <div
+                <motion.div
                   role="menu" aria-label="Account menu"
-                  className="absolute right-0 z-40 mt-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lift animate-fade-up"
+                  className="absolute right-0 z-40 mt-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lift"
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.99 }}
+                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
                 >
                   <div className="border-b border-slate-100 px-4 py-3">
                     <p className="truncate text-sm font-medium text-slate-900">{user?.name}</p>
@@ -203,14 +210,17 @@ export default function StudentLayout() {
                   >
                     <IconLogout className="size-4" /> Sign out
                   </button>
-                </div>
+                </motion.div>
               )}
+              </AnimatePresence>
             </div>
           </div>
         </header>
 
         <main className="p-4 sm:p-6 lg:p-8">
-          <Outlet />
+          <PageTransition key={location.pathname}>
+            <Outlet />
+          </PageTransition>
         </main>
       </div>
     </div>

@@ -85,7 +85,7 @@ export default function StudentTimetablePage() {
       ) : loading ? (
         <div className="space-y-3" role="status" aria-label="Loading timetable">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/60" />
+            <div key={i} className="h-16 skeleton-shimmer rounded-2xl border border-slate-200/60" />
           ))}
         </div>
       ) : slots.length === 0 ? (

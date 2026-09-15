@@ -58,3 +58,34 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fade-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Shimmer — skeleton loading sweep (single gradient, GPU-friendly) */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(100deg, rgb(226 232 240 / 0.7) 40%, rgb(241 245 249 / 0.95) 50%, rgb(226 232 240 / 0.7) 60%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+
+/* Landing — soft dotted texture for hero depth (pure CSS, zero JS cost) */
+.hero-dot-grid {
+  background-image: radial-gradient(rgb(15 23 42 / 0.05) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Type scale helpers — display headings for marketing surfaces */
+@utility text-display {
+  font-size: clamp(2.25rem, 5vw, 3.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+@utility text-display-sm {
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}

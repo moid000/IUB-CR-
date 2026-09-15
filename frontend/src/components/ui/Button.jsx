@@ -1,4 +1,9 @@
-/** Reusable UI primitives — small, accessible, consistent. */
+import { motion } from 'motion/react';
+
+/** Reusable UI primitives — small, accessible, consistent.
+ *  Built on motion for subtle, intentional micro-interactions. */
+
+const MotionButton = motion.button;
 
 export function Button({
   variant = 'primary',
@@ -23,13 +28,19 @@ export function Button({
     md: 'h-11 px-4 text-sm gap-2',
     lg: 'h-12 px-5 text-base gap-2',
   };
+  const isDisabled = disabled || loading;
   return (
-    <button
+    <MotionButton
       className={`inline-flex items-center justify-center rounded-lg font-medium transition-colors
         focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed
         disabled:opacity-60 ${variants[variant] ?? variants.primary} ${sizes[size] ?? sizes.md} ${className}`}
-      disabled={disabled || loading}
+      disabled={isDisabled}
       aria-busy={loading || undefined}
+      /* Subtle, consistent feedback — 1px lift on hover, a hair under 1 on press.
+         Never moves more than the eye expects; disabled never animates. */
+      whileHover={isDisabled ? undefined : { y: -1 }}
+      whileTap={isDisabled ? undefined : { scale: 0.985 }}
+      transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
       {...rest}
     >
       {loading ? (
@@ -41,6 +52,6 @@ export function Button({
         Icon && <Icon className="size-4" aria-hidden="true" />
       )}
       {children}
-    </button>
+    </MotionButton>
   );
 }

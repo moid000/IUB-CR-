@@ -117,17 +117,17 @@ export default function StudentOverview() {
       {!loaded ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/60" />
+            <div key={i} className="h-24 skeleton-shimmer rounded-2xl border border-slate-200/60" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-          <StatCard to="/student/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
-          <StatCard to="/student/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} hint="published for your section" />
-          <StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
-          <StatCard to="/student/attendance" icon={IconQr} label="Attendance" value={counts.attendance ?? '—'} hint="sessions attended" />
-          <StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
-        </div>
+        <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+          <StaggerItem><StatCard to="/student/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} /></StaggerItem>
+          <StaggerItem><StatCard to="/student/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} hint="published for your section" /></StaggerItem>
+          <StaggerItem><StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} /></StaggerItem>
+          <StaggerItem><StatCard to="/student/attendance" icon={IconQr} label="Attendance" value={counts.attendance ?? '—'} hint="sessions attended" /></StaggerItem>
+          <StaggerItem><StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" /></StaggerItem>
+        </Stagger>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">

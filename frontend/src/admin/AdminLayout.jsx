@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'motion/react';
+import { PageTransition } from '../components/motion/primitives.jsx';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Avatar } from '../components/files/Avatar.jsx';
 import { Badge } from '../components/ui/Badge.jsx';
@@ -163,10 +165,15 @@ export default function AdminLayout() {
               <Badge variant="primary" className="hidden sm:inline-flex">Admin</Badge>
             </button>
 
-            {menuOpen && (
-              <div
+            <AnimatePresence>
+              {menuOpen && (
+              <motion.div
                 role="menu"
                 className="absolute right-4 top-14 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lift"
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.99 }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
               >
                 <div className="border-b border-slate-100 px-4 py-3">
                   <p className="truncate text-sm font-semibold text-slate-800">{user?.name ?? 'Administrator'}</p>
@@ -178,14 +185,17 @@ export default function AdminLayout() {
                     Sign out
                   </Button>
                 </div>
-              </div>
-            )}
+              </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </header>
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8">
           <div className="mx-auto w-full max-w-6xl">
-            <Outlet />
+            <PageTransition key={location.pathname}>
+              <Outlet />
+            </PageTransition>
           </div>
         </main>
       </div>

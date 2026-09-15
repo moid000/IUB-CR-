@@ -58,7 +58,7 @@ export default function StudentNotesPage() {
       ) : loading ? (
         <div className="space-y-3" role="status" aria-label="Loading notes">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/60" />
+            <div key={i} className="h-24 skeleton-shimmer rounded-2xl border border-slate-200/60" />
           ))}
         </div>
       ) : items.length === 0 ? (

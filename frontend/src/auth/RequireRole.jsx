@@ -6,8 +6,8 @@
  */
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth, ROLE_HOME } from './AuthContext.jsx';
-import { PageContainer } from '../components/ui/PageContainer.jsx';
-import { Spinner } from '../components/ui/Spinner.jsx';
+import { FadeIn } from '../components/motion/primitives.jsx';
+import { Brand } from '../components/Brand.jsx';
 
 export function RequireRole({ roles, children }) {
   const { user, ready } = useAuth();
@@ -29,13 +29,23 @@ export function RedirectIfAuthenticated({ children }) {
   return children;
 }
 
+/**
+ * Session/route loader — brand-first, structure over spinners.
+ * The shell of the page appears (brand, text, content bars) so the app
+ * feels continuous instead of flashing a blank screen + spinner.
+ */
 export function FullPageLoader({ label }) {
   return (
-    <PageContainer center>
-      <div className="flex flex-col items-center gap-3 py-24" role="status" aria-live="polite">
-        <Spinner size="lg" />
+    <div className="grid min-h-dvh place-items-center bg-slate-50 px-4" role="status" aria-live="polite">
+      <FadeIn className="w-full max-w-sm text-center">
+        <div className="mb-6 flex justify-center"><Brand /></div>
         <p className="text-sm text-slate-500">{label}</p>
-      </div>
-    </PageContainer>
+        <div className="mt-6 space-y-2.5" aria-hidden="true">
+          <div className="skeleton-shimmer h-3 rounded" style={{ width: '85%' }} />
+          <div className="skeleton-shimmer h-3 rounded" style={{ width: '65%' }} />
+          <div className="skeleton-shimmer h-3 rounded" style={{ width: '75%' }} />
+        </div>
+      </FadeIn>
+    </div>
   );
 }

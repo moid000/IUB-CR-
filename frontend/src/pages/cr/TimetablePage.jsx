@@ -216,7 +216,7 @@ export default function TimetablePage() {
           <div className="mt-3"><Button variant="secondary" size="sm" onClick={reload}>Try again</Button></div>
         </div>
       ) : loading ? (
-        <div className="h-44 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="h-44 skeleton-shimmer rounded-2xl" />
       ) : items.length === 0 ? (
         <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft">
           <div className="flex flex-col items-center py-10 text-center">

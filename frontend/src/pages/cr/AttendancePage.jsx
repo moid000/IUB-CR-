@@ -195,7 +195,7 @@ export default function AttendancePage() {
         </div>
       ) : loading ? (
         <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-2xl bg-slate-100" />)}
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 skeleton-shimmer rounded-2xl" />)}
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft">

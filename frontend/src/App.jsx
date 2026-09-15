@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { MotionConfig } from 'motion/react';
 
 // The SPA is namespaced under /frontend/ (vite base), but root-level URLs
 // (e.g. /admin, served by the same SPA via rewrites) are also supported.
@@ -56,6 +57,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <MotionConfig reducedMotion="user">
         <BrowserRouter basename={ROUTER_BASENAME}>
           <Routes>
             {/* Public */}
@@ -118,6 +120,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
+      </MotionConfig>
       </AuthProvider>
     </ErrorBoundary>
   );

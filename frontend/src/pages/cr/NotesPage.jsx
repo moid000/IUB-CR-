@@ -189,7 +189,7 @@ export default function NotesPage() {
         </div>
       ) : loading ? (
         <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-2xl bg-slate-100" />)}
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 skeleton-shimmer rounded-2xl" />)}
         </div>
       ) : items.length === 0 ? (
         <EmptyState

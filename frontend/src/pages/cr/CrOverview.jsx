@@ -114,17 +114,17 @@ export default function CrOverview() {
       {!loaded ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/60" />
+            <div key={i} className="h-24 skeleton-shimmer rounded-2xl border border-slate-200/60" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-          <StatCard to="/cr/students" icon={IconUsers} label="Students" value={counts.students ?? '—'} />
-          <StatCard to="/cr/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
-          <StatCard to="/cr/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} />
-          <StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
-          <StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
-        </div>
+        <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+          <StaggerItem><StatCard to="/cr/students" icon={IconUsers} label="Students" value={counts.students ?? '—'} /></StaggerItem>
+          <StaggerItem><StatCard to="/cr/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} /></StaggerItem>
+          <StaggerItem><StatCard to="/cr/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} /></StaggerItem>
+          <StaggerItem><StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} /></StaggerItem>
+          <StaggerItem><StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" /></StaggerItem>
+        </Stagger>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -137,7 +137,7 @@ export default function CrOverview() {
             </Link>
           </div>
           {!loaded ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
           ) : recent.todayClasses.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
               Aaj koi class set nahi — timetable page se add karein.
@@ -169,7 +169,7 @@ export default function CrOverview() {
             </Link>
           </div>
           {!loaded ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
           ) : recent.announcements.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No announcements yet.</p>
           ) : (
@@ -197,7 +197,7 @@ export default function CrOverview() {
           </Link>
         </div>
         {!loaded ? (
-          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />)}</div>
+          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
         ) : recent.assignments.length === 0 ? (
           <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No assignments created yet.</p>
         ) : (

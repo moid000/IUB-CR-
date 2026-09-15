@@ -93,7 +93,7 @@ export default function StudentNotificationsPage() {
       ) : loading ? (
         <div className="space-y-3" role="status" aria-label="Loading notifications">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-20 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/60" />
+            <div key={i} className="h-20 skeleton-shimmer rounded-2xl border border-slate-200/60" />
           ))}
         </div>
       ) : items.length === 0 ? (
