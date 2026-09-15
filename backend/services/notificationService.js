@@ -195,21 +195,20 @@ export async function notifySection({
  *
  * Generated ONLY when the recipient polls their notification endpoints
  * (no background worker). A reminder is due when, in Asia/Karachi local
- * time, it is currently the slot's weekday AND the wall clock is within
+ * time, TODAY's date matches the slot's date AND the wall clock is within
  * [startTime − 30m, startTime). The dedupe key uses the KARACHI-LOCAL
- * date — never UTC — so a 01:00 PKT Monday class (20:00 UTC Sunday)
- * still dedupes on Monday's date. Idempotent across any number of polls
- * and concurrent serverless instances via the unique {recipient, dedupeKey} index.
+ * date — never UTC. Idempotent across any number of polls and concurrent
+ * serverless instances via the unique {recipient, dedupeKey} index.
  */
 export async function generateTimetableReminders(user) {
   if (!user?.section) return 0;
-  const { dateStr, dayName, minutes } = karachiWallClock();
-  if (dayName === 'sunday') return 0; // Sunday is not a working day
+  const { dateStr, minutes } = karachiWallClock();
 
   const section = await Section.findById(user.section).select('status').lean();
   if (!section || section.status !== 'active') return 0; // archived sections get no reminders
 
-  const slots = await Timetable.find({ section: user.section, day: dayName, status: 'active' })
+  // Daily timetable — every slot is bound to one concrete date
+  const slots = await Timetable.find({ section: user.section, date: dateStr, status: 'active' })
     .populate('subject', 'name')
     .lean();
   const due = slots.filter((slot) => {

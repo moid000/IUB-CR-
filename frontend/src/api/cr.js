@@ -62,8 +62,9 @@ export const crApi = {
 
   /* ---- Timetable (monday–saturday, HH:MM wall-clock, overlap → 409) ---- */
   timetable: {
-    list: (params) => api.get(`/api/cr/timetable${qs(params)}`), // day | subjectId | status | page | limit
-    create: (body) => api.post('/api/cr/timetable', body), // { subject, day, startTime, endTime, room? }
+    list: (params) => api.get(`/api/cr/timetable${qs(params)}`), // date | subjectId | status | page | limit
+    create: (body) => api.post('/api/cr/timetable', body), // { subject, date, startTime, endTime, room? }
+    copy: (body) => api.post('/api/cr/timetable/copy', body), // { fromDate, toDate } → { copied, skipped }
     update: (id, body) => api.patch(`/api/cr/timetable/${id}`, body),
     archive: (id) => api.post(`/api/cr/timetable/${id}/archive`),
     delete: (id) => api.del(`/api/cr/timetable/${id}`), // permanently removes the slot

@@ -86,6 +86,7 @@ export const getSubmission = wrapDoc(assignmentSvc.getSubmissionCr);
 /* ---- Timetable — section ALWAYS req.user.section; overlap enforced ---- */
 export const listTimetable = wrapList(timetableSvc.listTimetableCr);
 export const createTimetable = wrapDoc(timetableSvc.createTimetableCr);
+export const copyTimetable = wrapDoc(timetableSvc.copyTimetableCr);
 export const getTimetable = wrapDoc(timetableSvc.getTimetableCr);
 export const updateTimetable = wrapDoc(timetableSvc.updateTimetableCr);
 export const archiveTimetable = wrapDoc(timetableSvc.archiveTimetableCr);

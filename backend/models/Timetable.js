@@ -4,22 +4,22 @@ const { Schema } = mongoose;
 const { ObjectId } = Schema.Types;
 
 const TIME_FORMAT = /^([01]\d|2[0-3]):[0-5]\d$/; // HH:MM 24h
-
-// Canonical lowercase day names — Sunday is NOT a working day.
-const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const DATE_FORMAT = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/; // YYYY-MM-DD
 
 /**
- * Timetable slot — recurring WEEKLY class for one section + subject.
- * day + startTime/endTime are Asia/Karachi WALL-CLOCK values stored as
- * zero-padded HH:MM 24h strings. They are recurring weekly schedule data —
- * they are deliberately NEVER converted to UTC timestamps.
- * Same-section/same-day overlap is enforced at the service layer (Step 7).
+ * Timetable slot — a class on ONE SPECIFIC DATE (daily timetable).
+ * date + startTime/endTime are Asia/Karachi WALL-CLOCK values stored as
+ * plain strings (YYYY-MM-DD / zero-padded HH:MM 24h). They are calendar
+ * data — deliberately NEVER converted to UTC timestamps.
+ * The CR sets each day's schedule themselves (any calendar date is
+ * allowed, including Sunday) and can copy another day's slots in one call.
+ * Same-section/same-date overlap is enforced at the service layer (Step 7).
  */
 const timetableSchema = new Schema(
   {
     section: { type: ObjectId, ref: 'Section', required: true },
     subject: { type: ObjectId, ref: 'Subject', required: true },
-    day: { type: String, enum: DAYS, required: true },
+    date: { type: String, required: true, match: [DATE_FORMAT, 'Invalid date (YYYY-MM-DD)'] },
     startTime: { type: String, required: true, match: [TIME_FORMAT, 'Invalid startTime (HH:MM)'] },
     endTime: {
       type: String,
@@ -39,7 +39,7 @@ const timetableSchema = new Schema(
   { timestamps: true }
 );
 
-timetableSchema.index({ section: 1, day: 1, startTime: 1 });
+timetableSchema.index({ section: 1, date: 1, startTime: 1 });
 timetableSchema.index({ section: 1, status: 1 });
 
 export default mongoose.model('Timetable', timetableSchema);

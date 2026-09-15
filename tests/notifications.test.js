@@ -242,7 +242,7 @@ const MON = Date.UTC(2026, 9, 5, 3, 30);  // 2026-10-05 08:30 PKT (Monday)
 test('F1. 30-minute window: at start−30m exactly → reminder generated on poll', async () => {
   // Monday 09:00–10:00 PKT slot
   const slot = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'monday', startTime: '09:00', endTime: '10:00', room: 'Lab 2',
+    subject: subA1, date: '2026-10-05', startTime: '09:00', endTime: '10:00', room: 'Lab 2',
   });
   assert.equal(slot.status, 200);
   const slotId = String(slot.json.data._id);
@@ -296,7 +296,7 @@ test('F5. 10 concurrent polls → exactly one reminder document (unique index)',
 
 test('F6. Karachi date boundary: 01:00 PKT Monday class, polled at 00:35 PKT (19:35 UTC SUNDAY)', async () => {
   const slot = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'monday', startTime: '01:00', endTime: '02:00', room: 'R1',
+    subject: subA1, date: '2026-10-05', startTime: '01:00', endTime: '02:00', room: 'R1',
   });
   assert.equal(slot.status, 200);
   const slotId = String(slot.json.data._id);
@@ -313,7 +313,7 @@ test('F6. Karachi date boundary: 01:00 PKT Monday class, polled at 00:35 PKT (19
 
 test('F7. archived timetable slot generates no reminder', async () => {
   const slot = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'monday', startTime: '11:00', endTime: '12:00',
+    subject: subA1, date: '2026-10-05', startTime: '11:00', endTime: '12:00',
   });
   await cr1.api('POST', `/api/cr/timetable/${slot.json.data._id}/archive`);
   setNow(Date.UTC(2026, 9, 5, 4, 35)); // 10:35 PKT — inside window for 11:00

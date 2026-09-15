@@ -6,13 +6,15 @@ import * as v from '../utils/validators.js';
 import { parsePagination, paginationMeta } from '../utils/pagination.js';
 
 /**
- * Timetable (Step 7) — recurring weekly class slots.
+ * Timetable (Step 7) — DAILY class slots (one specific calendar date each).
  *
- * - day/startTime/endTime are Asia/Karachi wall-clock values (HH:MM strings,
- *   zero-padded 24h) — recurring weekly data, NEVER UTC timestamps.
- * - A section cannot have two ACTIVE entries overlapping on the same day.
+ * - date/startTime/endTime are Asia/Karachi wall-clock values (YYYY-MM-DD /
+ *   HH:MM strings, zero-padded) — calendar data, NEVER UTC timestamps.
+ * - A section cannot have two ACTIVE entries overlapping on the same date.
  *   Overlap = newStart < existingEnd AND newEnd > existingStart.
  *   Boundary-touching (end == next start) is allowed.
+ * - CR can copy another day's slots into a target date in one call
+ *   (conflicting slots are skipped, never silently overwritten).
  * - Concurrency: overlap check + insert run inside a MongoDB transaction that
  *   first touches the Section document — concurrent writers for the same
  *   section conflict on that document and the loser transparently retries,
@@ -20,21 +22,25 @@ import { parsePagination, paginationMeta } from '../utils/pagination.js';
  * - No hard delete; archived entries never block new active slots.
  */
 
-export const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+// (DAYS export removed — timetable is date-based now)
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/; // strict zero-padded HH:MM 24h
+const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/; // strict YYYY-MM-DD
 const ROOM_MAX = 40;
 
 const hhmmToMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 /* ------------------------------ validation ------------------------------ */
 
-/** Canonical lowercase day — case-insensitive input; sunday/abbreviations rejected. */
-function assertDay(value) {
-  const day = String(value ?? '').trim().toLowerCase();
-  if (!DAYS.includes(day)) {
-    throw new ApiError(400, `day must be one of: ${DAYS.join(', ')}`);
+/** Strict YYYY-MM-DD calendar date — real calendar day (2026-02-31 rejected). */
+function assertDate(value) {
+  const d = String(value ?? '').trim();
+  if (!DATE_RE.test(d)) throw new ApiError(400, 'date must be a valid YYYY-MM-DD date');
+  const [y, m, day] = d.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, day));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== day) {
+    throw new ApiError(400, 'date must be a valid calendar date');
   }
-  return day;
+  return d;
 }
 
 /** Strict zero-padded HH:MM — rejects '8:00 AM', '25:00', '09:75', ''. */
@@ -77,11 +83,11 @@ async function assertSectionSubject(subjectId, sectionId) {
   return id;
 }
 
-function overlapFilter({ section, day, startTime, endTime, excludeId }) {
+function overlapFilter({ section, date, startTime, endTime, excludeId }) {
   // zero-padded HH:MM strings compare correctly lexicographically
   return {
     section,
-    day,
+    date,
     status: 'active',
     startTime: { $lt: endTime },
     endTime: { $gt: startTime },
@@ -98,10 +104,10 @@ async function audit(req, action, { entityId, section, before, after }) {
 /* -------------------------------- creates ------------------------------- */
 
 async function createEntry(req, sectionId) {
-  const body = v.pick(req.body, ['subject', 'day', 'startTime', 'endTime', 'room']);
+  const body = v.pick(req.body, ['subject', 'date', 'startTime', 'endTime', 'room']);
   const section = await assertActiveSection(sectionId);
   const subject = await assertSectionSubject(body.subject, section._id);
-  const day = assertDay(body.day);
+  const date = assertDate(body.date);
   const startTime = assertTime(body.startTime, 'startTime');
   const endTime = assertTime(body.endTime, 'endTime');
   assertRange(startTime, endTime);
@@ -109,11 +115,11 @@ async function createEntry(req, sectionId) {
 
   const doc = await withSectionLock(section._id, async (tx) => {
     const conflict = await Timetable.findOne(
-      overlapFilter({ section: section._id, day, startTime, endTime }), null, { session: tx }
+      overlapFilter({ section: section._id, date, startTime, endTime }), null, { session: tx }
     );
-    if (conflict) throw new ApiError(409, 'Timetable slot overlaps an existing class.');
+    if (conflict) throw new ApiError(409, 'Timetable slot overlaps an existing class on this date.');
     const [created] = await Timetable.create([{
-      section: section._id, subject, day, startTime, endTime, room,
+      section: section._id, subject, date, startTime, endTime, room,
       createdBy: req.user._id, status: 'active',
     }], { session: tx });
     return created;
@@ -121,7 +127,7 @@ async function createEntry(req, sectionId) {
 
   await audit(req, 'timetable.create', {
     entityId: doc._id, section: doc.section,
-    after: { day, startTime, endTime, subject: String(subject) },
+    after: { date, startTime, endTime, subject: String(subject) },
   });
   return doc;
 }
@@ -137,6 +143,48 @@ export async function createTimetableCr(req) {
   return createEntry(req, req.user.section);
 }
 
+/**
+ * Copy another day's ACTIVE slots into a target date — the CR's daily
+ * convenience ("kal ka schedule aaj bhi copy karo"). Slots that would
+ * overlap an existing active slot on the target date are SKIPPED (never
+ * silently overwritten). Same-date copies and missing source days are
+ * explicit errors, not silent no-ops.
+ */
+export async function copyTimetableCr(req) {
+  if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
+  const body = v.pick(req.body, ['fromDate', 'toDate']);
+  const fromDate = assertDate(body.fromDate);
+  const toDate = assertDate(body.toDate);
+  if (fromDate === toDate) throw new ApiError(400, 'fromDate and toDate must be different dates');
+  await assertActiveSection(req.user.section);
+
+  const source = await Timetable.find({
+    section: req.user.section, date: fromDate, status: 'active',
+  }).sort({ startTime: 1 });
+  if (!source.length) throw new ApiError(400, `No active classes found on ${fromDate} to copy`);
+
+  let copied = 0;
+  const skipped = [];
+  for (const slot of source) {
+    const conflict = await Timetable.findOne(
+      overlapFilter({ section: req.user.section, date: toDate, startTime: slot.startTime, endTime: slot.endTime })
+    );
+    if (conflict) { skipped.push({ startTime: slot.startTime, endTime: slot.endTime }); continue; }
+    await Timetable.create({
+      section: req.user.section, subject: slot.subject, date: toDate,
+      startTime: slot.startTime, endTime: slot.endTime, room: slot.room,
+      createdBy: req.user._id, status: 'active',
+    });
+    copied += 1;
+  }
+
+  await auditFromReq(req, {
+    action: 'timetable.copy', entityType: 'timetable', section: req.user.section,
+    before: null, after: { fromDate, toDate, copied, skipped: skipped.length },
+  });
+  return { copied, skipped, fromDate, toDate };
+}
+
 /* --------------------------------- lists -------------------------------- */
 
 function timetableFilters(query, { forceSection }) {
@@ -145,21 +193,23 @@ function timetableFilters(query, { forceSection }) {
   const sectionParam = query.sectionId ?? query.section;
   if (sectionParam) filter.section = v.assertObjectId(sectionParam, 'section id');
   if (query.subjectId) filter.subject = v.assertObjectId(query.subjectId, 'subject id');
-  if (query.day) filter.day = assertDay(query.day);
+  if (query.date !== undefined) {
+    const d = String(query.date).trim();
+    if (d) filter.date = assertDate(d);
+  }
   if (query.status) filter.status = v.assertEnum(query.status, ['active', 'archived'], 'status');
   return filter;
 }
 
 /**
- * Deterministic ordering: monday→saturday, then startTime, endTime, _id.
+ * Deterministic ordering: date, then startTime, endTime, _id.
  * Wall-clock strings are returned EXACTLY as stored (no UTC conversion).
  */
 async function listEntries(filter, query) {
   const { page, limit, skip } = parsePagination(query);
   const [rows] = await Timetable.aggregate([
     { $match: filter },
-    { $addFields: { dayOrder: { $indexOfArray: [DAYS, '$day'] } } },
-    { $sort: { dayOrder: 1, startTime: 1, endTime: 1, _id: 1 } },
+    { $sort: { date: -1, startTime: 1, endTime: 1, _id: 1 } },
     { $facet: {
       items: [
         { $skip: skip },
@@ -169,7 +219,7 @@ async function listEntries(filter, query) {
         { $lookup: { from: 'users', localField: 'createdBy', foreignField: '_id', as: 'createdBy' } },
         { $unwind: { path: '$createdBy', preserveNullAndEmptyArrays: true } },
         { $project: {
-          section: 1, subject: { name: 1, code: 1 }, day: 1, startTime: 1, endTime: 1,
+          section: 1, subject: { name: 1, code: 1 }, date: 1, startTime: 1, endTime: 1,
           room: 1, status: 1, createdBy: { name: 1 }, createdAt: 1, updatedAt: 1,
         } },
       ],
@@ -259,7 +309,7 @@ async function withSectionLock(sectionId, fn) {
 }
 
 async function applyUpdate(req, doc, { scoped }) {
-  const body = v.pick(req.body, ['subject', 'day', 'startTime', 'endTime', 'room', 'section']);
+  const body = v.pick(req.body, ['subject', 'date', 'startTime', 'endTime', 'room', 'section']);
   if (doc.status === 'archived') throw new ApiError(400, 'Archived timetable entry cannot be modified');
 
   // Section moves: never for CR (body.section ignored); admin may move an
@@ -275,23 +325,23 @@ async function applyUpdate(req, doc, { scoped }) {
 
   const fields = {};
   if (body.subject !== undefined) fields.subject = await assertSectionSubject(body.subject, targetSection);
-  if (body.day !== undefined) fields.day = assertDay(body.day);
+  if (body.date !== undefined) fields.date = assertDate(body.date);
   if (body.startTime !== undefined) fields.startTime = assertTime(body.startTime, 'startTime');
   if (body.endTime !== undefined) fields.endTime = assertTime(body.endTime, 'endTime');
   if (body.room !== undefined) fields.room = assertRoom(body.room);
 
-  const day = fields.day ?? doc.day;
+  const date = fields.date ?? doc.date;
   const startTime = fields.startTime ?? doc.startTime;
   const endTime = fields.endTime ?? doc.endTime;
   assertRange(startTime, endTime);
 
-  const before = { day: doc.day, startTime: doc.startTime, endTime: doc.endTime };
+  const before = { date: doc.date, startTime: doc.startTime, endTime: doc.endTime };
   const updated = await withSectionLock(targetSection, async (tx) => {
     const conflict = await Timetable.findOne(
-      overlapFilter({ section: targetSection, day, startTime, endTime, excludeId: doc._id }),
+      overlapFilter({ section: targetSection, date, startTime, endTime, excludeId: doc._id }),
       null, { session: tx }
     );
-    if (conflict) throw new ApiError(409, 'Timetable slot overlaps an existing class.');
+    if (conflict) throw new ApiError(409, 'Timetable slot overlaps an existing class on this date.');
     Object.assign(doc, fields, { section: targetSection });
     await doc.save({ session: tx });
     return doc;
@@ -299,7 +349,7 @@ async function applyUpdate(req, doc, { scoped }) {
 
   await audit(req, 'timetable.update', {
     entityId: doc._id, section: doc.section, before,
-    after: { day, startTime, endTime },
+    after: { date, startTime, endTime },
   });
   return updated;
 }
@@ -321,7 +371,7 @@ export async function updateTimetableCr(req) {
 async function archiveEntry(req, doc) {
   if (doc.status === 'archived') throw new ApiError(409, 'Timetable entry already archived');
   doc.status = 'archived';
-  await doc.save(); // section, subject, day, times, room, createdBy, timestamps preserved
+  await doc.save(); // section, subject, date, times, room, createdBy, timestamps preserved
   await audit(req, 'timetable.archive', {
     entityId: doc._id, section: doc.section,
     before: { status: 'active' }, after: { status: 'archived' },
@@ -335,7 +385,7 @@ async function deleteEntry(req, doc) {
   await doc.deleteOne();
   await auditFromReq(req, {
     action: 'timetable.delete', entityType: 'timetable', entityId: doc._id, section: doc.section,
-    before: { subject: doc.subject, day: doc.day, startTime: doc.startTime }, after: { deleted: true },
+    before: { subject: doc.subject, date: doc.date, startTime: doc.startTime }, after: { deleted: true },
   });
   return { deleted: true, id: doc._id };
 }

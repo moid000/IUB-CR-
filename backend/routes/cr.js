@@ -7,7 +7,7 @@ import {
   listNotes, createNote, getNote, updateNote, archiveNote, deleteNote,
   listAssignments, createAssignment, getAssignment, updateAssignment, archiveAssignment, deleteAssignment,
   listSubmissions, getSubmission,
-  listTimetable, createTimetable, getTimetable, updateTimetable, archiveTimetable, deleteTimetable,
+  listTimetable, createTimetable, copyTimetable, getTimetable, updateTimetable, archiveTimetable, deleteTimetable,
   createAttendanceSession, listAttendanceSessions, getAttendanceSession,
   cancelAttendanceSession, listAttendanceRecords,
 } from '../controllers/crController.js';
@@ -85,6 +85,7 @@ router.get('/submissions/:id', getSubmission);
 // Timetable — section ALWAYS req.user.section; same-day overlap rejected
 router.get('/timetable', listTimetable);
 router.post('/timetable', createTimetable);
+router.post('/timetable/copy', copyTimetable);
 router.get('/timetable/:id', getTimetable);
 router.patch('/timetable/:id', updateTimetable);
 router.post('/timetable/:id/archive', archiveTimetable);

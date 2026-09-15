@@ -106,7 +106,7 @@ test('fixtures: full hierarchy + content', async () => {
     subject: subA, title: 'Task 1', instructions: 'Do it.',
     deadline: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
   })).json.data._id;
-  slotA = (await must(cr1.api('POST', '/api/cr/timetable', { subject: subA, day: 'monday', startTime: '10:00', endTime: '11:00' }), 'cr1'));
+  slotA = (await must(cr1.api('POST', '/api/cr/timetable', { subject: subA, date: '2026-10-05', startTime: '10:00', endTime: '11:00' }), 'cr1'));
   quizA = (await must(cr1.api('POST', '/api/cr/assessments', {
     subject: subA, title: 'Quiz 1', type: 'quiz', totalMarks: 20,
     assessmentDate: '2026-09-20T09:00:00.000Z',

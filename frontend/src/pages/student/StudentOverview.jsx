@@ -6,6 +6,7 @@ import { formatDate, formatDateTime } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
+import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import {
   IconBook, IconClipboard, IconCalendar, IconBell, IconQr,
   IconArrowRight, IconClock,
@@ -37,12 +38,8 @@ export default function StudentOverview() {
   const { user } = useAuth();
   const section = user?.section;
 
-  // Today's weekday in Pakistan time (timetable is sunday-free)
-  const today = useMemo(() => {
-    const day = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: TZ })
-      .format(new Date()).toLowerCase();
-    return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].includes(day) ? day : null;
-  }, []);
+  // Today's date in Pakistan time (daily timetable — any calendar date)
+  const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
 
   const [counts, setCounts] = useState({ subjects: null, assignments: null, attendance: null, unread: null });
   const [recent, setRecent] = useState({ announcements: [], assignments: [], todayClasses: [] });
@@ -60,7 +57,7 @@ export default function StudentOverview() {
         safe(studentApi.notifications.unreadCount()),
         safe(studentApi.announcements.list({ limit: 4 })),
         safe(studentApi.assignments.list({ status: 'published', limit: 4 })),
-        today ? safe(studentApi.timetable.list({ day: today, status: 'active', limit: 10 })) : Promise.resolve(null),
+        safe(studentApi.timetable.list({ date: today, status: 'active', limit: 10 })),
       ]);
       if (cancelled) return;
       setCounts({
@@ -113,6 +110,9 @@ export default function StudentOverview() {
         </div>
       </div>
 
+      {/* ---- Live countdown to next class (30-min alert) ---- */}
+      <NextClassCountdown slots={recent.todayClasses} loading={!loaded} />
+
       {/* ---- Metric cards (real backend counts only) ---- */}
       {!loaded ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
@@ -124,7 +124,7 @@ export default function StudentOverview() {
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           <StatCard to="/student/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
           <StatCard to="/student/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} hint="published for your section" />
-          <StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={today ? `on ${today}` : 'no classes on Sunday'} />
+          <StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
           <StatCard to="/student/attendance" icon={IconQr} label="Attendance" value={counts.attendance ?? '—'} hint="sessions attended" />
           <StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
         </div>
@@ -142,7 +142,7 @@ export default function StudentOverview() {
           <div className="mt-3 space-y-2">
             {recent.todayClasses.length === 0 ? (
               <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                {today ? 'No classes scheduled for today.' : 'No classes scheduled on Sundays.'}
+                Aaj koi class set nahi — CR update karega.
               </p>
             ) : recent.todayClasses.map((c) => (
               <div key={c._id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">

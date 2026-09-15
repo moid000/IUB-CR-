@@ -41,7 +41,7 @@ export const studentApi = {
 
   /* ---- Timetable (monday–saturday, PKT wall-clock) ---- */
   timetable: {
-    list: (params) => api.get(`/api/student/timetable${qs(params)}`), // day | status | page | limit
+    list: (params) => api.get(`/api/student/timetable${qs(params)}`), // date | status | page | limit
   },
 
   /* ---- Attendance: active own-section sessions + code entry + own history ---- */

@@ -8,6 +8,7 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
+import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import {
   IconUsers, IconBook, IconClipboard, IconCalendar, IconBell, IconMegaphone,
   IconClock, IconArrowRight,
@@ -35,12 +36,8 @@ export default function CrOverview() {
   const { user } = useAuth();
   const section = user?.section;
 
-  // Today's weekday in Pakistan time (timetable is sunday-free)
-  const today = useMemo(() => {
-    const day = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: TZ })
-      .format(new Date()).toLowerCase();
-    return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].includes(day) ? day : null;
-  }, []);
+  // Today's date in Pakistan time (daily timetable — any calendar date)
+  const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
 
   const [counts, setCounts] = useState({ students: null, subjects: null, assignments: null, unread: null });
   const [recent, setRecent] = useState({ announcements: [], assignments: [], todayClasses: [] });
@@ -59,7 +56,7 @@ export default function CrOverview() {
         safe(crApi.notifications.unreadCount()),
         safe(crApi.announcements.list({ status: 'published', limit: 4 })),
         safe(crApi.assignments.list({ status: 'published', limit: 4 })),
-        today ? safe(crApi.timetable.list({ day: today, status: 'active', limit: 10 })) : Promise.resolve(null),
+        safe(crApi.timetable.list({ date: today, status: 'active', limit: 10 })),
       ]);
       if (cancelled) return;
       setCounts({
@@ -110,6 +107,9 @@ export default function CrOverview() {
         </div>
       </div>
 
+      {/* ---- Live countdown to next class (30-min alert) ---- */}
+      <NextClassCountdown slots={recent.todayClasses} loading={!loaded} />
+
       {/* ---- Metric cards (real backend counts only) ---- */}
       {!loaded ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
@@ -122,7 +122,7 @@ export default function CrOverview() {
           <StatCard to="/cr/students" icon={IconUsers} label="Students" value={counts.students ?? '—'} />
           <StatCard to="/cr/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
           <StatCard to="/cr/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} />
-          <StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={today ? `on ${today}` : 'no classes on Sunday'} />
+          <StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
           <StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
         </div>
       )}
@@ -140,7 +140,7 @@ export default function CrOverview() {
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />)}</div>
           ) : recent.todayClasses.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-              {today ? 'No classes scheduled for today.' : 'No classes are scheduled on Sundays.'}
+              Aaj koi class set nahi — timetable page se add karein.
             </p>
           ) : (
             <ul className="space-y-2">

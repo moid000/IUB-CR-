@@ -93,10 +93,10 @@ test('fixtures: hierarchy + users', async () => {
 /* ============================ BASIC (1–6) ============================ */
 test('1. admin creates timetable entry (timezone byte-for-byte)', async () => {
   const res = await admin.api('POST', '/api/admin/timetable', {
-    section: secA, subject: subA1, day: 'monday', startTime: '09:00', endTime: '10:00', room: 'Lab 3',
+    section: secA, subject: subA1, date: '2026-10-05', startTime: '09:00', endTime: '10:00', room: 'Lab 3',
   });
   assert.equal(res.status, 200);
-  assert.equal(res.json.data.day, 'monday');
+  assert.equal(res.json.data.date, '2026-10-05');
   assert.equal(res.json.data.startTime, '09:00'); // string, never a UTC timestamp
   assert.equal(res.json.data.endTime, '10:00');
   assert.equal(res.json.data.status, 'active');
@@ -111,18 +111,18 @@ test('1. admin creates timetable entry (timezone byte-for-byte)', async () => {
   assert.equal(typeof doc.startTime, 'string');
   assert.equal(doc.startTime, '09:00');
 
-  // day normalization: case-insensitive input → canonical lowercase
+  // date normalization: surrounding whitespace trimmed
   const norm = await admin.api('POST', '/api/admin/timetable', {
-    section: secA, subject: subA1, day: '  MONDAY ', startTime: '11:00', endTime: '12:00',
+    section: secA, subject: subA1, date: '  2026-10-05 ', startTime: '11:00', endTime: '12:00',
   });
   assert.equal(norm.status, 200);
-  assert.equal(norm.json.data.day, 'monday');
+  assert.equal(norm.json.data.date, '2026-10-05'); // trimmed, byte-for-byte
   await Timetable.findByIdAndDelete(norm.json.data._id); // cleanup for overlap tests
 });
 
 test('2. CR creates timetable in own section (injections ignored)', async () => {
   const res = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA2, day: 'monday', startTime: '10:00', endTime: '11:00',
+    subject: subA2, date: '2026-10-05', startTime: '10:00', endTime: '11:00',
     section: secB, sectionId: secB, createdBy: student1Id, author: student1Id, role: 'admin', status: 'archived',
   });
   assert.equal(res.status, 200);
@@ -145,8 +145,8 @@ test('3. student reads timetable (own section only)', async () => {
 
 test('4–6. student cannot create/update/archive', async () => {
   assert.equal((await student1.api('POST', '/api/student/timetable', {})).status, 404); // no such route
-  assert.equal((await student1.api('POST', '/api/cr/timetable', { subject: subA1, day: 'tuesday', startTime: '09:00', endTime: '10:00' })).status, 403); // (4)
-  assert.equal((await student1.api('POST', '/api/admin/timetable', { section: secA, subject: subA1, day: 'tuesday', startTime: '09:00', endTime: '10:00' })).status, 403);
+  assert.equal((await student1.api('POST', '/api/cr/timetable', { subject: subA1, date: '2026-10-06', startTime: '09:00', endTime: '10:00' })).status, 403); // (4)
+  assert.equal((await student1.api('POST', '/api/admin/timetable', { section: secA, subject: subA1, date: '2026-10-06', startTime: '09:00', endTime: '10:00' })).status, 403);
   assert.equal((await student1.api('PATCH', `/api/cr/timetable/${tBase}`, { room: 'X' })).status, 403); // (5)
   assert.equal((await student1.api('POST', `/api/cr/timetable/${tBase}/archive`)).status, 403); // (6)
   const doc = await Timetable.findById(tBase);
@@ -157,26 +157,26 @@ test('4–6. student cannot create/update/archive', async () => {
 test('7–11. section/subject relationships validated', async () => {
   // invalid section id
   assert.equal((await admin.api('POST', '/api/admin/timetable', {
-    section: 'zzz', subject: subA1, day: 'monday', startTime: '13:00', endTime: '14:00',
+    section: 'zzz', subject: subA1, date: '2026-10-05', startTime: '13:00', endTime: '14:00',
   })).status, 400);
   // non-existent section
   assert.equal((await admin.api('POST', '/api/admin/timetable', {
-    section: '507f1f77bcf86cd799439011', subject: subA1, day: 'monday', startTime: '13:00', endTime: '14:00',
+    section: '507f1f77bcf86cd799439011', subject: subA1, date: '2026-10-05', startTime: '13:00', endTime: '14:00',
   })).status, 400);
   // invalid subject id
   assert.equal((await admin.api('POST', '/api/admin/timetable', {
-    section: secA, subject: 'zzz', day: 'monday', startTime: '13:00', endTime: '14:00',
+    section: secA, subject: 'zzz', date: '2026-10-05', startTime: '13:00', endTime: '14:00',
   })).status, 400);
   // (9) subject from another section
   const cross = await admin.api('POST', '/api/admin/timetable', {
-    section: secA, subject: subB1, day: 'monday', startTime: '13:00', endTime: '14:00',
+    section: secA, subject: subB1, date: '2026-10-05', startTime: '13:00', endTime: '14:00',
   });
   assert.equal(cross.status, 400);
   assert.match(cross.json.message, /does not belong/i);
   // (10) archived section
   assert.equal((await admin.api('POST', `/api/admin/sections/${secC}/archive`)).status, 200);
   const archSec = await admin.api('POST', '/api/admin/timetable', {
-    section: secC, subject: subC1, day: 'monday', startTime: '13:00', endTime: '14:00',
+    section: secC, subject: subC1, date: '2026-10-05', startTime: '13:00', endTime: '14:00',
   });
   assert.equal(archSec.status, 400);
   assert.match(archSec.json.message, /archived/i);
@@ -186,50 +186,50 @@ test('7–11. section/subject relationships validated', async () => {
   const subA3 = (await admin.api('POST', '/api/admin/subjects', { section: secA, name: 'Old Subject', code: 'OLD-A' })).json.data._id;
   assert.equal((await admin.api('POST', `/api/admin/subjects/${subA3}/archive`)).status, 200);
   const archSub = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA3, day: 'friday', startTime: '09:00', endTime: '10:00',
+    subject: subA3, date: '2026-10-09', startTime: '09:00', endTime: '10:00',
   });
   assert.equal(archSub.status, 400);
   assert.match(archSub.json.message, /archived/i);
 });
 
-test('12–14. day + time format validation', async () => {
-  for (const day of ['funday', 'sunday', 'mon', '', null, 42]) { // (12, 13)
+test('12–14. date + time format validation', async () => {
+  for (const date of ['funday', 'monday', '2026-13-01', '2026-02-31', '2026-10-5', '26-10-05', '', null, 42]) { // (12, 13)
     const res = await cr1.api('POST', '/api/cr/timetable', {
-      subject: subA1, day, startTime: '13:00', endTime: '14:00',
+      subject: subA1, date, startTime: '13:00', endTime: '14:00',
     });
-    assert.equal(res.status, 400, `day=${JSON.stringify(day)}`);
-    if (day === 'sunday' || day === 'mon') assert.match(res.json.message, /day must be one of/i);
+    assert.equal(res.status, 400, `date=${JSON.stringify(date)}`);
+    assert.match(res.json.message, /date must be/i, `date=${JSON.stringify(date)}`);
   }
   // (14) invalid HH:MM — rejected by strict zero-padded 24h rule
   for (const [startTime, endTime] of [['8:00 AM', '10:00'], ['25:00', '26:00'], ['09:75', '10:00'], ['', '10:00'], ['9:00', '10:00'], [null, '10:00']]) {
     const res = await cr1.api('POST', '/api/cr/timetable', {
-      subject: subA1, day: 'wednesday', startTime, endTime,
+      subject: subA1, date: '2026-10-07', startTime, endTime,
     });
     assert.equal(res.status, 400, `startTime=${JSON.stringify(startTime)}`);
   }
   const badEnd = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'wednesday', startTime: '13:00', endTime: '13:60',
+    subject: subA1, date: '2026-10-07', startTime: '13:00', endTime: '13:60',
   });
   assert.equal(badEnd.status, 400);
-  assert.equal(await Timetable.countDocuments({ day: 'wednesday' }), 0);
+  assert.equal(await Timetable.countDocuments({ date: '2026-10-07' }), 0);
 });
 
 test('15. startTime >= endTime rejected', async () => {
   const equal = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'thursday', startTime: '09:00', endTime: '09:00',
+    subject: subA1, date: '2026-10-08', startTime: '09:00', endTime: '09:00',
   });
   assert.equal(equal.status, 400);
   const inverted = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'thursday', startTime: '10:00', endTime: '09:00',
+    subject: subA1, date: '2026-10-08', startTime: '10:00', endTime: '09:00',
   });
   assert.equal(inverted.status, 400);
-  assert.equal(await Timetable.countDocuments({ day: 'thursday' }), 0);
+  assert.equal(await Timetable.countDocuments({ date: '2026-10-08' }), 0);
 });
 
 /* ============================ OVERLAP (16–27) ============================ */
-const overlapAttempt = (start, end, day = 'monday', section = undefined, subject = subA1) =>
-  (section ? admin.api('POST', '/api/admin/timetable', { section, subject, day, startTime: start, endTime: end })
-    : cr1.api('POST', '/api/cr/timetable', { subject, day, startTime: start, endTime: end }));
+const overlapAttempt = (start, end, date = '2026-10-05', section = undefined, subject = subA1) =>
+  (section ? admin.api('POST', '/api/admin/timetable', { section, subject, date, startTime: start, endTime: end })
+    : cr1.api('POST', '/api/cr/timetable', { subject, date, startTime: start, endTime: end }));
 
 test('16–20. overlapping creations rejected with 409', async () => {
   // existing: secA monday 09:00–10:00 (tAdmin)
@@ -245,20 +245,20 @@ test('16–20. overlapping creations rejected with 409', async () => {
 test('21–24. boundaries, other days, other sections allowed', async () => {
   // fresh base slot (saturday 14:00–15:00) — monday already carries tAdmin + tBase
   assert.equal((await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'saturday', startTime: '14:00', endTime: '15:00',
+    subject: subA1, date: '2026-10-10', startTime: '14:00', endTime: '15:00',
   })).status, 200);
-  assert.equal((await overlapAttempt('13:00', '14:00', 'saturday')).status, 200); // (21) end→start boundary
-  assert.equal((await overlapAttempt('15:00', '16:00', 'saturday')).status, 200); // (22) start→end boundary
-  assert.equal((await overlapAttempt('09:00', '10:00', 'tuesday')).status, 200); // (23) different day
-  assert.equal((await overlapAttempt('09:00', '10:00', 'monday', secB, subB1)).status, 200); // (24) different section
+  assert.equal((await overlapAttempt('13:00', '14:00', '2026-10-10')).status, 200); // (21) end→start boundary
+  assert.equal((await overlapAttempt('15:00', '16:00', '2026-10-10')).status, 200); // (22) start→end boundary
+  assert.equal((await overlapAttempt('09:00', '10:00', '2026-10-06')).status, 200); // (23) different day
+  assert.equal((await overlapAttempt('09:00', '10:00', '2026-10-05', secB, subB1)).status, 200); // (24) different section
 });
 
 test('25. archived overlapping entry does not block', async () => {
   // archive the tuesday 09:00–10:00 entry, then recreate the same slot → allowed
-  const tueDoc = await Timetable.findOne({ section: secA, day: 'tuesday' });
+  const tueDoc = await Timetable.findOne({ section: secA, date: '2026-10-06' });
   assert.equal((await cr1.api('POST', `/api/cr/timetable/${tueDoc._id}/archive`)).status, 200);
   const res = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'tuesday', startTime: '09:00', endTime: '10:00',
+    subject: subA1, date: '2026-10-06', startTime: '09:00', endTime: '10:00',
   });
   assert.equal(res.status, 200); // archived slot no longer blocks
 });
@@ -266,11 +266,11 @@ test('25. archived overlapping entry does not block', async () => {
 test('26–27. update overlap rejected; self excluded', async () => {
   // create a clean slot: wednesday 13:00–14:00
   const t13 = (await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'wednesday', startTime: '13:00', endTime: '14:00',
+    subject: subA1, date: '2026-10-07', startTime: '13:00', endTime: '14:00',
   })).json.data._id;
-  // (26) moving it onto monday 09:30–10:30 overlaps tAdmin → 409
+  // (26) moving it onto 2026-10-05 09:30–10:30 overlaps tAdmin → 409
   const bad = await cr1.api('PATCH', `/api/cr/timetable/${t13}`, {
-    day: 'monday', startTime: '09:30', endTime: '10:30',
+    date: '2026-10-05', startTime: '09:30', endTime: '10:30',
   });
   assert.equal(bad.status, 409);
   assert.match(bad.json.message, /overlaps/i);
@@ -287,7 +287,7 @@ test('26–27. update overlap rejected; self excluded', async () => {
 /* ============================ ISOLATION (28–35) ============================ */
 test('28–32. CR isolation — own section only, cross-section 404', async () => {
   tB1 = (await cr2.api('POST', '/api/cr/timetable', {
-    subject: subB1, day: 'friday', startTime: '10:00', endTime: '11:00',
+    subject: subB1, date: '2026-10-09', startTime: '10:00', endTime: '11:00',
   })).json.data._id; // (29) cr2 create with injected section lands in own section
   assert.equal(String((await Timetable.findById(tB1)).section), String(secB));
 
@@ -311,9 +311,9 @@ test('33–35. student isolation; admin cross-section', async () => {
   const adminList = await admin.api('GET', '/api/admin/timetable');
   assert.ok(adminList.json.data.some((t) => String(t.section) === String(secA)));
   assert.ok(adminList.json.data.some((t) => String(t.section) === String(secB))); // (35)
-  // CR list also honors day/status/subjectId filters, still scoped
-  const byDay = await cr1.api('GET', '/api/cr/timetable?day=monday&status=active');
-  assert.ok(byDay.json.data.every((t) => t.day === 'monday' && t.status === 'active'));
+  // CR list also honors date/status/subjectId filters, still scoped
+  const byDate = await cr1.api('GET', '/api/cr/timetable?date=2026-10-05&status=active');
+  assert.ok(byDate.json.data.every((t) => t.date === '2026-10-05' && t.status === 'active'));
   const bySubject = await cr1.api('GET', `/api/cr/timetable?subjectId=${subA2}`);
   assert.ok(bySubject.json.data.every((t) => String(t.subject._id) === String(subA2)));
 });
@@ -324,7 +324,7 @@ test('36–40. archive preserves everything; duplicate 409; readable; unblocks s
   assert.equal(arch.status, 200); // (36)
   const doc = await Timetable.findById(tBase);
   assert.equal(doc.status, 'archived');
-  assert.equal(doc.day, 'monday'); // preserved
+  assert.equal(doc.date, '2026-10-05'); // preserved
   assert.equal(doc.startTime, '10:00'); // preserved
   assert.equal(doc.endTime, '11:00'); // preserved
   assert.equal(String(doc.subject), String(subA2)); // preserved
@@ -336,28 +336,25 @@ test('36–40. archive preserves everything; duplicate 409; readable; unblocks s
   assert.equal((await student1.api('GET', `/api/student/timetable/${tBase}`)).status, 200); // (39) readable
   // (40) the archived slot (monday 10:00–11:00) no longer blocks
   const reuse = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'monday', startTime: '10:00', endTime: '11:00',
+    subject: subA1, date: '2026-10-05', startTime: '10:00', endTime: '11:00',
   });
   assert.equal(reuse.status, 200);
 });
 
 /* ============================ ORDERING (41–43) ============================ */
-test('41–43. monday→saturday ordering, startTime within day, pagination cap', async () => {
-  // secA already has: monday 08:00-09:00, 09:00-10:00, 10:00-11:00 (reuse), wednesday 13:30-14:00
-  await cr1.api('POST', '/api/cr/timetable', { subject: subA1, day: 'saturday', startTime: '08:00', endTime: '09:00' });
-  await cr1.api('POST', '/api/cr/timetable', { subject: subA2, day: 'monday', startTime: '14:00', endTime: '15:00' });
-  await cr1.api('POST', '/api/cr/timetable', { subject: subA2, day: 'friday', startTime: '09:00', endTime: '10:00' });
+test('41–43. date-desc ordering, startTime within date, pagination cap', async () => {
+  // secA already has: 2026-10-05 08:00-09:00, 09:00-10:00, 10:00-11:00 (reuse), 2026-10-07 13:30-14:00
+  await cr1.api('POST', '/api/cr/timetable', { subject: subA1, date: '2026-10-10', startTime: '08:00', endTime: '09:00' });
+  await cr1.api('POST', '/api/cr/timetable', { subject: subA2, date: '2026-10-05', startTime: '14:00', endTime: '15:00' });
+  await cr1.api('POST', '/api/cr/timetable', { subject: subA2, date: '2026-10-09', startTime: '09:00', endTime: '10:00' });
 
   const list = await student1.api('GET', '/api/student/timetable');
-  const days = list.json.data.map((t) => t.day);
-  const uniqDays = [...new Set(days)];
-  assert.deepEqual(uniqDays, [...uniqDays].sort((a, b) =>
-    ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(a)
-    - ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(b))); // (41)
-  const monday = list.json.data.filter((t) => t.day === 'monday');
-  const mondayTimes = monday.map((t) => t.startTime);
-  assert.deepEqual(mondayTimes, [...mondayTimes].sort()); // (42) startTime ordering
-  assert.deepEqual(monday.map((t) => t.section), monday.map(() => monday[0].section));
+  const dates = list.json.data.map((t) => t.date);
+  assert.deepEqual(dates, [...dates].sort().reverse()); // (41) newest date first
+  const firstDate = list.json.data.filter((t) => t.date === dates[0]);
+  const times = firstDate.map((t) => t.startTime);
+  assert.deepEqual(times, [...times].sort()); // (42) startTime ordering within a date
+  assert.deepEqual(firstDate.map((t) => t.section), firstDate.map(() => firstDate[0].section));
 
   const page = await admin.api('GET', '/api/admin/timetable?limit=2&page=2');
   assert.equal(page.json.data.length, 2);
@@ -371,7 +368,7 @@ test('41–43. monday→saturday ordering, startTime within day, pagination cap'
 /* ============================ SECURITY (44–51) ============================ */
 test('44–48. injections blocked for CR (section/createdBy/role/status/ownership)', async () => {
   const res = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'thursday', startTime: '09:00', endTime: '10:00',
+    subject: subA1, date: '2026-10-08', startTime: '09:00', endTime: '10:00',
     section: secB, sectionId: secB, createdBy: student1Id, role: 'admin', status: 'archived', pastMembers: [student1Id],
   });
   assert.equal(res.status, 200);
@@ -394,7 +391,8 @@ test('49. invalid ObjectId → 400 (never 500)', async () => {
   assert.equal((await student1.api('GET', '/api/student/timetable/zzz')).status, 400);
   assert.equal((await admin.api('GET', '/api/admin/timetable?sectionId=bad')).status, 400);
   assert.equal((await admin.api('GET', '/api/admin/timetable?subjectId=bad')).status, 400);
-  assert.equal((await admin.api('GET', '/api/admin/timetable?day= someday ')).status, 400);
+  assert.equal((await admin.api('GET', '/api/admin/timetable?date=2026-13-01')).status, 400);
+  assert.equal((await admin.api('GET', '/api/admin/timetable?date= someday ')).status, 400);
 });
 
 test('50. sensitive fields not exposed; timezone values untouched', async () => {
@@ -429,20 +427,20 @@ test('52. concurrent identical creates resolve to ONE entry', async () => {
   // inside the transaction serializes them; the loser retries, sees the
   // winner's entry, and gets a controlled 409.
   const attempts = await Promise.allSettled([
-    cr1.api('POST', '/api/cr/timetable', { subject: subA1, day: 'saturday', startTime: '11:00', endTime: '12:00' }),
-    cr1.api('POST', '/api/cr/timetable', { subject: subA1, day: 'saturday', startTime: '11:00', endTime: '12:00' }),
+    cr1.api('POST', '/api/cr/timetable', { subject: subA1, date: '2026-10-10', startTime: '11:00', endTime: '12:00' }),
+    cr1.api('POST', '/api/cr/timetable', { subject: subA1, date: '2026-10-10', startTime: '11:00', endTime: '12:00' }),
   ]);
   const statuses = attempts.map((a) => a.value.status);
   assert.equal(statuses.filter((s) => s === 200).length, 1, `exactly one wins: ${statuses}`);
   assert.equal(statuses.filter((s) => s === 409).length, 1, `one controlled 409: ${statuses}`);
   assert.equal(await Timetable.countDocuments({
-    section: secA, day: 'saturday', startTime: '11:00', status: 'active',
+    section: secA, date: '2026-10-10', startTime: '11:00', status: 'active',
   }), 1);
 });
 
 test('52b. exact duplicate after direct insert also rejected (sequential path)', async () => {
   const res = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, day: 'saturday', startTime: '11:00', endTime: '12:00',
+    subject: subA1, date: '2026-10-10', startTime: '11:00', endTime: '12:00',
   });
   assert.equal(res.status, 409); // existing (from race test) blocks
 });
@@ -460,6 +458,46 @@ test('53–58. regression guard: earlier phases healthy', async () => {
   assert.equal((await student1.api('GET', '/api/student/assignments')).status, 200);
   const bad = await cr1.api('POST', '/api/auth/login', { email: 'cr1@test.local', password: 'Wrong1!' });
   assert.equal(bad.status, 401);
+});
+
+/* ============================ DAILY COPY (54–60) ============================ */
+test('54–56. CR copies a day: slots, conflicts skipped, validation', async () => {
+  // fresh source date with exactly two slots (earlier dates carry prior-test state)
+  await cr1.api('POST', '/api/cr/timetable', { subject: subA1, date: '2026-10-15', startTime: '08:00', endTime: '09:00' });
+  await cr1.api('POST', '/api/cr/timetable', { subject: subA2, date: '2026-10-15', startTime: '15:00', endTime: '16:00' });
+
+  // (54) copy into an empty date → all copied
+  const copy = await cr1.api('POST', '/api/cr/timetable/copy', { fromDate: '2026-10-15', toDate: '2026-10-16' });
+  assert.equal(copy.status, 200);
+  assert.equal(copy.json.data.copied, 2);
+  assert.equal(copy.json.data.skipped.length, 0);
+  const onTarget = await Timetable.find({ section: secA, date: '2026-10-16', status: 'active' }).lean();
+  assert.equal(onTarget.length, 2);
+  assert.ok(onTarget.every((t) => String(t.createdBy) === String(cr1Id))); // CR authored the copies
+  assert.ok(onTarget.some((t) => t.startTime === '08:00' && t.endTime === '09:00'));
+  assert.ok(onTarget.some((t) => t.startTime === '15:00' && t.endTime === '16:00'));
+
+  // (55) copy onto a partially-booked date → conflicting slot skipped, non-conflicting copied
+  await cr1.api('POST', '/api/cr/timetable', { subject: subA1, date: '2026-10-13', startTime: '08:00', endTime: '09:30' });
+  const partial = await cr1.api('POST', '/api/cr/timetable/copy', { fromDate: '2026-10-15', toDate: '2026-10-13' });
+  assert.equal(partial.status, 200);
+  assert.equal(partial.json.data.copied, 1); // 15:00–16:00 fits
+  assert.equal(partial.json.data.skipped.length, 1); // 08:00–09:00 clashes with 08:00–09:30
+
+  // (56) validation: same date, missing source, bad format, non-CR blocked
+  assert.equal((await cr1.api('POST', '/api/cr/timetable/copy', { fromDate: '2026-10-15', toDate: '2026-10-15' })).status, 400);
+  assert.equal((await cr1.api('POST', '/api/cr/timetable/copy', { fromDate: '2026-10-11', toDate: '2026-10-14' })).status, 400); // no source slots
+  assert.equal((await cr1.api('POST', '/api/cr/timetable/copy', { fromDate: 'bad', toDate: '2026-10-14' })).status, 400);
+  assert.equal((await student1.api('POST', '/api/cr/timetable/copy', { fromDate: '2026-10-15', toDate: '2026-10-14' })).status, 403);
+  assert.equal((await admin.api('POST', '/api/cr/timetable/copy', { fromDate: '2026-10-15', toDate: '2026-10-14' })).status, 403);
+});
+
+test('57–58. copy stays section-scoped; no cross-section leak', async () => {
+  // cr2 (secB) has NO slots on 2026-10-15 — copying must fail, not leak secA slots
+  const res = await cr2.api('POST', '/api/cr/timetable/copy', { fromDate: '2026-10-15', toDate: '2026-10-14' });
+  assert.equal(res.status, 400); // secB has nothing on the source date
+  const secBCopies = await Timetable.countDocuments({ section: secB, date: '2026-10-14' });
+  assert.equal(secBCopies, 0); // (58) nothing leaked from secA
 });
 
 test.after(async () => {

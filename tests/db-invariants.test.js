@@ -206,7 +206,7 @@ test('no audit-related update/delete routes exist on the API', async () => {
 test('timetable endTime must be after startTime', async () => {
   await assert.rejects(
     () => Timetable.create({
-      section: ctx.sectionA, subject: ctx.subject, day: 'mon',
+      section: ctx.sectionA, subject: ctx.subject, date: '2026-10-05',
       startTime: '10:00', endTime: '09:00', createdBy: ctx.cr,
     }),
     (err) => err.name === 'ValidationError'
