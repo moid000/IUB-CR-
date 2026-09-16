@@ -6,6 +6,8 @@ export const authApi = {
   login: (email, password) => api.post('/api/auth/login', { email, password }),
   logout: () => api.post('/api/auth/logout'),
 
+  lookupActivation: (role, email) =>
+    api.post(`/api/auth/${role}/lookup`, { email }),
   requestActivationOtp: (role, email) =>
     api.post(`/api/auth/${role}/request-otp`, { email }),
   verifyActivationOtp: (role, email, otp) =>

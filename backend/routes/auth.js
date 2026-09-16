@@ -18,17 +18,20 @@ router.post('/avatar/sign', protect, signAvatarUpload);
 router.post('/avatar/confirm', protect, confirmAvatarUpload);
 router.post('/avatar/remove', protect, removeAvatar);
 
-// CR activation (public — email enumeration safe)
+// CR activation (public — lookup returns the pending profile by owner's design)
+router.post('/cr/lookup', activation.crLookup);
 router.post('/cr/request-otp', activation.crRequestOtp);
 router.post('/cr/verify-otp', activation.crVerifyOtp);
 router.post('/cr/set-password', activation.crSetPassword);
 
-// GR activation (public — email enumeration safe)
+// GR activation (public — lookup returns the pending profile by owner's design)
+router.post('/gr/lookup', activation.grLookup);
 router.post('/gr/request-otp', activation.grRequestOtp);
 router.post('/gr/verify-otp', activation.grVerifyOtp);
 router.post('/gr/set-password', activation.grSetPassword);
 
-// Student activation (public — email enumeration safe)
+// Student activation (public — lookup returns the pending profile by owner's design)
+router.post('/student/lookup', activation.studentLookup);
 router.post('/student/request-otp', activation.studentRequestOtp);
 router.post('/student/verify-otp', activation.studentVerifyOtp);
 router.post('/student/set-password', activation.studentSetPassword);

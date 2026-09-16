@@ -154,6 +154,14 @@ test('pending GR cannot login before activation', async () => {
   assert.equal(res.json.message, 'Account not activated yet');
 });
 
+test('GR lookup returns the pending profile before any OTP is sent', async () => {
+  const res = await gr.api('POST', '/api/auth/gr/lookup', { email: grEmail });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.status, 'pending');
+  assert.equal(res.json.profile.role, 'gr');
+  assert.ok(res.json.profile.section, 'section label present');
+});
+
 test('GR OTP request works via /api/auth/gr/* with a gr-activation purpose email', async () => {
   const res = await gr.api('POST', '/api/auth/gr/request-otp', { email: grEmail });
   assert.equal(res.status, 200);

@@ -11,12 +11,12 @@ import { authApi } from '../api/auth.js';
 import { Badge } from '../components/ui/Badge.jsx';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const STEPS = ['Email', 'Verify code', 'Confirm details', 'Set password'];
+const STEPS = ['Email', 'Confirm details', 'Verify code', 'Set password'];
 
 const ROLE_LABEL = { cr: 'Class Representative', gr: 'General Representative', student: 'Student' };
 
 /** Pre-created identity summary — lets the account holder confirm the admin/CR set them up correctly before they choose a password. */
-function ConfirmDetailsStep({ profile, role, onContinue }) {
+function ConfirmDetailsStep({ profile, role, onContinue, onBack, busy }) {
   const firstName = profile?.name?.trim().split(/\s+/)[0] || 'there';
   const rows = [
     { label: 'Full name', value: profile?.name },
@@ -39,7 +39,7 @@ function ConfirmDetailsStep({ profile, role, onContinue }) {
         </div>
         <h2 className="mt-3 text-lg font-semibold text-slate-900">Welcome, {firstName}! 👋</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Here's what {role === 'student' ? 'your CR' : 'your admin'} pre-added for you. Make sure it's you before you set a password.
+          Here's what {role === 'student' ? 'your CR' : 'your admin'} pre-added for you. Make sure it's you before we email you a code.
         </p>
       </div>
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -56,9 +56,16 @@ function ConfirmDetailsStep({ profile, role, onContinue }) {
       <p className="text-xs text-slate-400">
         Something look wrong? Ask {role === 'student' ? 'your CR' : 'your admin'} to fix it before you continue.
       </p>
-      <Button onClick={onContinue} className="w-full" size="lg">
-        Yes, this is me — continue
+      <Button onClick={onContinue} loading={busy} className="w-full" size="lg">
+        Yes, this is me — send my code
       </Button>
+      <button
+        type="button"
+        onClick={onBack}
+        className="w-full rounded text-xs font-medium text-slate-500 hover:text-slate-700 hover:underline"
+      >
+        No — use a different email
+      </button>
     </div>
   );
 }
@@ -96,14 +103,33 @@ export default function ActivatePage({ role }) {
     }), 1000);
   };
 
-  const requestOtp = async () => {
+  // Step 1 — look up the pre-created identity for this email. No email is
+  // sent yet: the invitee first confirms the details the admin/CR entered.
+  const lookup = async () => {
     if (!EMAIL_RE.test(email.trim())) { setFieldError('Enter a valid email address'); return; }
-    setFieldError(null); setError(null); setLoading(true);
+    setFieldError(null); setError(null); setNotice(null); setLoading(true);
     try {
-      const res = await authApi.requestActivationOtp(role, email.trim());
-      // Generic response — the UI cannot tell whether the account exists
-      setNotice(res?.message || 'If the account is eligible, an OTP has been sent to your email.');
-      setStep(1);
+      const res = await authApi.lookupActivation(role, email.trim());
+      if (res?.status === 'active') {
+        setNotice(res?.message || 'This account is already activated — sign in instead.');
+        return;
+      }
+      setProfile(res?.profile ?? null);
+      setStep(1); // confirm details
+    } catch (err) {
+      setError(err?.message || 'Unable to check this email right now. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 2 — details confirmed: NOW send the OTP to the inbox.
+  const sendOtp = async () => {
+    setError(null); setNotice(null); setLoading(true);
+    try {
+      await authApi.requestActivationOtp(role, email.trim());
+      setNotice(`We sent a 6-digit code to ${email}. It expires in 10 minutes.`);
+      setStep(2);
       setOtp('');
       startCooldown();
     } catch (err) {
@@ -119,9 +145,8 @@ export default function ActivatePage({ role }) {
     try {
       const res = await authApi.verifyActivationOtp(role, email.trim(), otp);
       setActivationToken(res?.activationToken ?? null);
-      setProfile(res?.profile ?? null);
       setNotice(null);
-      setStep(2); // NEW: "confirm your details" step, before setting a password
+      setStep(3); // set password
     } catch (err) {
       setError(err?.message || 'That code is invalid or has expired.');
       setOtp('');
@@ -213,23 +238,31 @@ export default function ActivatePage({ role }) {
             placeholder={isRep ? 'cr@iub.edu.pk' : 'you@iub.edu.pk'}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') requestOtp(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') lookup(); }}
             error={fieldError}
             required
           />
-          <Button onClick={requestOtp} loading={loading} className="w-full" size="lg">
-            Send verification code
+          {notice && <Alert variant="warning">{notice}</Alert>}
+          <Button onClick={lookup} loading={loading} className="w-full" size="lg">
+            Continue
           </Button>
         </div>
       )}
 
       {step === 1 && (
+        <ConfirmDetailsStep
+          profile={profile}
+          role={role}
+          onContinue={sendOtp}
+          onBack={() => { setStep(0); setError(null); setNotice(null); }}
+          busy={loading}
+        />
+      )}
+
+      {step === 2 && (
         <div className="space-y-4">
           {error && <Alert variant="danger">{error}</Alert>}
           {notice && <Alert variant="success">{notice}</Alert>}
-          <p className="text-sm text-slate-500">
-            We sent a 6-digit code to <span className="font-medium text-slate-700">{email}</span>. It expires in 10 minutes.
-          </p>
           <OtpInput value={otp} onChange={setOtp} disabled={loading} invalid={Boolean(error)} />
           <div className="flex flex-col gap-2.5">
             <Button onClick={verifyOtp} loading={loading} disabled={otp.length !== 6} className="w-full" size="lg">
@@ -247,10 +280,6 @@ export default function ActivatePage({ role }) {
             </button>
           </div>
         </div>
-      )}
-
-      {step === 2 && (
-        <ConfirmDetailsStep profile={profile} role={role} onContinue={() => setStep(3)} />
       )}
 
       {step === 3 && (

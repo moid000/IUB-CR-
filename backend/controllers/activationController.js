@@ -13,7 +13,11 @@ const wrap = (fn) => async (req, res, next) => {
   }
 };
 
-// CR activation — response is ALWAYS the same generic shape (no `sent` leak)
+// CR activation — request/verify responses keep the generic shape (no `sent` leak)
+export const crLookup = wrap(async (req) => {
+  const { status, profile, message } = await activation.lookupActivation('cr', req);
+  return { success: true, status, profile, message };
+});
 export const crRequestOtp = wrap(async (req) => {
   const { message } = await activation.requestActivationOtp('cr', req);
   return { success: true, message };
@@ -27,7 +31,11 @@ export const crSetPassword = wrap(async (req) => {
   return { success: true, message: 'Account activated. You can now log in.' };
 });
 
-// GR activation — response is ALWAYS the same generic shape (no `sent` leak)
+// GR activation — request/verify responses keep the generic shape (no `sent` leak)
+export const grLookup = wrap(async (req) => {
+  const { status, profile, message } = await activation.lookupActivation('gr', req);
+  return { success: true, status, profile, message };
+});
 export const grRequestOtp = wrap(async (req) => {
   const { message } = await activation.requestActivationOtp('gr', req);
   return { success: true, message };
@@ -41,7 +49,11 @@ export const grSetPassword = wrap(async (req) => {
   return { success: true, message: 'Account activated. You can now log in.' };
 });
 
-// Student activation — response is ALWAYS the same generic shape (no `sent` leak)
+// Student activation — request/verify responses keep the generic shape (no `sent` leak)
+export const studentLookup = wrap(async (req) => {
+  const { status, profile, message } = await activation.lookupActivation('student', req);
+  return { success: true, status, profile, message };
+});
 export const studentRequestOtp = wrap(async (req) => {
   const { message } = await activation.requestActivationOtp('student', req);
   return { success: true, message };

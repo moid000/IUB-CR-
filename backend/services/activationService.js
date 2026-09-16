@@ -60,6 +60,34 @@ export async function requestActivationOtp(role, req) {
  * OTP verification for activation. On success: emailVerified=true and a
  * short-lived, purpose-bound, single-use activation token is issued.
  */
+/**
+ * Pre-OTP identity lookup for the activation "confirm your details" step.
+ * Owner-approved flow: Email -> Confirm details -> Verify code -> Set password.
+ * The pre-created profile for a PENDING account is returned so the invitee
+ * can confirm the admin/CR entered the right identity BEFORE an OTP is
+ * emailed. Active accounts get a bare `active` status (no PII); unknown
+ * emails 404.
+ */
+export async function lookupActivation(role, req) {
+  const email = normalizeEmail(req.body?.email);
+  const purpose = ACTIVATION_PURPOSE[role];
+  if (!email || !purpose) throw new ApiError(400, 'Email is required');
+
+  const user = await User.findOne({ email });
+  if (!user || user.role !== role) {
+    await audit({ action: 'auth.activation.lookup', email, reason: `not-found:${purpose}`, ip: req.ip, userAgent: req.get('user-agent') });
+    throw new ApiError(404, 'No pre-created account was found for this email. Check the address, or contact your admin.');
+  }
+  if (user.registrationStatus !== 'pending') {
+    await audit({ action: 'auth.activation.lookup', email, reason: `already-active:${purpose}`, targetUser: user._id, ip: req.ip, userAgent: req.get('user-agent') });
+    return { status: 'active', profile: null, message: 'This account is already activated — sign in instead.' };
+  }
+
+  const profile = await buildActivationProfile(user);
+  await audit({ action: 'auth.activation.lookup', email, reason: `pending:${purpose}`, targetUser: user._id, ip: req.ip, userAgent: req.get('user-agent') });
+  return { status: 'pending', profile, message: null };
+}
+
 export async function verifyActivationOtp(role, req) {
   const email = normalizeEmail(req.body?.email);
   const code = String(req.body?.otp ?? '');
@@ -84,11 +112,9 @@ export async function verifyActivationOtp(role, req) {
 
   await audit({ action: 'auth.otp.verify.success', email, reason: purpose, targetUser: user._id, ip: req.ip, userAgent: req.get('user-agent') });
 
-  // Ownership of the inbox is now proven (correct OTP) — safe to show the
-  // pre-created profile so the user can confirm the admin/CR set up the
-  // right identity for them BEFORE they set a password. This is the ONLY
-  // point in the activation flow where PII is revealed (never on the bare
-  // email step — that stays existence-safe / anti-enumeration).
+  // Profile is echoed here for backward compatibility; the UI shows it
+  // earlier now (lookup step), per the owner-approved flow:
+  // Email -> Confirm details -> Verify code -> Set password.
   const profile = await buildActivationProfile(user);
 
   return { activationToken: token, expiresIn: TOKEN_TTL_SECONDS, profile };

@@ -125,6 +125,43 @@ test('pending CR cannot login before activation', async () => {
   assert.equal(res.json.message, 'Account not activated yet');
 });
 
+/* ================= activation lookup (pre-OTP identity step) ================= */
+test('activation lookup returns the pending CR profile with academic labels', async () => {
+  const res = await cr.api('POST', '/api/auth/cr/lookup', { email: crEmail.toUpperCase() + ' ' });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.success, true);
+  assert.equal(res.json.status, 'pending');
+  assert.equal(res.json.profile.name, 'New CR');
+  assert.equal(res.json.profile.email, crEmail);
+  assert.equal(res.json.profile.phone, '+923001112233');
+  assert.equal(res.json.profile.role, 'cr');
+  assert.equal(res.json.profile.department, 'Computer Science');
+  assert.equal(res.json.profile.session, '2026–27');
+  assert.equal(res.json.profile.semester, 5);
+  assert.equal(res.json.profile.section, '5A');
+  assert.ok(!('rollNo' in (res.json.profile ?? {})), 'CR profile never exposes rollNo');
+  assert.ok(!res.text.includes('password'), 'no password material in lookup response');
+});
+
+test('activation lookup 404s for unknown emails and wrong-role routes', async () => {
+  const missing = await cr.api('POST', '/api/auth/cr/lookup', { email: 'nobody@test.local' });
+  assert.equal(missing.status, 404);
+  assert.match(missing.json.message, /no pre-created account/i);
+
+  // admin account exists but is not a CR — must 404 on the CR lookup route
+  const adminProbe = await cr.api('POST', '/api/auth/cr/lookup', { email: 'admin@test.local' });
+  assert.equal(adminProbe.status, 404);
+
+  // student route must not reveal the pending CR
+  const cross = await cr.api('POST', '/api/auth/student/lookup', { email: crEmail });
+  assert.equal(cross.status, 404);
+});
+
+test('lookup requires an email', async () => {
+  const res = await cr.api('POST', '/api/auth/cr/lookup', {});
+  assert.equal(res.status, 400);
+});
+
 /* ==================== 5, 6, 1, 3, 4. CR OTP request via Brevo ==================== */
 test('CR OTP request works and email is sent through the Brevo mock', async () => {
   const res = await cr.api('POST', '/api/auth/cr/request-otp', { email: crEmail.toUpperCase() + ' ' });
@@ -284,6 +321,15 @@ test('duplicate/already-active CR activation attempt gets no email', async () =>
   assert.equal(res.status, 200);
   assert.match(res.json.message, /if the account is eligible/i); // generic, no leak
   assert.equal(sentEmails.length, before, 'no email sent for an active account');
+});
+
+test('activation lookup on an already-ACTIVE account returns status active without PII', async () => {
+  const res = await cr.api('POST', '/api/auth/cr/lookup', { email: crEmail });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.status, 'active');
+  assert.equal(res.json.profile, null);
+  assert.match(res.json.message, /already activated/i);
+  assert.ok(!res.text.includes('New CR'), 'no PII for active accounts on lookup');
 });
 
 /* ==================== 18. CR cannot activate as student ==================== */
