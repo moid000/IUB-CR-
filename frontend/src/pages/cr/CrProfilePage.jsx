@@ -46,7 +46,7 @@ export default function CrProfilePage() {
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">{user?.name}</h2>
             <p className="text-sm text-slate-500">{user?.email}</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <Badge variant="primary">Class Representative</Badge>
+              <Badge variant="primary">{user?.role === 'GR' ? 'General Representative' : 'Class Representative'}</Badge>
               <Badge variant={user?.registrationStatus === 'active' ? 'success' : 'warning'}>{user?.registrationStatus ?? 'unknown'}</Badge>
             </div>
           </div>

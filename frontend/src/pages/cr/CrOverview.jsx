@@ -78,7 +78,7 @@ export default function CrOverview() {
       <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <Badge variant="primary">Class Representative</Badge>
+            <Badge variant="primary">{user?.role === 'GR' ? 'General Representative' : 'Class Representative'}</Badge>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
               Welcome back{firstName ? `, ${firstName}` : ''} 👋
             </h2>
