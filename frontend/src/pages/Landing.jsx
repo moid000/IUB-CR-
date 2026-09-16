@@ -11,7 +11,7 @@ import {
 } from '../components/icons.jsx';
 
 /* ------------------------------------------------------------------ *
- *  Landing — the public face of IUB Class Management.
+ *  Landing — the public face of T3M (Tri3M).
  *  White, premium, product-first. No stock art, no fake claims:
  *  every module shown is a real feature of the product. Visuals carry
  *  the story (animated product mock + live feature vignettes).
@@ -51,12 +51,10 @@ function Navbar() {
         ${scrolled ? 'border-b border-slate-200/70 bg-white/85 shadow-[0_1px_12px_rgb(16_24_40/0.04)] backdrop-blur-xl' : 'border-b border-transparent bg-transparent'}`}
     >
       <nav className="mx-auto flex h-16 w-full max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8" aria-label="Main">
-        <Link to="/" className="flex items-center gap-2.5" aria-label="IUB Class Management home">
-          <span className="grid size-9 place-items-center rounded-xl bg-primary-600 text-sm font-bold text-white shadow-[0_6px_16px_rgb(37_99_235/0.35)]">
-            IU
-          </span>
+        <Link to="/" className="flex items-center gap-2.5" aria-label="T3M (Tri3M) home">
+          <img src="/logo-256.png" alt="T3M (Tri3M) logo" className="size-9 rounded-xl object-contain shadow-[0_6px_16px_rgb(16_24_40/0.12)]" />
           <span className="text-sm font-semibold tracking-widest text-slate-900">
-            IUB <span className="text-primary-600">CLASS MANAGEMENT</span>
+            T3M <span className="text-primary-600">(TRI3M)</span>
           </span>
         </Link>
 
@@ -175,7 +173,7 @@ function HeroMock() {
           <span className="size-2.5 rounded-full bg-slate-300" aria-hidden="true" />
           <span className="size-2.5 rounded-full bg-slate-300" aria-hidden="true" />
           <span className="ml-3 hidden rounded-md border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-500 sm:block">
-            iubcr · Section 1M · Fall 2026
+            tri3m · Section 3M · Fall 2026
           </span>
           <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold tracking-widest text-emerald-600">
             <span className="size-1.5 rounded-full bg-emerald-500 animate-live-pulse" />
@@ -816,9 +814,9 @@ function Footer() {
     <footer className="border-t border-slate-200 py-12">
       <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-8 px-4 sm:px-6 md:flex-row lg:px-8">
         <div className="flex items-center gap-2.5">
-          <span className="grid size-8 place-items-center rounded-lg bg-primary-600 text-sm font-bold text-white">IU</span>
+          <img src="/logo-256.png" alt="T3M (Tri3M) logo" className="size-8 rounded-lg object-contain" />
           <div>
-            <p className="text-sm font-semibold tracking-widest text-slate-900">IUB CLASS MANAGEMENT</p>
+            <p className="text-sm font-semibold tracking-widest text-slate-900">T3M (TRI3M)</p>
             <p className="text-xs text-slate-500">Class, handled.</p>
           </div>
         </div>
@@ -832,7 +830,7 @@ function Footer() {
           <Link to="/terms" className="text-sm text-slate-600 transition-colors hover:text-primary-600">Terms</Link>
           <Link to="/privacy" className="text-sm text-slate-600 transition-colors hover:text-primary-600">Privacy</Link>
         </nav>
-        <p className="text-xs text-slate-500">© 2026 IUB Class Management. All rights reserved.</p>
+        <p className="text-xs text-slate-500">© 2026 T3M (Tri3M). All rights reserved.</p>
       </div>
     </footer>
   );

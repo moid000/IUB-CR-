@@ -4,7 +4,7 @@ export async function health(req, res) {
   const database = await dbStatus();
   res.json({
     success: database === 'connected',
-    service: 'IUB Class Management API',
+    service: 'T3M (Tri3M) API',
     database,
     time: new Date().toISOString(),
   });

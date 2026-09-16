@@ -12,7 +12,7 @@ const SECTIONS = [
   {
     h: '1. Acceptance of terms',
     p: [
-      'By accessing or using IUB Class Management ("the Service"), you agree to be bound by these Terms & Conditions. If you do not agree, please do not use the Service.',
+      'By accessing or using T3M (Tri3M) ("the Service"), you agree to be bound by these Terms & Conditions. If you do not agree, please do not use the Service.',
       'The Service is provided for sections of The Islamia University of Bahawalpur and is operated on behalf of the section admin and class representative (CR).',
     ],
   },

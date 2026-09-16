@@ -22,7 +22,7 @@ function otpText(name, otp, purpose) {
     `Your verification code is: ${otp}\n\n` +
     `Use this code to ${what}. It expires in 10 minutes.\n\n` +
     `If you did not request this, you can ignore this email.\n\n` +
-    `— IUB Class Management`
+    `— T3M (Tri3M)`
   );
 }
 
@@ -48,7 +48,7 @@ export async function sendOtpEmail({ to, name, otp, purpose }) {
         accept: 'application/json',
       },
       body: JSON.stringify({
-        sender: { name: env.brevoSenderName || 'IUB Class Manager', email: env.brevoSenderEmail },
+        sender: { name: env.brevoSenderName || 'T3M (Tri3M)', email: env.brevoSenderEmail },
         to: [{ email: to, name: name || to }],
         subject,
         textContent: otpText(name, otp, purpose),

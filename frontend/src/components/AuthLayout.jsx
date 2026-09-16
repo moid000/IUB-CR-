@@ -22,16 +22,11 @@ function StoryPanel() {
       <div className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-primary-500/25 blur-3xl" />
 
       <div className="relative">
-        <Link to="/" aria-label="IUB Class Management home" className="rounded-lg">
+        <Link to="/" aria-label="T3M (Tri3M) home" className="rounded-lg">
           <span className="inline-flex items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-xl bg-white/10 backdrop-blur-sm">
-              <svg className="size-5" viewBox="0 0 24 24" fill="none">
-                <path d="M12 4 2 8.667 12 13.333l10-4.666L12 4Z" fill="#fff" />
-                <path d="M6 11.5v4.2c0 1.9 2.8 3.3 6 3.3s6-1.4 6-3.3v-4.2L12 15.5l-6-4Z" fill="#fff" opacity=".85" />
-              </svg>
-            </span>
+            <img src="/logo-256.png" alt="T3M (Tri3M) logo" className="size-9 rounded-xl object-contain shadow-sm" />
             <span className="flex flex-col leading-tight">
-              <span className="text-[15px] font-semibold tracking-tight text-white">IUB Class Management</span>
+              <span className="text-[15px] font-semibold tracking-tight text-white">T3M (Tri3M)</span>
               <span className="text-[11px] font-medium text-slate-400">Islamia University of Bahawalpur</span>
             </span>
           </span>
@@ -79,7 +74,7 @@ export function AuthLayout({ title, subtitle, children, footer = null, maxWidth 
         <FadeIn className={`relative z-10 w-full ${maxWidth}`}>
           {/* mobile brand — the story panel replaces it on desktop */}
           <div className="mb-8 flex justify-center lg:hidden">
-            <Link to="/" aria-label="IUB Class Management home" className="rounded-lg">
+            <Link to="/" aria-label="T3M (Tri3M) home" className="rounded-lg">
               <Brand />
             </Link>
           </div>

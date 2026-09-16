@@ -15,7 +15,7 @@ const SECTIONS = [
   {
     h: '1. Who we are & scope',
     p: [
-      'IUB Class Management ("the Service") is a class portal for sections of The Islamia University of Bahawalpur. This policy explains what data the Service collects, why, and how it is handled.',
+      'T3M (Tri3M) ("the Service") is a class portal for sections of The Islamia University of Bahawalpur. This policy explains what data the Service collects, why, and how it is handled.',
     ],
   },
   {

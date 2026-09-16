@@ -51,10 +51,10 @@ function pageTitle(pathname) {
 
 const COLLAPSE_KEY = 'iubcr-admin-sidebar-collapsed';
 
-function SidebarBody({ collapsed = false, onNavigateMobile, onToggleCollapse, IconBrand }) {
+function SidebarBody({ collapsed = false, onNavigateMobile, onToggleCollapse }) {
   return (
     <>
-      <SidebarBrand to="/admin" onClose={onNavigateMobile} showTitle={!collapsed} IconBrand={IconBrand} />
+      <SidebarBrand to="/admin" onClose={onNavigateMobile} showTitle={!collapsed} />
       <nav className="flex-1 space-y-3 overflow-y-auto p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]" aria-label="Admin navigation">
         {NAV_GROUPS.map((group, i) => (
           <NavGroup key={group.label ?? i} label={group.label} items={group.items} collapsed={collapsed} />
@@ -98,7 +98,7 @@ export default function AdminLayout() {
 
   const title = pageTitle(location.pathname);
 
-  const sidebarBodyProps = { IconBrand: IconGraduation };
+  const sidebarBodyProps = {};
 
   return (
     <div className="min-h-dvh bg-slate-50">

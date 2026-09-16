@@ -59,7 +59,7 @@ function pageTitle(pathname) {
 function SidebarBody({ section, unread, onNavigateMobile }) {
   return (
     <>
-      <SidebarBrand to="/cr" onClose={onNavigateMobile} IconBrand={IconGraduation} />
+      <SidebarBrand to="/cr" onClose={onNavigateMobile} />
 
       {section ? (
         <div className="border-b border-slate-100 px-4 py-3">
