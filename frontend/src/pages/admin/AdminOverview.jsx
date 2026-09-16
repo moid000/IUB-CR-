@@ -12,7 +12,7 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import {
   IconBuilding, IconCalendar, IconLayers, IconUserSquare, IconGraduation, IconBook,
-  IconPlus, IconUserPlus, IconArrowRight, IconAlert,
+  IconPlus, IconUserPlus, IconArrowRight, IconAlert, IconTrash,
 } from '../../components/icons.jsx';
 
 /** One metric card — real API counts only, never invented statistics. */
