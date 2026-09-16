@@ -24,7 +24,7 @@ function StoryPanel() {
       <div className="relative">
         <Link to="/" aria-label="T3M (Tri3M) home" className="rounded-lg">
           <span className="inline-flex items-center gap-2.5">
-            <img src="/logo-256.png" alt="T3M (Tri3M) logo" className="size-9 rounded-xl object-contain shadow-sm" />
+            <img src={`${import.meta.env.BASE_URL}logo-256.png`} alt="T3M (Tri3M) logo" className="size-9 rounded-xl object-contain shadow-sm" />
             <span className="flex flex-col leading-tight">
               <span className="text-[15px] font-semibold tracking-tight text-white">T3M (Tri3M)</span>
               <span className="text-[11px] font-medium text-slate-400">Islamia University of Bahawalpur</span>

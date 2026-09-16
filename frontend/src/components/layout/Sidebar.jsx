@@ -11,7 +11,7 @@ export function SidebarBrand({ to = '/', onClose, showTitle = true }) {
   return (
     <div className={`flex h-16 shrink-0 items-center border-b border-slate-100 ${showTitle ? 'px-5' : 'justify-center px-2'}`}>
       <NavLink to={to} className="flex items-center gap-2.5 rounded-lg py-1" aria-label="T3M (Tri3M)">
-        <img src="/logo-256.png" alt="T3M (Tri3M) logo" className="size-8 shrink-0 rounded-lg object-contain" />
+        <img src={`${import.meta.env.BASE_URL}logo-256.png`} alt="T3M (Tri3M) logo" className="size-8 shrink-0 rounded-lg object-contain" />
         {showTitle && (
           <span className="truncate text-sm font-semibold tracking-tight text-slate-900">
             T3M (Tri3M)

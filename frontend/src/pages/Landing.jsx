@@ -52,7 +52,7 @@ function Navbar() {
     >
       <nav className="mx-auto flex h-16 w-full max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8" aria-label="Main">
         <Link to="/" className="flex items-center gap-2.5" aria-label="T3M (Tri3M) home">
-          <img src="/logo-256.png" alt="T3M (Tri3M) logo" className="size-9 rounded-xl object-contain shadow-[0_6px_16px_rgb(16_24_40/0.12)]" />
+          <img src={`${import.meta.env.BASE_URL}logo-256.png`} alt="T3M (Tri3M) logo" className="size-9 rounded-xl object-contain shadow-[0_6px_16px_rgb(16_24_40/0.12)]" />
           <span className="text-sm font-semibold tracking-widest text-slate-900">
             T3M <span className="text-primary-600">(TRI3M)</span>
           </span>
@@ -814,7 +814,7 @@ function Footer() {
     <footer className="border-t border-slate-200 py-12">
       <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-8 px-4 sm:px-6 md:flex-row lg:px-8">
         <div className="flex items-center gap-2.5">
-          <img src="/logo-256.png" alt="T3M (Tri3M) logo" className="size-8 rounded-lg object-contain" />
+          <img src={`${import.meta.env.BASE_URL}logo-256.png`} alt="T3M (Tri3M) logo" className="size-8 rounded-lg object-contain" />
           <div>
             <p className="text-sm font-semibold tracking-widest text-slate-900">T3M (TRI3M)</p>
             <p className="text-xs text-slate-500">Class, handled.</p>
