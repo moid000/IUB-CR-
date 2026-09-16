@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import {
   Department, AcademicSession, Section, User, Subject, Announcement, Note,
   Assignment, Timetable, Assessment, Submission, Mark, Notification, AttendanceSession,
+  AttendanceRecord, Otp,
 } from '../models/index.js';
 import { destroyAttachmentMetas } from './fileService.js';
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
@@ -686,4 +687,63 @@ export async function deleteStudent(req) {
     before: { email: user.email, rollNo: user.rollNo }, after: { deleted: true, submissions: submissions.length },
   });
   return { deleted: true, id: user._id, submissionsRemoved: submissions.length };
+}
+
+/* ============================== Danger zone ============================== */
+
+/**
+ * Full system wipe. Deletes EVERYTHING except admin accounts and audit logs:
+ * departments, sessions, sections, subjects, CR + student accounts and all the
+ * content they own — announcements, notes, assignments, submissions, timetable,
+ * attendance, assessments, marks, notifications, avatars and pending OTPs.
+ * Cloudinary assets are destroyed best-effort AFTER the database wipe.
+ * Guard: the client must send confirm: "DELETE" (typed by the admin in the dialog).
+ */
+export async function wipeAllData(req) {
+  if (String(req.body?.confirm ?? '').trim() !== 'DELETE') {
+    throw new ApiError(400, 'Type DELETE to confirm the wipe.');
+  }
+
+  // Collect Cloudinary attachments first — after the wipe the metadata is gone.
+  const [annDocs, noteDocs, assignDocs, subDocs, people] = await Promise.all([
+    Announcement.find().select('files').lean(),
+    Note.find().select('files').lean(),
+    Assignment.find().select('files').lean(),
+    Submission.find().select('files').lean(),
+    User.find({ role: { $ne: 'admin' } }).select('avatar').lean(),
+  ]);
+  const attachments = [];
+  for (const d of [...annDocs, ...noteDocs, ...assignDocs, ...subDocs]) attachments.push(...(d.files ?? []));
+  for (const u of people) if (u.avatar) attachments.push(u.avatar);
+
+  const deleted = await withTransaction(async (tx) => {
+    const wipe = (model, filter) => model.deleteMany(filter, { session: tx }).then((r) => r.deletedCount);
+    return {
+      announcements: await wipe(Announcement, {}),
+      notes: await wipe(Note, {}),
+      assignments: await wipe(Assignment, {}),
+      submissions: await wipe(Submission, {}),
+      timetable: await wipe(Timetable, {}),
+      attendanceSessions: await wipe(AttendanceSession, {}),
+      attendanceRecords: await wipe(AttendanceRecord, {}),
+      assessments: await wipe(Assessment, {}),
+      marks: await wipe(Mark, {}),
+      notifications: await wipe(Notification, {}),
+      subjects: await wipe(Subject, {}),
+      sections: await wipe(Section, {}),
+      sessions: await wipe(AcademicSession, {}),
+      departments: await wipe(Department, {}),
+      crAndStudentAccounts: await wipe(User, { role: { $ne: 'admin' } }),
+      pendingOtps: await wipe(Otp, {}),
+    };
+  });
+
+  // Never blocks or rolls back the wipe — DB is authoritative.
+  destroyAttachmentMetas(attachments);
+
+  await auditFromReq(req, {
+    action: 'system.wipe', entityType: 'system', entityId: null,
+    after: { deleted },
+  });
+  return { deleted, kept: ['admin accounts', 'audit logs'] };
 }

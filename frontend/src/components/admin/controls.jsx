@@ -85,6 +85,7 @@ export function ConfirmDialog({
   busy = false,
   error = null,
   danger = false,
+  disabled = false,
 }) {
   return (
     <Modal
@@ -94,7 +95,7 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={busy}>
+          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={busy} disabled={disabled}>
             {confirmLabel}
           </Button>
         </>

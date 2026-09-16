@@ -17,6 +17,9 @@ const router = Router();
 // Every admin route requires an authenticated, active, admin account
 router.use(protect, adminOnly);
 
+// Danger zone — full system wipe (type DELETE to confirm in the dialog)
+router.post('/wipe-all', ctl.wipeAllData);
+
 // Departments
 router.post('/departments', ctl.createDepartment);
 router.get('/departments', ctl.listDepartments);

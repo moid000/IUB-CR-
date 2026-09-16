@@ -55,4 +55,9 @@ export const adminApi = {
     archive: (id) => api.post(`/api/admin/subjects/${id}/archive`),
     delete: (id) => api.del(`/api/admin/subjects/${id}`), // hard delete; blocked while notes/assignments/timetable/assessments exist
   },
+  system: {
+    // Full wipe: departments, sessions, sections, subjects, CR/student accounts
+    // and ALL their content. Admin accounts + audit logs survive.
+    wipeAll: () => api.post('/api/admin/wipe-all', { confirm: 'DELETE' }),
+  },
 };

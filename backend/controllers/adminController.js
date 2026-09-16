@@ -105,3 +105,5 @@ export const archiveNoteAdmin = wrap(noteSvc.archiveAdmin);
 export const deleteNoteAdmin = wrap(noteSvc.deleteAdmin);
 
 export const precreateCr = wrap(svc.precreateCr);
+
+export const wipeAllData = wrap(svc.wipeAllData);
