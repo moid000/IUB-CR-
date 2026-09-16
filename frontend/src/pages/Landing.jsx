@@ -270,7 +270,7 @@ function Hero() {
       <div className="pointer-events-none absolute -right-24 top-40 size-[380px] rounded-full bg-sky-200/40 blur-[110px] animate-aurora-b" aria-hidden="true" />
 
       <div className="relative mx-auto grid w-full max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:px-8">
-        <div>
+        <div className="min-w-0">
           <FadeIn delay={0.05}>
             <span className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50/80 px-3.5 py-1.5 text-xs font-medium text-primary-700">
               <span className="relative flex size-1.5">
@@ -317,7 +317,7 @@ function Hero() {
           </FadeIn>
         </div>
 
-        <FadeIn delay={0.35} className="lg:pl-4">
+        <FadeIn delay={0.35} className="min-w-0 lg:pl-4">
           <HeroMock />
         </FadeIn>
       </div>
