@@ -41,9 +41,9 @@ export function FullPageLoader({ label }) {
         <div className="mb-6 flex justify-center"><Brand /></div>
         <p className="text-sm text-slate-500">{label}</p>
         <div className="mt-6 space-y-2.5" aria-hidden="true">
-          <div className="skeleton-shimmer h-3 rounded" style={{ width: '85%' }} />
-          <div className="skeleton-shimmer h-3 rounded" style={{ width: '65%' }} />
-          <div className="skeleton-shimmer h-3 rounded" style={{ width: '75%' }} />
+          <div className="skeleton-shimmer mx-auto h-3 rounded" style={{ width: '85%' }} />
+          <div className="skeleton-shimmer mx-auto h-3 rounded" style={{ width: '65%' }} />
+          <div className="skeleton-shimmer mx-auto h-3 rounded" style={{ width: '75%' }} />
         </div>
       </FadeIn>
     </div>
