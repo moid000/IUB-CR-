@@ -275,7 +275,7 @@ function Hero() {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75 motion-reduce:animate-none" />
                 <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
               </span>
-              Live portal for IUB sections — CRs &amp; students
+              Live portal for class sections — CRs &amp; students
             </span>
           </FadeIn>
 
@@ -310,7 +310,7 @@ function Hero() {
               </button>
             </div>
             <p className="mt-4 text-xs text-slate-500">
-              Free for IUB sections · Accounts are issued by your admin or CR
+              Free for every section · Accounts are issued by your admin or CR
             </p>
           </FadeIn>
         </div>
@@ -450,7 +450,7 @@ function Features() {
           </h2>
           <p className="mt-4 max-w-2xl text-slate-600">
             Built from real class workflows — not a generic noticeboard. Each module is designed for the way
-            CRs actually run a section at IUB.
+            CRs actually run a section.
           </p>
         </Reveal>
         <Stagger className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -726,7 +726,7 @@ const FAQS = [
   { q: 'How do I get an account?', a: 'Your admin creates the academic structure and issues accounts. CRs and students activate with a one-time code sent to their email — no one can self-register into your section.' },
   { q: 'Which files can be shared?', a: 'Virtually everything a class needs — PDF, Word, PowerPoint, Excel, images, archives and more, up to 10 MB per file, stored securely in the cloud.' },
   { q: 'How does QR attendance work?', a: 'Your CR opens an attendance session and a QR code appears. Students scan it from their portal — presence is verified instantly and recorded against the session.' },
-  { q: 'Is it free?', a: 'Yes — built for IUB sections, free for your class. No ads, no upsells, no data selling.' },
+  { q: 'Is it free?', a: 'Yes — completely free for your class. No ads, no upsells, no data selling.' },
 ];
 
 function FaqItem({ q, a, open, onToggle }) {

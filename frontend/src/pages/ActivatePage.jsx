@@ -235,7 +235,7 @@ export default function ActivatePage({ role }) {
             label="Email"
             type="email"
             autoComplete="email"
-            placeholder={isRep ? 'cr@iub.edu.pk' : 'you@iub.edu.pk'}
+            placeholder={isRep ? 'cr@example.com' : 'you@example.com'}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') lookup(); }}

@@ -76,7 +76,7 @@ function PrecreateCrForm({ open, onClose, onSaved, sections, departments, sessio
             <option value="gr">GR — General Representative</option>
           </Select>
           <Input label="Full name" required id="cr-name" value={name} onChange={(e) => setName(e.target.value)} error={errors.name ?? fieldErrors?.name ?? null} />
-          <Input label="Email" required id="cr-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cr@iub.edu.pk" hint="Activation OTP is sent to this address." error={errors.email ?? fieldErrors?.email ?? null} />
+          <Input label="Email" required id="cr-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cr@example.com" hint="Activation OTP is sent to this address." error={errors.email ?? fieldErrors?.email ?? null} />
           <Input label="Phone (optional)" id="cr-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="03xx-xxxxxxx" error={fieldErrors?.phone ?? null} />
 
           <div className="pt-1">

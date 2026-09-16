@@ -15,7 +15,7 @@ const SECTIONS = [
   {
     h: '1. Who we are & scope',
     p: [
-      'Tri3M ("the Service") is a class portal for sections of The Islamia University of Bahawalpur. This policy explains what data the Service collects, why, and how it is handled.',
+      'Tri3M ("the Service") is a class portal for student sections — organized by department, session and class. This policy explains what data the Service collects, why, and how it is handled.',
     ],
   },
   {

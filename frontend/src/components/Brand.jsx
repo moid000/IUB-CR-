@@ -6,7 +6,7 @@ export function Brand({ compact = false, className = '' }) {
       {!compact && (
         <span className="flex flex-col leading-tight">
           <span className="text-[15px] font-semibold tracking-tight text-slate-900">Tri3M</span>
-          <span className="text-[11px] font-medium text-slate-400">Islamia University of Bahawalpur</span>
+          <span className="text-[11px] font-medium tracking-wide text-slate-400">Connect &bull; Organize &bull; Succeed</span>
         </span>
       )}
     </span>
