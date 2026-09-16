@@ -13,7 +13,7 @@ import { ApiError } from '../api/client.js';
 
 const AuthContext = createContext(null);
 
-export const ROLE_HOME = { ADMIN: '/admin', CR: '/cr', STUDENT: '/student' };
+export const ROLE_HOME = { ADMIN: '/admin', CR: '/cr', GR: '/cr', STUDENT: '/student' };
 
 /**
  * Backend stores roles lowercase ('admin' | 'cr' | 'student'); the frontend

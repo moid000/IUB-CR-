@@ -34,14 +34,14 @@ export const adminApi = {
     update: (id, body) => api.patch(`/api/admin/sections/${id}`, body), // { name?, semester? }
     archive: (id) => api.post(`/api/admin/sections/${id}/archive`),
     // Dedicated CR flows — ownership is NEVER injected into section payloads
-    assignCr: (sectionId, userId) => api.post(`/api/admin/sections/${sectionId}/cr`, { userId }),
-    reassignCr: (sectionId, userId) => api.post(`/api/admin/sections/${sectionId}/cr/reassign`, { userId }),
-    removeCr: (sectionId) => api.post(`/api/admin/sections/${sectionId}/cr/remove`),
+    assignCr: (sectionId, userId, role = 'cr') => api.post(`/api/admin/sections/${sectionId}/cr`, { userId, role }),
+    reassignCr: (sectionId, userId, role = 'cr') => api.post(`/api/admin/sections/${sectionId}/cr/reassign`, { userId, role }),
+    removeCr: (sectionId, role = 'cr') => api.post(`/api/admin/sections/${sectionId}/cr/remove`, { role }),
     delete: (id) => api.del(`/api/admin/sections/${id}`), // hard delete; blocked while CR/students/subjects exist
   },
   crs: {
     list: (params) => api.get(`/api/admin/crs${qs(params)}`), // search | section | page | limit
-    precreate: (body) => api.post('/api/admin/crs', body), // { name, email, phone?, sectionId } OR { name, email, phone?, department, session, semester, sectionName }
+    precreate: (body) => api.post('/api/admin/crs', body), // { name, email, phone?, role?: 'cr'|'gr', sectionId } OR { ...sectionName }
     delete: (id) => api.del(`/api/admin/crs/${id}`), // unlinks the CR from their section, removes the account
   },
   students: {

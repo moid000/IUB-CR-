@@ -129,7 +129,7 @@ export default function StudentOverview() {
           </div>
           <div className="mt-3 space-y-2">
             {recent.todayClasses.length === 0 ? (
-              <MiniEmpty icon={IconCalendar} text="No classes scheduled for today — your CR publishes the daily schedule." />
+              <MiniEmpty icon={IconCalendar} text="No classes scheduled for today — your CR / GR publishes the daily schedule." />
             ) : recent.todayClasses.map((c) => (
               <div key={c._id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
                 <div className="min-w-0">
@@ -183,7 +183,7 @@ export default function StudentOverview() {
         </div>
         <div className="mt-3 space-y-2">
           {recent.announcements.length === 0 ? (
-            <MiniEmpty icon={IconMegaphone} text="No announcements yet — your CR's posts will appear here." />
+            <MiniEmpty icon={IconMegaphone} text="No announcements yet — your CR / GR posts will appear here." />
           ) : recent.announcements.map((a) => (
             <div key={a._id} className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
               <div className="flex items-start justify-between gap-3">

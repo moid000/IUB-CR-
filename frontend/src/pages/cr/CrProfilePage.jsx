@@ -89,7 +89,7 @@ export default function CrProfilePage() {
       ) : (
         <div className="flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft">
           <IconInfo className="mt-0.5 size-4 shrink-0 text-slate-400" />
-          <p className="text-sm text-slate-500">No section is assigned to you yet. An administrator assigns CRs to sections.</p>
+          <p className="text-sm text-slate-500">No section is assigned to you yet. An administrator assigns CRs and GRs to sections.</p>
         </div>
       )}
 

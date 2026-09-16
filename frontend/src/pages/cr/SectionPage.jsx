@@ -56,7 +56,7 @@ export default function SectionPage() {
       <Card className="p-6 sm:p-8">
         <h3 className="text-sm font-semibold text-slate-900">Your role</h3>
         <p className="mt-1 text-sm text-slate-500">
-          You manage this section as its Class Representative. Only an administrator can change CR assignment.
+          You manage this section as its Class Representative (CR/GR). Only an administrator can change CR / GR assignment.
         </p>
         <dl className="mt-5 grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">

@@ -64,6 +64,10 @@ export default function Login() {
             <Link to="/cr/activate" className="rounded font-medium text-primary-600 hover:text-primary-700 hover:underline">
               CR activation
             </Link>
+            {' · '}
+            <Link to="/gr/activate" className="rounded font-medium text-primary-600 hover:text-primary-700 hover:underline">
+              GR activation
+            </Link>
           </p>
           <p>
             <Link to="/forgot-password" className="rounded font-medium text-primary-600 hover:text-primary-700 hover:underline">

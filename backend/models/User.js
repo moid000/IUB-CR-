@@ -31,7 +31,7 @@ const userSchema = new Schema(
     avatar: FileMetaSchema,
     // bcrypt hash — set only by the auth service; never plaintext
     password: { type: String, select: false },
-    role: { type: String, enum: ['admin', 'cr', 'student'], required: true },
+    role: { type: String, enum: ['admin', 'cr', 'gr', 'student'], required: true },
     section: { type: Schema.Types.ObjectId, ref: 'Section', default: null },
     rollNo: { type: String, trim: true, default: '' },
     registrationStatus: {

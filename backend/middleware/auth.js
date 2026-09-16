@@ -55,7 +55,9 @@ export const role = (...allowed) => (req, res, next) => {
 };
 
 export const adminOnly = role('admin');
-export const crOnly = role('cr');
+// CR and GR are class representatives with the SAME permission surface —
+// every /api/cr/* route serves both roles.
+export const crOnly = role('cr', 'gr');
 export const studentOnly = role('student');
 
 /**

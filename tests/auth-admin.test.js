@@ -459,7 +459,7 @@ test('admin CR directory: pagination, search, section filter, no security fields
     assert.ok(!('password' in cr), 'password must never be serialized');
     assert.ok(!('passwordHash' in cr));
     assert.ok(!('otpHash' in cr));
-    assert.equal(cr.role, undefined, 'role is implicit in the directory');
+    assert.ok(['cr', 'gr'].includes(cr.role), 'role is exposed so the admin UI can show CR vs GR');
     assert.ok(['pending', 'active', 'suspended'].includes(cr.registrationStatus));
   }
 });

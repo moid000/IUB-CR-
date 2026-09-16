@@ -57,7 +57,7 @@ export default function StudentAttendancePage() {
 
   const markWithCode = async (sessionId) => {
     if (!code.trim()) {
-      setMessage({ type: 'error', text: 'Enter the attendance code from your CR.' });
+      setMessage({ type: 'error', text: 'Enter the attendance code from your CR or GR.' });
       return;
     }
     setMarking(true);
@@ -101,7 +101,7 @@ export default function StudentAttendancePage() {
     <div className="mx-auto max-w-3xl space-y-5">
       <PageHeader
         title="Attendance"
-        description={`Mark yourself present with the code your CR shares in class. Section ${section.name}.`}
+        description={`Mark yourself present with the code your CR / GR shares in class. Section ${section.name}.`}
       />
 
       {message && (
@@ -125,7 +125,7 @@ export default function StudentAttendancePage() {
           <SkeletonRows rows={2} circle={false} />
         ) : sessions.length === 0 ? (
           <p className="mt-3 rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-            No active attendance sessions right now. Ask your CR to start one.
+            No active attendance sessions right now. Ask your CR or GR to start one.
           </p>
         ) : (
           <div className="mt-3 space-y-3">
@@ -216,7 +216,7 @@ function friendlyAttendanceError(err) {
   const msg = err?.message ?? '';
   if (err?.status === 409) return 'You have already marked attendance for this session.';
   if (err?.status === 404) return "That attendance session doesn't exist (or has ended).";
-  if (/invalid code/i.test(msg)) return 'Invalid attendance code. Check with your CR and try again.';
-  if (/no longer active/i.test(msg)) return 'This session has expired — ask your CR to start a new one.';
+  if (/invalid code/i.test(msg)) return 'Invalid attendance code. Check with your CR or GR and try again.';
+  if (/no longer active/i.test(msg)) return 'This session has expired — ask your CR or GR to start a new one.';
   return msg || 'Something went wrong. Please try again.';
 }

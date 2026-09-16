@@ -88,7 +88,7 @@ export default function StudentAssignmentsPage() {
             {items.length === 0 ? 'No assignments available.' : `No ${filter.toLowerCase()} assignments.`}
           </h3>
           <p className="mt-1 text-sm text-slate-500">
-            {items.length === 0 ? 'When your CR publishes an assignment it will appear here.' : 'Try a different filter.'}
+            {items.length === 0 ? 'When your CR or GR publishes an assignment it will appear here.' : 'Try a different filter.'}
           </p>
         </div>
       ) : (
@@ -288,7 +288,7 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
 
           {(assignment.attachments?.length ?? 0) > 0 && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Assignment files from your CR</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Assignment files from your CR / GR</p>
               <div className="mt-2"><FileList files={assignment.attachments} /></div>
             </div>
           )}

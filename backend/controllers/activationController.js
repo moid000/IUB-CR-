@@ -27,6 +27,20 @@ export const crSetPassword = wrap(async (req) => {
   return { success: true, message: 'Account activated. You can now log in.' };
 });
 
+// GR activation — response is ALWAYS the same generic shape (no `sent` leak)
+export const grRequestOtp = wrap(async (req) => {
+  const { message } = await activation.requestActivationOtp('gr', req);
+  return { success: true, message };
+});
+export const grVerifyOtp = wrap(async (req) => {
+  const { activationToken, expiresIn } = await activation.verifyActivationOtp('gr', req);
+  return { success: true, activationToken, expiresIn };
+});
+export const grSetPassword = wrap(async (req) => {
+  await activation.setActivationPassword('gr', req);
+  return { success: true, message: 'Account activated. You can now log in.' };
+});
+
 // Student activation — response is ALWAYS the same generic shape (no `sent` leak)
 export const studentRequestOtp = wrap(async (req) => {
   const { message } = await activation.requestActivationOtp('student', req);

@@ -199,27 +199,30 @@ async function resolveSectionContext(body) {
 }
 
 export async function createSection(req) {
-  const body = v.pick(req.body, ['department', 'session', 'semester', 'name', 'cr']);
+  const body = v.pick(req.body, ['department', 'session', 'semester', 'name', 'cr', 'gr']);
   const ctx = await resolveSectionContext(body);
 
-  // Optional CR assignment during creation — validated BEFORE the transaction
-  let crUser = null;
-  if (body.cr !== undefined && body.cr !== null && body.cr !== '') {
-    const crId = v.assertObjectId(body.cr, 'cr id');
-    crUser = await User.findById(crId);
-    if (!crUser) throw new ApiError(400, 'CR user not found');
-    if (crUser.role !== 'cr') throw new ApiError(400, 'User is not a CR');
-    if (crUser.section) throw new ApiError(409, 'CR already belongs to another section');
+  // Optional CR / GR assignment during creation — validated BEFORE the transaction
+  const reps = {};
+  for (const repRole of ['cr', 'gr']) {
+    const raw = body[repRole];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const repId = v.assertObjectId(raw, `${repRole} id`);
+    const repUser = await User.findById(repId);
+    if (!repUser) throw new ApiError(400, `${repRole.toUpperCase()} user not found`);
+    if (repUser.role !== repRole) throw new ApiError(400, `User is not a ${repRole.toUpperCase()}`);
+    if (repUser.section) throw new ApiError(409, `${repRole.toUpperCase()} already belongs to another section`);
+    reps[repRole] = repUser;
   }
 
-  // Section.cr and User.section are always mutated together, inside ONE transaction
+  // Section.cr/gr and User.section are always mutated together, inside ONE transaction
   const section = await withTransaction(async (tx) => {
     const [doc] = await Section.create([{ ...ctx, status: 'active' }], { session: tx });
-    if (crUser) {
-      doc.cr = crUser._id;
+    for (const repRole of Object.keys(reps)) {
+      doc[repRole] = reps[repRole]._id;
       await doc.save({ session: tx });
-      crUser.section = doc._id;
-      await crUser.save({ session: tx });
+      reps[repRole].section = doc._id;
+      await reps[repRole].save({ session: tx });
     }
     return doc;
   });
@@ -227,7 +230,11 @@ export async function createSection(req) {
   await auditFromReq(req, {
     action: 'section.create', entityType: 'section', entityId: section._id,
     section: section._id,
-    after: { ...ctx, cr: crUser ? String(crUser._id) : null },
+    after: {
+      ...ctx,
+      cr: reps.cr ? String(reps.cr._id) : null,
+      gr: reps.gr ? String(reps.gr._id) : null,
+    },
   });
   return section;
 }
@@ -241,6 +248,7 @@ export async function listSections(req) {
     .populate('department', 'name code')
     .populate('session', 'name status')
     .populate('cr', 'name email')
+    .populate('gr', 'name email')
     .sort({ createdAt: -1 });
 }
 
@@ -249,7 +257,8 @@ export async function getSection(req) {
   const doc = await Section.findById(id)
     .populate('department', 'name code')
     .populate('session', 'name status')
-    .populate('cr', 'name email');
+    .populate('cr', 'name email')
+    .populate('gr', 'name email');
   if (!doc) throw new ApiError(404, 'Section not found');
   return doc;
 }
@@ -336,12 +345,18 @@ export async function archiveSection(req) {
  */
 export async function precreateCr(req) {
   const body = v.pick(req.body, [
-    'name', 'email', 'phone', 'sectionId',
+    'name', 'email', 'phone', 'sectionId', 'role',
     'department', 'session', 'semester', 'sectionName',
   ]);
   const name = v.assertName(body.name, 'name');
   const email = v.assertEmail(body.email, 'email');
   const phone = v.assertPhone(body.phone, 'phone');
+  // Both class representatives share the same creation flow — role picks the slot.
+  // Defaults to 'cr' (backward compatible with existing callers).
+  const rawRole = typeof body.role === 'string' && body.role ? body.role.toLowerCase().trim() : 'cr';
+  if (!['cr', 'gr'].includes(rawRole)) throw new ApiError(400, 'Role must be cr or gr');
+  const repRole = rawRole;
+  const roleLabel = repRole.toUpperCase();
 
   if (await User.exists({ email })) throw new ApiError(409, 'Email already in use');
 
@@ -352,7 +367,7 @@ export async function precreateCr(req) {
     section = await Section.findById(sectionId);
     if (!section) throw new ApiError(404, 'Section not found');
     if (section.status !== 'active') throw new ApiError(400, 'Section is archived');
-    if (section.cr) throw new ApiError(409, 'Section already has a CR');
+    if (section[repRole]) throw new ApiError(409, `Section already has a ${roleLabel}`);
   } else {
     // section name is the explicit sectionName field — never the CR's own name
     ctx = await resolveSectionContext({
@@ -369,25 +384,25 @@ export async function precreateCr(req) {
       const [created] = await Section.create([{ ...ctx, status: 'active' }], { session: tx });
       target = created;
     }
-    const [cr] = await User.create([{
+    const [rep] = await User.create([{
       name,
       email,
       phone,
-      role: 'cr',
+      role: repRole,
       registrationStatus: 'pending', // cannot log in until activation (later phase)
       emailVerified: false,
       password: null,
       section: target._id, // server-derived section ownership
     }], { session: tx });
-    target.cr = cr._id;
+    target[repRole] = rep._id;
     await target.save({ session: tx });
-    return { cr, section: target };
+    return { cr: rep, section: target };
   });
 
   await auditFromReq(req, {
-    action: 'user.cr.precreate', entityType: 'user', entityId: result.cr._id,
+    action: `user.${repRole}.precreate`, entityType: 'user', entityId: result.cr._id,
     targetUser: result.cr._id, section: result.section._id,
-    after: { name, email, role: 'cr', registrationStatus: 'pending', section: String(result.section._id) },
+    after: { name, email, role: repRole, registrationStatus: 'pending', section: String(result.section._id) },
   });
   return result.cr;
 }
@@ -400,21 +415,26 @@ export async function precreateCr(req) {
  */
 export async function assignCr(req) {
   const sectionId = v.assertObjectId(req.params.id, 'section id');
-  const userId = v.assertObjectId(v.pick(req.body, ['userId']).userId, 'cr user id');
+  const body = v.pick(req.body, ['userId', 'role']);
+  const userId = v.assertObjectId(body.userId, 'rep user id');
+  const rawRole = typeof body.role === 'string' && body.role ? body.role.toLowerCase().trim() : 'cr';
+  if (!['cr', 'gr'].includes(rawRole)) throw new ApiError(400, 'Role must be cr or gr');
+  const repRole = rawRole;
+  const roleLabel = repRole.toUpperCase();
 
   const section = await Section.findById(sectionId);
   if (!section) throw new ApiError(404, 'Section not found');
   if (section.status !== 'active') throw new ApiError(400, 'Section is archived');
-  if (section.cr) throw new ApiError(409, 'Section already has a CR');
+  if (section[repRole]) throw new ApiError(409, `Section already has a ${roleLabel}`);
 
   const user = await User.findById(userId);
-  if (!user) throw new ApiError(404, 'CR user not found');
-  if (user.role !== 'cr') throw new ApiError(400, 'User is not a CR');
-  if (user.section) throw new ApiError(409, 'CR already belongs to another section');
-  if (user.registrationStatus === 'suspended') throw new ApiError(409, 'CR account is suspended');
+  if (!user) throw new ApiError(404, `${roleLabel} user not found`);
+  if (user.role !== repRole) throw new ApiError(400, `User is not a ${roleLabel}`);
+  if (user.section) throw new ApiError(409, `${roleLabel} already belongs to another section`);
+  if (user.registrationStatus === 'suspended') throw new ApiError(409, `${roleLabel} account is suspended`);
 
   await withTransaction(async (tx) => {
-    section.cr = user._id;
+    section[repRole] = user._id;
     await section.save({ session: tx });
     user.section = section._id;
     await user.save({ session: tx });
@@ -437,28 +457,33 @@ export async function assignCr(req) {
  */
 export async function reassignCr(req) {
   const sectionId = v.assertObjectId(req.params.id, 'section id');
-  const userId = v.assertObjectId(v.pick(req.body, ['userId']).userId, 'cr user id');
+  const body = v.pick(req.body, ['userId', 'role']);
+  const userId = v.assertObjectId(body.userId, 'rep user id');
+  const rawRole = typeof body.role === 'string' && body.role ? body.role.toLowerCase().trim() : 'cr';
+  if (!['cr', 'gr'].includes(rawRole)) throw new ApiError(400, 'Role must be cr or gr');
+  const repRole = rawRole;
+  const roleLabel = repRole.toUpperCase();
 
   const section = await Section.findById(sectionId);
   if (!section) throw new ApiError(404, 'Section not found');
   if (section.status !== 'active') throw new ApiError(400, 'Section is archived');
-  if (section.cr) throw new ApiError(409, 'Section already has a CR');
+  if (section[repRole]) throw new ApiError(409, `Section already has a ${roleLabel}`);
 
   const user = await User.findById(userId);
-  if (!user) throw new ApiError(404, 'CR user not found');
-  if (user.role !== 'cr') throw new ApiError(400, 'User is not a CR');
-  if (user.registrationStatus === 'suspended') throw new ApiError(409, 'CR account is suspended');
-  if (!user.section) throw new ApiError(409, 'CR does not belong to a section — use assign instead');
-  if (String(user.section) === String(section._id)) throw new ApiError(409, 'CR already belongs to this section');
+  if (!user) throw new ApiError(404, `${roleLabel} user not found`);
+  if (user.role !== repRole) throw new ApiError(400, `User is not a ${roleLabel}`);
+  if (user.registrationStatus === 'suspended') throw new ApiError(409, `${roleLabel} account is suspended`);
+  if (!user.section) throw new ApiError(409, `${roleLabel} does not belong to a section — use assign instead`);
+  if (String(user.section) === String(section._id)) throw new ApiError(409, `${roleLabel} already belongs to this section`);
 
   const oldSectionId = user.section;
   await withTransaction(async (tx) => {
     const oldSection = await Section.findById(oldSectionId).session(tx);
     if (oldSection) {
-      oldSection.cr = null;
+      oldSection[repRole] = null;
       await oldSection.save({ session: tx });
     }
-    section.cr = user._id;
+    section[repRole] = user._id;
     await section.save({ session: tx });
     user.section = section._id;
     await user.save({ session: tx });
@@ -479,14 +504,17 @@ export async function reassignCr(req) {
  */
 export async function removeCr(req) {
   const sectionId = v.assertObjectId(req.params.id, 'section id');
+  const body = v.pick(req.body, ['role']);
+  const repRole = body.role === 'gr' ? 'gr' : 'cr'; // default stays CR
+  const roleLabel = repRole.toUpperCase();
   const section = await Section.findById(sectionId);
   if (!section) throw new ApiError(404, 'Section not found');
-  if (!section.cr) throw new ApiError(409, 'Section has no CR');
-  const crId = section.cr; // captured BEFORE the transaction clears it
+  if (!section[repRole]) throw new ApiError(409, `Section has no ${roleLabel}`);
+  const crId = section[repRole]; // captured BEFORE the transaction clears it
 
   await withTransaction(async (tx) => {
-    const cr = await User.findById(section.cr).session(tx);
-    section.cr = null;
+    const cr = await User.findById(section[repRole]).session(tx);
+    section[repRole] = null;
     await section.save({ session: tx });
     if (cr) {
       cr.section = null;
@@ -504,7 +532,7 @@ export async function removeCr(req) {
 
 /* ========================== Admin CR directory ============================ */
 
-const CR_SAFE_FIELDS = 'name email phone section registrationStatus emailVerified activationAt lastLoginAt createdAt';
+const CR_SAFE_FIELDS = 'name email phone role section registrationStatus emailVerified activationAt lastLoginAt createdAt';
 
 /**
  * Admin-only CR directory. Read-only — CRs are pre-created via POST /api/admin/crs
@@ -513,7 +541,7 @@ const CR_SAFE_FIELDS = 'name email phone section registrationStatus emailVerifie
  */
 export async function listCrsAdmin(req) {
   const { page, limit, skip } = parsePagination(req.query);
-  const filter = { role: 'cr' };
+  const filter = { role: { $in: ['cr', 'gr'] } };
   if (req.query.section) filter.section = v.assertObjectId(req.query.section, 'section id');
   const search = searchFilter(req.query.search, ['name', 'email']);
   if (search) Object.assign(filter, search);
@@ -655,10 +683,11 @@ export async function deleteSection(req) {
 /** Hard delete a CR account. Unlinks them from their section first. */
 export async function deleteCr(req) {
   const id = v.assertObjectId(req.params.id, 'CR id');
-  const user = await User.findOne({ _id: id, role: 'cr' });
+  const user = await User.findOne({ _id: id, role: { $in: ['cr', 'gr'] } });
   if (!user) throw new ApiError(404, 'CR not found');
   if (user.section) {
-    await Section.updateMany({ _id: user.section, cr: user._id }, { $unset: { cr: 1 } });
+    // Clear whichever rep slot this user occupies (cr or gr) on their section.
+    await Section.updateMany({ _id: user.section, [user.role]: user._id }, { $unset: { [user.role]: 1 } });
   }
   await Notification.deleteMany({ recipient: user._id });
   await user.deleteOne();

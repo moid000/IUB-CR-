@@ -97,7 +97,7 @@ export default function AdminOverview() {
       sub: lsec ? null : `${activeSections.length} active`,
     },
     {
-      icon: IconUserSquare, label: 'CRs', to: '/admin/crs',
+      icon: IconUserSquare, label: 'CRs & GRs', to: '/admin/crs',
       value: lcr ? null : (crsPage ? crsPage.total : crs.length),
       sub: lcr ? null : `${pendingCrs.length} pending activation${unassignedCrs.length ? ` · ${unassignedCrs.length} unassigned` : ''}`,
     },
@@ -174,6 +174,7 @@ export default function AdminOverview() {
                     {s.cr
                       ? <Badge variant="primary">CR: {s.cr.name}</Badge>
                       : <Badge variant="warning">No CR</Badge>}
+                    {s.gr && <Badge variant="neutral">GR: {s.gr.name}</Badge>}
                     <StatusBadge status={s.status} />
                   </div>
                 </li>
@@ -192,7 +193,7 @@ export default function AdminOverview() {
             </Link>
             <Link to="/admin/crs" className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50/40">
               <span className="grid size-8 place-items-center rounded-lg bg-primary-50 text-primary-600"><IconUserPlus className="size-4" /></span>
-              Pre-create a CR account
+              Pre-create a CR / GR account
             </Link>
             <Link to="/admin/sections" className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50/40">
               <span className="grid size-8 place-items-center rounded-lg bg-primary-50 text-primary-600"><IconLayers className="size-4" /></span>
@@ -213,7 +214,7 @@ export default function AdminOverview() {
             <Alert variant="warning" className="mt-4">
               <p className="flex items-start gap-2">
                 <IconAlert className="mt-0.5 size-4 shrink-0" />
-                {pendingCrs.length} CR {pendingCrs.length === 1 ? 'account is' : 'accounts are'} awaiting activation.
+                {pendingCrs.length} representative {pendingCrs.length === 1 ? 'account is' : 'accounts are'} awaiting activation.
                 They activate themselves via the email OTP.
               </p>
             </Alert>

@@ -174,7 +174,7 @@ export default function CrLayout() {
             </div>
             <AccountMenu
               user={user}
-              roleLabel="Class Representative"
+              roleLabel={user?.role === 'GR' ? 'General Representative' : 'Class Representative'}
               roleVariant="primary"
               menuItems={[
                 { to: '/cr/profile', label: 'Profile', icon: IconUserSquare },

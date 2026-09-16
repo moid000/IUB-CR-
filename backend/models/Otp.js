@@ -19,7 +19,7 @@ const otpSchema = new Schema(
     email: { type: String, required: true, lowercase: true, trim: true },
     purpose: {
       type: String,
-      enum: ['cr-activation', 'student-activation', 'password-reset'],
+      enum: ['cr-activation', 'gr-activation', 'student-activation', 'password-reset'],
       required: true,
     },
     codeHash: { type: String, required: true, select: false }, // bcrypt hash of the OTP

@@ -157,7 +157,7 @@ async function loadParent(req, parentType, parentId) {
     if (now() > new Date(assignment.deadline).getTime()) {
       throw new ApiError(400, 'Deadline has passed — submissions are locked');
     }
-  } else if (role === 'cr') {
+  } else if (role === 'cr' || role === 'gr') {
     if (parentType === 'submission') throw new ApiError(403, 'Only the submission owner may attach files');
     if (String(parent.section) !== String(req.user.section)) {
       throw new ApiError(404, `${parentType} not found`); // cross-section = missing

@@ -18,7 +18,8 @@ const STEPS = ['Email', 'Verify code', 'Set password'];
  * controlled — the UI never offers those fields.
  */
 export default function ActivatePage({ role }) {
-  const isCr = role === 'cr';
+  const isRep = role === 'cr' || role === 'gr'; // CR and GR share the activation flow
+  const roleLabel = role.toUpperCase();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(0);
@@ -108,11 +109,11 @@ export default function ActivatePage({ role }) {
 
   return (
     <AuthLayout
-      title={isCr ? 'Activate your CR account' : 'Activate your student account'}
+      title={isRep ? `Activate your ${roleLabel} account` : 'Activate your student account'}
       subtitle={
         step === 3
           ? undefined
-          : isCr
+          : isRep
             ? 'Use the email your admin pre-created for you.'
             : 'Use the email your CR pre-created for you.'
       }
@@ -156,7 +157,7 @@ export default function ActivatePage({ role }) {
             label="Email"
             type="email"
             autoComplete="email"
-            placeholder={isCr ? 'cr@iub.edu.pk' : 'you@iub.edu.pk'}
+            placeholder={isRep ? 'cr@iub.edu.pk' : 'you@iub.edu.pk'}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') requestOtp(); }}

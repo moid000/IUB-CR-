@@ -35,7 +35,7 @@ const NAV_GROUPS = [
   {
     label: 'People',
     items: [
-      { to: '/admin/crs', label: 'CR Management', icon: IconUserSquare },
+      { to: '/admin/crs', label: 'Class Reps (CR & GR)', icon: IconUserSquare },
       { to: '/admin/students', label: 'Students', icon: IconGraduation },
     ],
   },

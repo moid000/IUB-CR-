@@ -12,6 +12,7 @@ import { ErrorBoundary } from './pages/ErrorBoundary.jsx';
 import RootRedirect from './pages/RootRedirect.jsx';
 import Login from './pages/Login.jsx';
 import CrActivate from './pages/CrActivate.jsx';
+import GrActivate from './pages/GrActivate.jsx';
 import StudentActivate from './pages/StudentActivate.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<RedirectIfAuthenticated><Login /></RedirectIfAuthenticated>} />
             <Route path="/cr/activate" element={<CrActivate />} />
+            <Route path="/gr/activate" element={<GrActivate />} />
             <Route path="/student/activate" element={<StudentActivate />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
@@ -88,7 +90,7 @@ export default function App() {
 
             {/* CR portal — mobile-first shell; section scoping is always
                 server-derived (UX protection only, backend is authoritative) */}
-            <Route path="/cr" element={<RequireRole roles={['CR']}><CrLayout /></RequireRole>}>
+            <Route path="/cr" element={<RequireRole roles={['CR', 'GR']}><CrLayout /></RequireRole>}>
               <Route index element={<CrOverview />} />
               <Route path="section" element={<SectionPage />} />
               <Route path="students" element={<CrStudentsPage />} />

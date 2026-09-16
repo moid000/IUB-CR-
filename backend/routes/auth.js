@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { login, logout, me, changePassword } from '../controllers/authController.js';
 import { signAvatarUpload, confirmAvatarUpload, removeAvatar } from '../controllers/fileController.js';
 import * as activation from '../controllers/activationController.js';
+// (GR activation routes are registered alongside CR activation below)
 import { protect } from '../middleware/auth.js';
 
 const router = Router();
@@ -21,6 +22,11 @@ router.post('/avatar/remove', protect, removeAvatar);
 router.post('/cr/request-otp', activation.crRequestOtp);
 router.post('/cr/verify-otp', activation.crVerifyOtp);
 router.post('/cr/set-password', activation.crSetPassword);
+
+// GR activation (public — email enumeration safe)
+router.post('/gr/request-otp', activation.grRequestOtp);
+router.post('/gr/verify-otp', activation.grVerifyOtp);
+router.post('/gr/set-password', activation.grSetPassword);
 
 // Student activation (public — email enumeration safe)
 router.post('/student/request-otp', activation.studentRequestOtp);

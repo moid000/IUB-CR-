@@ -17,7 +17,7 @@ import { requestOtp, verifyOtp, consumeToken } from './otpService.js';
  */
 
 const TOKEN_TTL_SECONDS = 15 * 60; // 15 minutes
-const ACTIVATION_PURPOSE = { cr: 'cr-activation', student: 'student-activation' };
+const ACTIVATION_PURPOSE = { cr: 'cr-activation', gr: 'gr-activation', student: 'student-activation' };
 
 const GENERIC_OTP_RESPONSE = 'If the account is eligible, an OTP has been sent to your email.';
 
@@ -126,7 +126,7 @@ export async function setActivationPassword(role, req) {
 
   await audit({
     actor: user._id, actorRole: role,
-    action: role === 'cr' ? 'auth.cr.activate' : 'auth.student.activate',
+    action: role === 'cr' ? 'auth.cr.activate' : role === 'gr' ? 'auth.gr.activate' : 'auth.student.activate',
     entityType: 'user', entityId: user._id, targetUser: user._id,
     after: { email: user.email, role: user.role, registrationStatus: 'active' },
     ip: req.ip, userAgent: req.get('user-agent'),

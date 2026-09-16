@@ -19,6 +19,8 @@ import { IconUserPlus, IconTrash, IconInfo } from '../../components/icons.jsx';
  * via an email OTP. No password is ever set or shown here.
  */
 function PrecreateCrForm({ open, onClose, onSaved, sections, departments, sessions }) {
+  const [role, setRole] = useState('cr'); // 'cr' | 'gr'
+  const roleLabel = role.toUpperCase();
   const [mode, setMode] = useState('existing'); // 'existing' | 'new'
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -30,7 +32,7 @@ function PrecreateCrForm({ open, onClose, onSaved, sections, departments, sessio
   const [sectionName, setSectionName] = useState('');
   const [errors, setErrors] = useState({});
 
-  const freeSections = sections.filter((s) => s.status === 'active' && !s.cr);
+  const freeSections = sections.filter((s) => s.status === 'active' && !s[role]);
   const activeDepartments = departments.filter((d) => d.status === 'active');
   const activeSessions = sessions.filter((s) => s.status === 'active');
 
@@ -45,7 +47,7 @@ function PrecreateCrForm({ open, onClose, onSaved, sections, departments, sessio
     setErrors(next);
     if (Object.keys(next).length) throw new Error('Please fix the highlighted fields.');
 
-    const body = { name: name.trim(), email: email.trim() };
+    const body = { name: name.trim(), email: email.trim(), role };
     if (phone.trim()) body.phone = phone.trim();
     if (mode === 'existing') body.sectionId = sectionId;
     else {
@@ -55,20 +57,24 @@ function PrecreateCrForm({ open, onClose, onSaved, sections, departments, sessio
       body.sectionName = sectionName.trim().toUpperCase();
     }
     await adminApi.crs.precreate(body);
-    onSaved('CR account pre-created. They can now activate at /cr/activate using the OTP sent to their email.');
+    onSaved(`${roleLabel} account pre-created. They can now activate at /${role}/activate using the OTP sent to their email.`);
   };
 
   return (
-    <FormModal open={open} onClose={onClose} title="Pre-create CR account" submitLabel="Create CR" onSubmit={submit} size="lg">
+    <FormModal open={open} onClose={onClose} title={`Pre-create ${roleLabel} account`} submitLabel={`Create ${roleLabel}`} onSubmit={submit} size="lg">
       {(fieldErrors) => (
         <>
           <Alert variant="info">
             <p className="flex items-start gap-2">
               <IconInfo className="mt-0.5 size-4 shrink-0" />
-              The CR activates their own account at <code className="rounded bg-white/60 px-1">/cr/activate</code> using an
+              The {roleLabel} activates their own account at <code className="rounded bg-white/60 px-1">/{role}/activate</code> using an
               email OTP — no password is created here.
             </p>
           </Alert>
+          <Select label="Representative role" required id="rep-role" value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="cr">CR — Class Representative</option>
+            <option value="gr">GR — General Representative</option>
+          </Select>
           <Input label="Full name" required id="cr-name" value={name} onChange={(e) => setName(e.target.value)} error={errors.name ?? fieldErrors?.name ?? null} />
           <Input label="Email" required id="cr-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cr@iub.edu.pk" hint="Activation OTP is sent to this address." error={errors.email ?? fieldErrors?.email ?? null} />
           <Input label="Phone (optional)" id="cr-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="03xx-xxxxxxx" error={fieldErrors?.phone ?? null} />
@@ -79,11 +85,11 @@ function PrecreateCrForm({ open, onClose, onSaved, sections, departments, sessio
               <div className="grid grid-cols-2 gap-2">
                 <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${mode === 'existing' ? 'border-primary-300 bg-primary-50/50' : 'border-slate-200'}`}>
                   <input type="radio" name="cr-mode" className="mt-1 accent-primary-600" checked={mode === 'existing'} onChange={() => setMode('existing')} />
-                  <span><span className="font-medium text-slate-800">Existing section</span><span className="block text-xs text-slate-500">Assign to a section without a CR</span></span>
+                  <span><span className="font-medium text-slate-800">Existing section</span><span className="block text-xs text-slate-500">{`Assign to a section without a ${roleLabel}`}</span></span>
                 </label>
                 <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${mode === 'new' ? 'border-primary-300 bg-primary-50/50' : 'border-slate-200'}`}>
                   <input type="radio" name="cr-mode" className="mt-1 accent-primary-600" checked={mode === 'new'} onChange={() => setMode('new')} />
-                  <span><span className="font-medium text-slate-800">Create new section</span><span className="block text-xs text-slate-500">Section + CR created together</span></span>
+                  <span><span className="font-medium text-slate-800">Create new section</span><span className="block text-xs text-slate-500">{`Section + ${roleLabel} created together`}</span></span>
                 </label>
               </div>
             </fieldset>
@@ -95,7 +101,7 @@ function PrecreateCrForm({ open, onClose, onSaved, sections, departments, sessio
               {freeSections.map((s) => (
                 <option key={s._id} value={s._id}>{s.name} — {s.department?.name}, Sem {s.semester} ({s.session?.name})</option>
               ))}
-              {freeSections.length === 0 && <option value="" disabled>No active sections without a CR — create a section first.</option>}
+              {freeSections.length === 0 && <option value="" disabled>{`No active sections without a ${roleLabel} — create a section first.`}</option>}
             </Select>
           ) : (
             <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
@@ -129,13 +135,15 @@ function AssignToSectionDialog({ open, onClose, cr, onDone }) {
   );
   const [busyId, setBusyId] = useState(null);
   const [actionError, setActionError] = useState(null);
-  const freeSections = sections.filter((s) => !s.cr);
+  const repRole = cr?.role === 'gr' ? 'gr' : 'cr';
+  const repLabel = repRole.toUpperCase();
+  const freeSections = sections.filter((s) => !s[repRole]);
 
   const handlePick = async (section) => {
     setBusyId(section._id);
     setActionError(null);
     try {
-      await adminApi.sections.assignCr(section._id, cr._id);
+      await adminApi.sections.assignCr(section._id, cr._id, repRole);
       onDone();
     } catch (err) {
       setActionError(err);
@@ -148,7 +156,7 @@ function AssignToSectionDialog({ open, onClose, cr, onDone }) {
     <ConfirmDialog
       open={open}
       onClose={onClose}
-      title={`Assign ${cr?.name ?? 'CR'} to a section`}
+      title={`Assign ${cr?.name ?? repLabel} to a section`}
       confirmLabel="Done"
       onConfirm={onClose}
       body={
@@ -159,7 +167,7 @@ function AssignToSectionDialog({ open, onClose, cr, onDone }) {
           ) : error ? (
             <Alert variant="danger">{error.message}</Alert>
           ) : freeSections.length === 0 ? (
-            <p className="py-2 text-sm text-slate-500">No active sections are currently without a CR. Create a section first, or reassign from the Sections page.</p>
+            <p className="py-2 text-sm text-slate-500">{`No active sections are currently without a ${repLabel}. Create a section first, or reassign from the Sections page.`}</p>
           ) : (
             <ul className="max-h-72 space-y-1.5 overflow-y-auto" role="list">
               {freeSections.map((s) => (
@@ -174,7 +182,7 @@ function AssignToSectionDialog({ open, onClose, cr, onDone }) {
                       <span className="block text-sm font-medium text-slate-800">{s.name} — {s.department?.name}</span>
                       <span className="block text-xs text-slate-500">Semester {s.semester} · {s.session?.name}</span>
                     </span>
-                    <Badge variant="success">No CR</Badge>
+                    <Badge variant="success">{`No ${repLabel}`}</Badge>
                   </button>
                 </li>
               ))}
@@ -217,7 +225,7 @@ export default function CrsPage() {
       await adminApi.crs.delete(deleteTarget._id);
       setDeleteTarget(null);
       reload();
-      showFlash('CR account deleted and unlinked from their section.');
+      showFlash('Representative account deleted and unlinked from their section.');
     } catch (err) {
       setDeleteError(err);
     } finally {
@@ -227,13 +235,17 @@ export default function CrsPage() {
 
   const columns = [
     {
-      key: 'name', header: 'CR',
+      key: 'name', header: 'Representative',
       render: (c) => (
         <span>
           <span className="font-medium text-slate-900">{c.name}</span>
           <span className="block text-xs text-slate-500">{c.email}</span>
         </span>
       ),
+    },
+    {
+      key: 'role', header: 'Role',
+      render: (c) => <Badge variant="primary">{(c.role ?? 'cr').toUpperCase()}</Badge>,
     },
     { key: 'phone', header: 'Phone', className: 'hidden lg:table-cell', render: (c) => c.phone || '—' },
     {
@@ -261,14 +273,14 @@ export default function CrsPage() {
 
   return (
     <>
-      <PageHeader title="CR Management" description="Class representatives — pre-created here, activated by the CR via email OTP.">
-        <Button icon={IconUserPlus} onClick={() => setCreateOpen(true)}>Pre-create CR</Button>
+      <PageHeader title="Class Representatives" description="CRs and GRs — one of each per section, pre-created here and activated via email OTP.">
+        <Button icon={IconUserPlus} onClick={() => setCreateOpen(true)}>Pre-create rep</Button>
       </PageHeader>
 
       <SuccessFlash message={flash} />
 
       <FilterBar>
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by name or email…" label="Search CRs" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by name or email…" label="Search representatives" />
       </FilterBar>
 
       <DataTable
@@ -279,9 +291,9 @@ export default function CrsPage() {
         onRetry={reload}
         pagination={pagination}
         onPageChange={setPage}
-        emptyTitle="No CR accounts yet"
-        emptyDescription="Pre-create a CR account — they activate it themselves at /cr/activate with an email OTP."
-        emptyAction={<Button icon={IconUserPlus} onClick={() => setCreateOpen(true)}>Pre-create CR</Button>}
+        emptyTitle="No representative accounts yet"
+        emptyDescription="Pre-create a CR or GR account — they activate it themselves at /cr/activate or /gr/activate with an email OTP."
+        emptyAction={<Button icon={IconUserPlus} onClick={() => setCreateOpen(true)}>Pre-create rep</Button>}
       />
 
       {createOpen && (
@@ -300,16 +312,16 @@ export default function CrsPage() {
           open
           cr={assignTarget}
           onClose={() => setAssignTarget(null)}
-          onDone={() => { setAssignTarget(null); reload(); showFlash('CR assigned to section.'); }}
+          onDone={() => { setAssignTarget(null); reload(); showFlash('Representative assigned to section.'); }}
         />
       )}
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
-        title="Delete CR account?"
-        body={<p><span className="font-medium text-slate-800">{deleteTarget?.name}</span> ({deleteTarget?.email}) will be permanently deleted and unlinked from their section. The person will lose access. This cannot be undone.</p>}
-        confirmLabel="Delete CR account"
+        title="Delete representative account?"
+        body={<p><span className="font-medium text-slate-800">{deleteTarget?.name}</span> ({deleteTarget?.email}, {(deleteTarget?.role ?? 'cr').toUpperCase()}) will be permanently deleted and unlinked from their section. The person will lose access. This cannot be undone.</p>}
+        confirmLabel="Delete account"
         onConfirm={confirmDelete}
         busy={deleteBusy}
         error={deleteError}

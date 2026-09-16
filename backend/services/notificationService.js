@@ -151,14 +151,16 @@ export async function notifySection({
   ).lean();
   const ids = recipients.map((u) => u._id);
 
-  // Section CR is a member too — but never the acting author.
-  const sec = await Section.findById(sectionId).select('cr').lean();
-  if (sec?.cr && String(sec.cr) !== String(actorId)) {
-    const crUser = await User.findOne(
-      { _id: sec.cr, registrationStatus: 'active' },
-      { _id: 1 },
-    ).lean();
-    if (crUser && !ids.some((id) => String(id) === String(crUser._id))) ids.push(crUser._id);
+  // Section CR and GR are members too — but never the acting author.
+  const sec = await Section.findById(sectionId).select('cr gr').lean();
+  for (const repId of [sec?.cr, sec?.gr]) {
+    if (repId && String(repId) !== String(actorId)) {
+      const repUser = await User.findOne(
+        { _id: repId, registrationStatus: 'active' },
+        { _id: 1 },
+      ).lean();
+      if (repUser && !ids.some((id) => String(id) === String(repUser._id))) ids.push(repUser._id);
+    }
   }
   if (!ids.length) return 0;
 

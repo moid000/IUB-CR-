@@ -20,6 +20,7 @@ const sectionSchema = new Schema(
     semester: { type: Number, required: true, min: 1, max: 8 },
     name: { type: String, required: true, uppercase: true, trim: true },
     cr: { type: ObjectId, ref: 'User', default: null },
+    gr: { type: ObjectId, ref: 'User', default: null },
     pastMembers: [{ type: ObjectId, ref: 'User' }],
     status: { type: String, enum: ['active', 'archived'], default: 'active' },
   },
@@ -32,10 +33,14 @@ sectionSchema.index(
   { unique: true }
 );
 
-// One CR can be assigned to at most ONE section (DB-level guarantee)
+// One CR / one GR can be assigned to at most ONE section (DB-level guarantee)
 sectionSchema.index(
   { cr: 1 },
   { unique: true, partialFilterExpression: { cr: { $exists: true, $type: 'objectId' } } }
+);
+sectionSchema.index(
+  { gr: 1 },
+  { unique: true, partialFilterExpression: { gr: { $exists: true, $type: 'objectId' } } }
 );
 
 sectionSchema.index({ session: 1, status: 1 });

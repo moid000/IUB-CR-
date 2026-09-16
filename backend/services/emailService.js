@@ -8,6 +8,7 @@ import { ApiError } from '../middleware/error.js';
 
 const PURPOSE_SUBJECTS = {
   'cr-activation': 'Your CR activation code',
+  'gr-activation': 'Your GR activation code',
   'student-activation': 'Your student account activation code',
   'password-reset': 'Your password reset code',
 };

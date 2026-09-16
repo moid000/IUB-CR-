@@ -81,8 +81,10 @@ function SectionForm({ open, onClose, initial, onSaved, departments, sessions })
   );
 }
 
-/** Assign or reassign a CR to a specific section through the dedicated backend flows. */
-function CrAssignDialog({ open, onClose, section, onDone }) {
+/** Assign or reassign a CR/GR to a specific section through the dedicated backend flows. */
+function CrAssignDialog({ open, onClose, section, role = 'cr', onDone }) {
+  const repRole = role === 'gr' ? 'gr' : 'cr';
+  const repLabel = repRole.toUpperCase();
   const [search, setSearch] = useState('');
   const debounced = useDebounced(search);
   const { items, loading, error, reload } = useAdminQuery(
@@ -99,8 +101,8 @@ function CrAssignDialog({ open, onClose, section, onDone }) {
       // Dedicated flows — the backend decides assign vs reassign semantics; we
       // only ever send the userId to the section's own CR route.
       const hasSection = Boolean(cr.section?._id ?? cr.section);
-      if (hasSection) await adminApi.sections.reassignCr(section._id, cr._id);
-      else await adminApi.sections.assignCr(section._id, cr._id);
+      if (hasSection) await adminApi.sections.reassignCr(section._id, cr._id, repRole);
+      else await adminApi.sections.assignCr(section._id, cr._id, repRole);
       onDone();
     } catch (err) {
       setActionError(err);
@@ -113,22 +115,22 @@ function CrAssignDialog({ open, onClose, section, onDone }) {
     <ConfirmDialog
       open={open}
       onClose={onClose}
-      title={`Assign CR to ${section?.name ?? 'section'}`}
+      title={`Assign ${repLabel} to ${section?.name ?? 'section'}`}
       confirmLabel="Done"
       onConfirm={onClose}
       body={
         <div className="space-y-3">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search CRs by name or email…" label="Search CRs" />
+          <SearchInput value={search} onChange={setSearch} placeholder={`Search ${repLabel}s by name or email…`} label={`Search ${repLabel}s`} />
           {actionError && <Alert variant="danger">{actionError.message}</Alert>}
           {loading ? (
             <SkeletonRows rows={3} />
           ) : error ? (
             <Alert variant="danger">{error.message}</Alert>
           ) : items.length === 0 ? (
-            <p className="py-2 text-sm text-slate-500">No CR accounts found. Pre-create a CR first from CR Management.</p>
+            <p className="py-2 text-sm text-slate-500">{`No ${repLabel} accounts found. Pre-create one first from Class Representatives.`}</p>
           ) : (
             <ul className="max-h-72 space-y-1.5 overflow-y-auto" role="list">
-              {items.map((cr) => {
+              {items.filter((cr) => (cr.role ?? 'cr') === repRole).map((cr) => {
                 const crSection = cr.section?._id ?? cr.section;
                 const isHere = String(crSection) === String(section?._id);
                 return (
@@ -145,9 +147,9 @@ function CrAssignDialog({ open, onClose, section, onDone }) {
                         <span className="block truncate text-xs text-slate-500">{cr.email}</span>
                       </span>
                       {isHere ? (
-                        <Badge variant="primary">Current CR</Badge>
+                        <Badge variant="primary">{`Current ${repLabel}`}</Badge>
                       ) : crSection ? (
-                        <Badge variant="warning" title="CRs currently in another section are moved via reassignment">In {cr.section?.name ?? 'another section'}</Badge>
+                        <Badge variant="warning" title="Reps currently in another section are moved via reassignment">In {cr.section?.name ?? 'another section'}</Badge>
                       ) : (
                         <Badge variant="success">Unassigned</Badge>
                       )}
@@ -158,7 +160,7 @@ function CrAssignDialog({ open, onClose, section, onDone }) {
             </ul>
           )}
           <p className="text-xs text-slate-500">
-            Choosing a CR from another section moves them here (their old section loses its CR). Unassigned CRs are added directly.
+            {`Choosing a ${repLabel} from another section moves them here (their old section loses its ${repLabel}). Unassigned ${repLabel}s are added directly.`}
           </p>
         </div>
       }
@@ -172,7 +174,9 @@ export default function SectionsPage() {
   const [status, setStatus] = useState('active');
   const [modal, setModal] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
+  const [assignRole, setAssignRole] = useState('cr');
   const [removeTarget, setRemoveTarget] = useState(null);
+  const [removeRole, setRemoveRole] = useState('cr');
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
@@ -231,10 +235,10 @@ export default function SectionsPage() {
     setRemoveBusy(true);
     setRemoveError(null);
     try {
-      await adminApi.sections.removeCr(removeTarget._id);
+      await adminApi.sections.removeCr(removeTarget._id, removeRole);
       setRemoveTarget(null);
       reload();
-      showFlash('CR removed from section. The CR account itself is untouched.');
+      showFlash(`${removeRole.toUpperCase()} removed from section. The account itself is untouched.`);
     } catch (err) {
       setRemoveError(err);
     } finally {
@@ -256,16 +260,23 @@ export default function SectionsPage() {
     { key: 'session', header: 'Session', className: 'hidden md:table-cell', render: (s) => s.session?.name ?? '—' },
     { key: 'semester', header: 'Sem.' },
     { key: 'cr', header: 'CR', render: (s) => s.cr ? <span className="text-slate-800">{s.cr.name}<span className="block text-xs text-slate-500">{s.cr.email}</span></span> : <span className="text-xs text-slate-400">Not assigned</span> },
+    { key: 'gr', header: 'GR', render: (s) => s.gr ? <span className="text-slate-800">{s.gr.name}<span className="block text-xs text-slate-500">{s.gr.email}</span></span> : <span className="text-xs text-slate-400">Not assigned</span> },
     { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} /> },
     {
       key: 'actions', header: '', headerClassName: 'text-right', className: 'text-right whitespace-nowrap',
       render: (s) => (
         <div className="flex justify-end gap-1">
           {s.status === 'active' && !s.cr && (
-            <Button variant="ghost" size="sm" icon={IconUserPlus} onClick={() => setAssignTarget(s)}>Assign CR</Button>
+            <Button variant="ghost" size="sm" icon={IconUserPlus} onClick={() => { setAssignTarget(s); setAssignRole('cr'); }}>Assign CR</Button>
+          )}
+          {s.status === 'active' && s.gr && (
+            <Button variant="ghost" size="sm" icon={IconUserMinus} className="text-slate-500 hover:text-red-600" onClick={() => { setRemoveTarget(s); setRemoveRole('gr'); setRemoveError(null); }}>Remove GR</Button>
+          )}
+          {s.status === 'active' && !s.gr && (
+            <Button variant="ghost" size="sm" icon={IconUserPlus} onClick={() => { setAssignTarget(s); setAssignRole('gr'); }}>Assign GR</Button>
           )}
           {s.status === 'active' && s.cr && (
-            <Button variant="ghost" size="sm" icon={IconUserMinus} className="text-slate-500 hover:text-red-600" onClick={() => { setRemoveTarget(s); setRemoveError(null); }}>Remove CR</Button>
+            <Button variant="ghost" size="sm" icon={IconUserMinus} className="text-slate-500 hover:text-red-600" onClick={() => { setRemoveTarget(s); setRemoveRole('cr'); setRemoveError(null); }}>Remove CR</Button>
           )}
           <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', section: s })}>Edit</Button>
           {s.status === 'active' && (
@@ -329,23 +340,24 @@ export default function SectionsPage() {
         <CrAssignDialog
           open
           section={assignTarget}
+          role={assignRole}
           onClose={() => setAssignTarget(null)}
-          onDone={() => { setAssignTarget(null); reload(); showFlash('CR assigned to section.'); }}
+          onDone={() => { const label = assignRole.toUpperCase(); setAssignTarget(null); reload(); showFlash(`${label} assigned to section.`); }}
         />
       )}
 
       <ConfirmDialog
         open={Boolean(removeTarget)}
         onClose={() => setRemoveTarget(null)}
-        title="Remove CR from section?"
-        confirmLabel="Remove CR"
+        title={`Remove ${removeRole.toUpperCase()} from section?`}
+        confirmLabel={`Remove ${removeRole.toUpperCase()}`}
         danger
         busy={removeBusy}
         error={removeError}
         body={
           <p>
-            <span className="font-medium text-slate-800">{removeTarget?.cr?.name}</span> will be unlinked from section{' '}
-            <span className="font-medium text-slate-800">{removeTarget?.name}</span>. The CR account itself is kept — it can be
+            <span className="font-medium text-slate-800">{(removeRole === 'gr' ? removeTarget?.gr?.name : removeTarget?.cr?.name) ?? 'This rep'}</span> will be unlinked from section{' '}
+            <span className="font-medium text-slate-800">{removeTarget?.name}</span>. The account itself is kept — it can be
             assigned to another section later.
           </p>
         }

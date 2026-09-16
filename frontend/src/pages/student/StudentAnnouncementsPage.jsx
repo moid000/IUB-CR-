@@ -47,7 +47,7 @@ export default function StudentAnnouncementsPage() {
     <div className="mx-auto max-w-3xl space-y-4">
       <PageHeader
         title="Announcements"
-        description={`Updates posted by your CR for Section ${section.name}.`}
+        description={`Updates posted by your CR / GR for Section ${section.name}.`}
       />
 
       {error ? (
@@ -65,7 +65,7 @@ export default function StudentAnnouncementsPage() {
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-6 py-14 text-center">
           <div className="mb-3 flex justify-center text-slate-300"><IconMegaphone className="size-10" /></div>
           <h3 className="text-sm font-semibold text-slate-700">No announcements yet.</h3>
-          <p className="mt-1 text-sm text-slate-500">When your CR posts an update it will appear here.</p>
+          <p className="mt-1 text-sm text-slate-500">When your CR or GR posts an update it will appear here.</p>
         </div>
       ) : (
         <ul className="space-y-3">
