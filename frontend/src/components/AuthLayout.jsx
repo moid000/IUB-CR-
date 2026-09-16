@@ -40,21 +40,21 @@ const SAT_POSITION_CLASS = {
  */
 function SyncPulseHub() {
   return (
-    <div aria-hidden="true" className="relative flex flex-1 items-center justify-center py-8">
-      <div className="pointer-events-none absolute size-72 rounded-full bg-primary-500/10 blur-3xl sm:size-80" />
+    <div aria-hidden="true" className="relative flex flex-1 items-center justify-center py-3">
+      <div className="pointer-events-none absolute size-56 rounded-full bg-primary-500/10 blur-3xl sm:size-64" />
 
-      <div className="relative size-56 shrink-0 sm:size-64">
+      <div className="relative size-40 shrink-0 sm:size-48">
         {/* connectors: hub -> each satellite, with a traveling packet dot */}
-        <span className="absolute left-1/2 top-0 h-[calc(50%-2.25rem)] w-px -translate-x-1/2 bg-gradient-to-b from-white/0 to-white/25">
+        <span className="absolute left-1/2 top-0 h-[calc(50%-1.5rem)] w-px -translate-x-1/2 bg-gradient-to-b from-white/0 to-white/25">
           <span className="absolute left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-primary-300 shadow-[0_0_6px_1px_rgb(147_197_253/0.8)] animate-dot-travel-y" />
         </span>
-        <span className="absolute right-0 top-1/2 h-px w-[calc(50%-2.25rem)] -translate-y-1/2 bg-gradient-to-l from-white/0 to-white/25">
+        <span className="absolute right-0 top-1/2 h-px w-[calc(50%-1.5rem)] -translate-y-1/2 bg-gradient-to-l from-white/0 to-white/25">
           <span className="absolute top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary-300 shadow-[0_0_6px_1px_rgb(147_197_253/0.8)] animate-dot-travel" style={{ animationDelay: '0.7s' }} />
         </span>
-        <span className="absolute bottom-0 left-1/2 h-[calc(50%-2.25rem)] w-px -translate-x-1/2 bg-gradient-to-t from-white/0 to-white/25">
+        <span className="absolute bottom-0 left-1/2 h-[calc(50%-1.5rem)] w-px -translate-x-1/2 bg-gradient-to-t from-white/0 to-white/25">
           <span className="absolute left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-primary-300 shadow-[0_0_6px_1px_rgb(147_197_253/0.8)] animate-dot-travel-y" style={{ animationDelay: '1.4s' }} />
         </span>
-        <span className="absolute left-0 top-1/2 h-px w-[calc(50%-2.25rem)] -translate-y-1/2 bg-gradient-to-r from-white/0 to-white/25">
+        <span className="absolute left-0 top-1/2 h-px w-[calc(50%-1.5rem)] -translate-y-1/2 bg-gradient-to-r from-white/0 to-white/25">
           <span className="absolute top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary-300 shadow-[0_0_6px_1px_rgb(147_197_253/0.8)] animate-dot-travel" style={{ animationDelay: '2.1s' }} />
         </span>
 
@@ -63,7 +63,7 @@ function SyncPulseHub() {
           <span className="absolute inset-0 rounded-full border border-primary-300/40 animate-radar-1" />
           <span className="absolute inset-0 rounded-full border border-primary-300/40 animate-radar-2" />
           <span className="absolute inset-0 rounded-full border border-primary-300/40 animate-radar-3" />
-          <span className="relative grid size-14 place-items-center rounded-full bg-gradient-to-br from-primary-400 to-sky-500 shadow-[0_0_24px_4px_rgb(59_130_246/0.45)] sm:size-16">
+          <span className="relative grid size-11 place-items-center rounded-full bg-gradient-to-br from-primary-400 to-sky-500 shadow-[0_0_20px_4px_rgb(59_130_246/0.45)] sm:size-12">
             <span className="size-2.5 rounded-full bg-white" />
           </span>
         </div>
@@ -76,8 +76,8 @@ function SyncPulseHub() {
             style={{ '--fx': fx, '--fy': fy, animationDelay: `${i * 0.6}s` }}
           >
             <div className="flex flex-col items-center gap-1.5">
-              <span className="grid size-10 place-items-center rounded-xl border border-white/15 bg-white/10 text-white shadow-[0_8px_20px_-8px_rgb(0_0_0/0.5)] backdrop-blur-sm">
-                <Icon className="size-4.5" />
+              <span className="grid size-9 place-items-center rounded-xl border border-white/15 bg-white/10 text-white shadow-[0_8px_20px_-8px_rgb(0_0_0/0.5)] backdrop-blur-sm">
+                <Icon className="size-4" />
               </span>
               <span className="whitespace-nowrap text-[10px] font-medium text-slate-400">{label}</span>
             </div>
@@ -131,7 +131,7 @@ function StoryPanel() {
           </p>
         </StaggerItem>
         <StaggerItem>
-          <ul className="mt-8 space-y-4">
+          <ul className="mt-6 space-y-3.5">
             {STORY_POINTS.map(({ icon: Icon, text }) => (
               <li key={text} className="flex items-center gap-3.5">
                 <motion.span
