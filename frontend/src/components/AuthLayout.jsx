@@ -22,11 +22,11 @@ function StoryPanel() {
       <div className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-primary-500/25 blur-3xl" />
 
       <div className="relative">
-        <Link to="/" aria-label="T3M (Tri3M) home" className="rounded-lg">
+        <Link to="/" aria-label="Tri3M home" className="rounded-lg">
           <span className="inline-flex items-center gap-2.5">
-            <img src={`${import.meta.env.BASE_URL}logo-256.png`} alt="T3M (Tri3M) logo" className="size-9 rounded-xl object-contain shadow-sm" />
+            <img src={`${import.meta.env.BASE_URL}logo-256.png`} alt="Tri3M logo" className="size-9 rounded-xl object-contain shadow-sm" />
             <span className="flex flex-col leading-tight">
-              <span className="text-[15px] font-semibold tracking-tight text-white">T3M (Tri3M)</span>
+              <span className="text-[15px] font-semibold tracking-tight text-white">Tri3M</span>
               <span className="text-[11px] font-medium text-slate-400">Islamia University of Bahawalpur</span>
             </span>
           </span>
@@ -74,7 +74,7 @@ export function AuthLayout({ title, subtitle, children, footer = null, maxWidth 
         <FadeIn className={`relative z-10 w-full ${maxWidth}`}>
           {/* mobile brand — the story panel replaces it on desktop */}
           <div className="mb-8 flex justify-center lg:hidden">
-            <Link to="/" aria-label="T3M (Tri3M) home" className="rounded-lg">
+            <Link to="/" aria-label="Tri3M home" className="rounded-lg">
               <Brand />
             </Link>
           </div>

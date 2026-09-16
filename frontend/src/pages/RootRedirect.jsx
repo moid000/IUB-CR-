@@ -9,7 +9,7 @@ const Landing = lazy(() => import('./Landing.jsx'));
 /** Root route: authenticated users go to their home; visitors see the landing. */
 export default function RootRedirect() {
   const { ready, isAuthenticated, home } = useAuth();
-  if (!ready) return <FullPageLoader label="Loading T3M (Tri3M)…" />;
+  if (!ready) return <FullPageLoader label="Loading Tri3M…" />;
   if (isAuthenticated) return <Navigate to={home} replace />;
   return (
     <Suspense fallback={<FullPageLoader label="Loading…" />}>
