@@ -8,9 +8,60 @@ import { PasswordChecklist, passwordMeetsPolicy } from '../components/ui/Passwor
 import { Alert } from '../components/ui/Alert.jsx';
 import { OtpInput } from '../components/ui/OtpInput.jsx';
 import { authApi } from '../api/auth.js';
+import { Badge } from '../components/ui/Badge.jsx';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const STEPS = ['Email', 'Verify code', 'Set password'];
+const STEPS = ['Email', 'Verify code', 'Confirm details', 'Set password'];
+
+const ROLE_LABEL = { cr: 'Class Representative', gr: 'General Representative', student: 'Student' };
+
+/** Pre-created identity summary — lets the account holder confirm the admin/CR set them up correctly before they choose a password. */
+function ConfirmDetailsStep({ profile, role, onContinue }) {
+  const firstName = profile?.name?.trim().split(/\s+/)[0] || 'there';
+  const rows = [
+    { label: 'Full name', value: profile?.name },
+    { label: 'Email', value: profile?.email },
+    { label: 'Phone', value: profile?.phone },
+    { label: 'Department', value: profile?.department },
+    { label: 'Session', value: profile?.session },
+    { label: 'Semester', value: profile?.semester ? `Semester ${profile.semester}` : null },
+    { label: 'Section', value: profile?.section },
+    { label: 'Roll number', value: profile?.rollNo },
+  ].filter((r) => r.value);
+
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <div className="mx-auto grid size-12 place-items-center rounded-full bg-primary-50" aria-hidden="true">
+          <svg className="size-6 text-primary-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7Z" />
+          </svg>
+        </div>
+        <h2 className="mt-3 text-lg font-semibold text-slate-900">Welcome, {firstName}! 👋</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Here's what {role === 'student' ? 'your CR' : 'your admin'} pre-added for you. Make sure it's you before you set a password.
+        </p>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <Badge variant="primary" className="mb-3">{ROLE_LABEL[role] || role}</Badge>
+        <dl className="space-y-2.5">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-3 text-sm">
+              <dt className="shrink-0 text-slate-500">{r.label}</dt>
+              <dd className="truncate text-right font-medium text-slate-900">{r.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <p className="text-xs text-slate-400">
+        Something look wrong? Ask {role === 'student' ? 'your CR' : 'your admin'} to fix it before you continue.
+      </p>
+      <Button onClick={onContinue} className="w-full" size="lg">
+        Yes, this is me — continue
+      </Button>
+    </div>
+  );
+}
 
 /**
  * Shared multi-step activation flow for CR and STUDENT.
@@ -26,6 +77,7 @@ export default function ActivatePage({ role }) {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [activationToken, setActivationToken] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
 
@@ -67,8 +119,9 @@ export default function ActivatePage({ role }) {
     try {
       const res = await authApi.verifyActivationOtp(role, email.trim(), otp);
       setActivationToken(res?.activationToken ?? null);
+      setProfile(res?.profile ?? null);
       setNotice(null);
-      setStep(2);
+      setStep(2); // NEW: "confirm your details" step, before setting a password
     } catch (err) {
       setError(err?.message || 'That code is invalid or has expired.');
       setOtp('');
@@ -99,7 +152,7 @@ export default function ActivatePage({ role }) {
     setError(null); setLoading(true);
     try {
       await authApi.setActivationPassword(role, activationToken, password);
-      setStep(3); // success state
+      setStep(4); // success state
     } catch (err) {
       setError(err?.message || 'Unable to set your password. Please try again.');
     } finally {
@@ -111,7 +164,7 @@ export default function ActivatePage({ role }) {
     <AuthLayout
       title={isRep ? `Activate your ${roleLabel} account` : 'Activate your student account'}
       subtitle={
-        step === 3
+        step === 4
           ? undefined
           : isRep
             ? 'Use the email your admin pre-created for you.'
@@ -119,7 +172,7 @@ export default function ActivatePage({ role }) {
       }
       maxWidth="max-w-md"
       footer={
-        step === 3 ? (
+        step === 4 ? (
           <p>Think of a strong password you can remember — you'll use it every sign in.</p>
         ) : (
           <p>
@@ -131,7 +184,7 @@ export default function ActivatePage({ role }) {
         )
       }
     >
-      {step < 3 && (
+      {step < 4 && (
         <ol className="mb-6 flex items-center gap-2" aria-label="Activation progress">
           {STEPS.map((s, i) => (
             <li key={s} className="flex flex-1 items-center gap-2">
@@ -197,6 +250,10 @@ export default function ActivatePage({ role }) {
       )}
 
       {step === 2 && (
+        <ConfirmDetailsStep profile={profile} role={role} onContinue={() => setStep(3)} />
+      )}
+
+      {step === 3 && (
         <form onSubmit={setPasswordSubmit} noValidate className="space-y-4">
           {error && <Alert variant="danger">{error}</Alert>}
           <PasswordInput
@@ -221,7 +278,7 @@ export default function ActivatePage({ role }) {
         </form>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <div className="space-y-5 text-center">
           <div className="mx-auto grid size-14 place-items-center rounded-full bg-emerald-100" aria-hidden="true">
             <svg className="size-7 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

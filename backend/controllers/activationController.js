@@ -19,8 +19,8 @@ export const crRequestOtp = wrap(async (req) => {
   return { success: true, message };
 });
 export const crVerifyOtp = wrap(async (req) => {
-  const { activationToken, expiresIn } = await activation.verifyActivationOtp('cr', req);
-  return { success: true, activationToken, expiresIn };
+  const { activationToken, expiresIn, profile } = await activation.verifyActivationOtp('cr', req);
+  return { success: true, activationToken, expiresIn, profile };
 });
 export const crSetPassword = wrap(async (req) => {
   await activation.setActivationPassword('cr', req);
@@ -33,8 +33,8 @@ export const grRequestOtp = wrap(async (req) => {
   return { success: true, message };
 });
 export const grVerifyOtp = wrap(async (req) => {
-  const { activationToken, expiresIn } = await activation.verifyActivationOtp('gr', req);
-  return { success: true, activationToken, expiresIn };
+  const { activationToken, expiresIn, profile } = await activation.verifyActivationOtp('gr', req);
+  return { success: true, activationToken, expiresIn, profile };
 });
 export const grSetPassword = wrap(async (req) => {
   await activation.setActivationPassword('gr', req);
@@ -47,8 +47,8 @@ export const studentRequestOtp = wrap(async (req) => {
   return { success: true, message };
 });
 export const studentVerifyOtp = wrap(async (req) => {
-  const { activationToken, expiresIn } = await activation.verifyActivationOtp('student', req);
-  return { success: true, activationToken, expiresIn };
+  const { activationToken, expiresIn, profile } = await activation.verifyActivationOtp('student', req);
+  return { success: true, activationToken, expiresIn, profile };
 });
 export const studentSetPassword = wrap(async (req) => {
   await activation.setActivationPassword('student', req);

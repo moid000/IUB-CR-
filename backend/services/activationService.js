@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
+import Section from '../models/Section.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { audit } from '../utils/audit.js';
@@ -82,7 +83,45 @@ export async function verifyActivationOtp(role, req) {
   await user.save();
 
   await audit({ action: 'auth.otp.verify.success', email, reason: purpose, targetUser: user._id, ip: req.ip, userAgent: req.get('user-agent') });
-  return { activationToken: token, expiresIn: TOKEN_TTL_SECONDS };
+
+  // Ownership of the inbox is now proven (correct OTP) — safe to show the
+  // pre-created profile so the user can confirm the admin/CR set up the
+  // right identity for them BEFORE they set a password. This is the ONLY
+  // point in the activation flow where PII is revealed (never on the bare
+  // email step — that stays existence-safe / anti-enumeration).
+  const profile = await buildActivationProfile(user);
+
+  return { activationToken: token, expiresIn: TOKEN_TTL_SECONDS, profile };
+}
+
+/**
+ * Safe-to-show identity summary for the "confirm your details" activation
+ * step. Only fields the admin/CR pre-set — never the password hash, never
+ * internal ids beyond what's needed to render a human-readable label.
+ */
+async function buildActivationProfile(user) {
+  const profile = {
+    name: user.name,
+    email: user.email,
+    phone: user.phone || null,
+    role: user.role,
+  };
+  if (user.role !== 'admin' && user.section) {
+    const section = await Section.findById(user.section)
+      .populate('department', 'name')
+      .populate('session', 'name')
+      .lean();
+    if (section) {
+      profile.department = section.department?.name ?? null;
+      profile.session = section.session?.name ?? null;
+      profile.semester = section.semester ?? null;
+      profile.section = section.name ?? null;
+    }
+  }
+  if (user.role === 'student') {
+    profile.rollNo = user.rollNo || null;
+  }
+  return profile;
 }
 
 /**
