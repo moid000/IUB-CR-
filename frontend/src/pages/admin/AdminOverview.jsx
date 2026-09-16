@@ -10,6 +10,9 @@ import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
+import { ConfirmDialog } from '../../components/admin/controls.jsx';
+import { Button } from '../../components/ui/Button.jsx';
+import { Input } from '../../components/ui/Input.jsx';
 import {
   IconBuilding, IconCalendar, IconLayers, IconUserSquare, IconGraduation, IconBook,
   IconPlus, IconUserPlus, IconArrowRight, IconAlert, IconTrash,
