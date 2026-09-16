@@ -194,7 +194,10 @@ export function makeSectionContentService({
   async function getCr(req) {
     if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
     const doc = await findOwn(req);
-    await withSubject(doc).populate('author', 'name');
+    // withSubject() is for Query objects; on a Document it returns a Promise,
+    // so .populate() chained on it crashed with 500. Populate the doc directly.
+    if (extraFields.includes('subject')) await doc.populate('subject', 'name code');
+    await doc.populate('author', 'name');
     return doc;
   }
 

@@ -172,17 +172,19 @@ export default function TimetablePage() {
   };
 
   const SlotCard = (t) => (
-    <li key={t._id} className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3">
-      <IconClock className="size-4 shrink-0 text-primary-500" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-800">{t.subject?.name ?? '—'}</p>
-        <p className="text-xs text-slate-500">{t.subject?.code}{t.room ? ` · Room ${t.room}` : ''}</p>
+    <li key={t._id} className="group flex flex-col gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3 sm:flex-row sm:items-center sm:gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <IconClock className="size-4 shrink-0 text-primary-500" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-slate-800">{t.subject?.name ?? '—'}</p>
+          <p className="text-xs text-slate-500">{t.subject?.code}{t.room ? ` · Room ${t.room}` : ''}</p>
+        </div>
+        <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{t.startTime}–{t.endTime}</span>
       </div>
-      <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{t.startTime}–{t.endTime}</span>
-      <div className="flex shrink-0 gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
-        <Button variant="ghost" size="sm" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
-        <Button variant="ghost" size="sm" icon={IconArchive} aria-label={`Archive ${t.subject?.name} slot`} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(t); setArchiveError(null); }}>Archive</Button>
-        <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(t); setDeleteError(null); }}>Delete</Button>
+      <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:gap-1 sm:opacity-0 sm:transition-opacity sm:focus-within:opacity-100 sm:group-hover:opacity-100">
+        <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
+        <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600 sm:w-auto" icon={IconArchive} aria-label={`Archive ${t.subject?.name} slot`} onClick={() => { setArchiveTarget(t); setArchiveError(null); }}>Archive</Button>
+        <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700 sm:w-auto" icon={IconTrash} onClick={() => { setDeleteTarget(t); setDeleteError(null); }}>Delete</Button>
       </div>
     </li>
   );
