@@ -20,6 +20,14 @@ export const env = {
     apiSecret: process.env.CLOUDINARY_API_SECRET,
   },
   corsOrigin: process.env.CORS_ORIGIN,
+  whatsapp: {
+    // UltraMsg gateway — all optional; the teacher-alert feature degrades
+    // gracefully (sweep reports configured:false) when not set.
+    instanceId: process.env.ULTRAMSG_INSTANCE_ID,
+    token: process.env.ULTRAMSG_TOKEN,
+    apiUrl: process.env.ULTRAMSG_API_URL || 'https://api.ultramsg.com',
+    sweepSecret: process.env.DEADLINE_SWEEP_SECRET,
+  },
 };
 
 /**

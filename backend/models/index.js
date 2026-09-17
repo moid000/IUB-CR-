@@ -4,6 +4,7 @@ export { default as Department } from './Department.js';
 export { default as AcademicSession } from './AcademicSession.js';
 export { default as Section } from './Section.js';
 export { default as Subject } from './Subject.js';
+export { default as Teacher } from './Teacher.js';
 export { default as Announcement } from './Announcement.js';
 export { default as Note } from './Note.js';
 export { default as Assignment } from './Assignment.js';

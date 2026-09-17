@@ -32,6 +32,7 @@ const NAV_GROUPS = [
       { to: '/cr/section', label: 'My Section', icon: IconLayers },
       { to: '/cr/students', label: 'Students', icon: IconUsers },
       { to: '/cr/subjects', label: 'Subjects', icon: IconBook },
+      { to: '/cr/teachers', label: 'Teachers', icon: IconGraduation },
     ],
   },
   {

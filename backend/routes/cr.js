@@ -20,6 +20,7 @@ import {
   createMark, updateMark, bulkUpsertMarks, listMarks,
 } from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload, removeFileUpload } from '../controllers/fileController.js';
+import { listTeachers, createTeacher, updateTeacher, deleteTeacher } from '../controllers/teacherController.js';
 
 const router = Router();
 
@@ -61,6 +62,12 @@ router.get('/subjects/:id', getSubject);
 router.patch('/subjects/:id', updateSubject);
 router.post('/subjects/:id/archive', archiveSubject);
 router.delete('/subjects/:id', deleteSubject);
+
+// Teachers — one teacher per subject; section ALWAYS req.user.section
+router.get('/teachers', listTeachers);
+router.post('/teachers', createTeacher);
+router.patch('/teachers/:id', updateTeacher);
+router.delete('/teachers/:id', deleteTeacher);
 
 // Announcements — section is ALWAYS derived from the authenticated CR
 router.get('/announcements', listAnnouncements);

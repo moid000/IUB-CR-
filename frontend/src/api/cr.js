@@ -29,6 +29,14 @@ export const crApi = {
     delete: (id) => api.del(`/api/cr/subjects/${id}`), // hard delete; blocked while notes/assignments/etc. exist
   },
 
+  /* ---- Teachers (one teacher per subject — WhatsApp deadline alerts) ---- */
+  teachers: {
+    list: (params) => api.get(`/api/cr/teachers${qs(params)}`), // search | page | limit
+    create: (body) => api.post('/api/cr/teachers', body), // { name, subject, whatsapp, email?, designation? }
+    update: (id, body) => api.patch(`/api/cr/teachers/${id}`, body),
+    delete: (id) => api.del(`/api/cr/teachers/${id}`),
+  },
+
   /* ---- Announcements ---- */
   announcements: {
     list: (params) => api.get(`/api/cr/announcements${qs(params)}`), // search | status | page | limit

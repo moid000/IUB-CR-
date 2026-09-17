@@ -34,6 +34,7 @@ import CrOverview from './pages/cr/CrOverview.jsx';
 import SectionPage from './pages/cr/SectionPage.jsx';
 import CrStudentsPage from './pages/cr/StudentsPage.jsx';
 import CrSubjectsPage from './pages/cr/SubjectsPage.jsx';
+import CrTeachersPage from './pages/cr/TeachersPage.jsx';
 import AnnouncementsPage from './pages/cr/AnnouncementsPage.jsx';
 import NotesPage from './pages/cr/NotesPage.jsx';
 import AssignmentsPage from './pages/cr/AssignmentsPage.jsx';
@@ -95,6 +96,7 @@ export default function App() {
               <Route path="section" element={<SectionPage />} />
               <Route path="students" element={<CrStudentsPage />} />
               <Route path="subjects" element={<CrSubjectsPage />} />
+              <Route path="teachers" element={<CrTeachersPage />} />
               <Route path="announcements" element={<AnnouncementsPage />} />
               <Route path="notes" element={<NotesPage />} />
               <Route path="assignments" element={<AssignmentsPage />} />
