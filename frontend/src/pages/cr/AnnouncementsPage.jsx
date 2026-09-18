@@ -207,11 +207,11 @@ export default function AnnouncementsPage() {
                   </p>
                 </button>
                 {a.status === 'published' && (
-                  <div className="flex shrink-0 gap-1">
-                    <Button variant="ghost" size="sm" icon={IconPaperclip} onClick={() => setAttachItem(a)}>Files</Button>
-                    <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: a })}>Edit</Button>
-                    <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(a); setArchiveError(null); }}>Archive</Button>
-                    <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(a); setDeleteError(null); }}>Delete</Button>
+                  <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:flex-wrap sm:gap-1">
+                    <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPaperclip} onClick={() => setAttachItem(a)}>Files</Button>
+                    <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: a })}>Edit</Button>
+                    <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600 sm:w-auto" icon={IconArchive} onClick={() => { setArchiveTarget(a); setArchiveError(null); }}>Archive</Button>
+                    <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700 sm:w-auto" icon={IconTrash} onClick={() => { setDeleteTarget(a); setDeleteError(null); }}>Delete</Button>
                   </div>
                 )}
               </div>

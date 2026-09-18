@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { MotionConfig } from 'motion/react';
 
@@ -7,55 +8,63 @@ const BASE = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
 const ROUTER_BASENAME =
   window.location.pathname === BASE || window.location.pathname.startsWith(`${BASE}/`) ? BASE : '';
 import { AuthProvider } from './auth/AuthContext.jsx';
-import { RequireRole, RedirectIfAuthenticated } from './auth/RequireRole.jsx';
+import { RequireRole, RedirectIfAuthenticated, FullPageLoader } from './auth/RequireRole.jsx';
 import { ErrorBoundary } from './pages/ErrorBoundary.jsx';
 import RootRedirect from './pages/RootRedirect.jsx';
-import Login from './pages/Login.jsx';
-import CrActivate from './pages/CrActivate.jsx';
-import GrActivate from './pages/GrActivate.jsx';
-import StudentActivate from './pages/StudentActivate.jsx';
-import ForgotPassword from './pages/ForgotPassword.jsx';
-import ResetPassword from './pages/ResetPassword.jsx';
 import NotFound from './pages/NotFound.jsx';
-import Terms from './pages/Terms.jsx';
-import Privacy from './pages/Privacy.jsx';
-import Forbidden from './pages/Forbidden.jsx';
-import AdminLayout from './admin/AdminLayout.jsx';
-import AdminOverview from './pages/admin/AdminOverview.jsx';
-import DepartmentsPage from './pages/admin/DepartmentsPage.jsx';
-import SessionsPage from './pages/admin/SessionsPage.jsx';
-import SectionsPage from './pages/admin/SectionsPage.jsx';
-import CrsPage from './pages/admin/CrsPage.jsx';
-import AdminStudentsPage from './pages/admin/StudentsPage.jsx';
-import AdminSubjectsPage from './pages/admin/SubjectsPage.jsx';
-import AdminNotFound from './pages/admin/AdminNotFound.jsx';
-import CrLayout from './cr/CrLayout.jsx';
-import CrOverview from './pages/cr/CrOverview.jsx';
-import SectionPage from './pages/cr/SectionPage.jsx';
-import CrStudentsPage from './pages/cr/StudentsPage.jsx';
-import CrSubjectsPage from './pages/cr/SubjectsPage.jsx';
-import CrTeachersPage from './pages/cr/TeachersPage.jsx';
-import AnnouncementsPage from './pages/cr/AnnouncementsPage.jsx';
-import NotesPage from './pages/cr/NotesPage.jsx';
-import AssignmentsPage from './pages/cr/AssignmentsPage.jsx';
-import TimetablePage from './pages/cr/TimetablePage.jsx';
-import AttendancePage from './pages/cr/AttendancePage.jsx';
-import MarksPage from './pages/cr/MarksPage.jsx';
-import NotificationsPage from './pages/cr/NotificationsPage.jsx';
-import CrProfilePage from './pages/cr/CrProfilePage.jsx';
-import CrNotFound from './pages/cr/CrNotFound.jsx';
-import StudentLayout from './student/StudentLayout.jsx';
-import StudentOverview from './pages/student/StudentOverview.jsx';
-import StudentSubjectsPage from './pages/student/StudentSubjectsPage.jsx';
-import StudentAnnouncementsPage from './pages/student/StudentAnnouncementsPage.jsx';
-import StudentNotesPage from './pages/student/StudentNotesPage.jsx';
-import StudentAssignmentsPage from './pages/student/StudentAssignmentsPage.jsx';
-import StudentTimetablePage from './pages/student/StudentTimetablePage.jsx';
-import StudentAttendancePage from './pages/student/StudentAttendancePage.jsx';
-import StudentMarksPage from './pages/student/StudentMarksPage.jsx';
-import StudentNotificationsPage from './pages/student/StudentNotificationsPage.jsx';
-import StudentProfilePage from './pages/student/StudentProfilePage.jsx';
-import StudentNotFound from './pages/student/StudentNotFound.jsx';
+
+// Route-level code splitting: a visitor only ever uses ONE portal (admin,
+// CR, or student), so each portal's pages — and its layout shell — load
+// as their own chunk, on demand. Nobody downloads code they'll never run.
+// (Landing is already split this way via RootRedirect.)
+const Login = lazy(() => import('./pages/Login.jsx'));
+const CrActivate = lazy(() => import('./pages/CrActivate.jsx'));
+const GrActivate = lazy(() => import('./pages/GrActivate.jsx'));
+const StudentActivate = lazy(() => import('./pages/StudentActivate.jsx'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword.jsx'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword.jsx'));
+const Terms = lazy(() => import('./pages/Terms.jsx'));
+const Privacy = lazy(() => import('./pages/Privacy.jsx'));
+const Forbidden = lazy(() => import('./pages/Forbidden.jsx'));
+
+const AdminLayout = lazy(() => import('./admin/AdminLayout.jsx'));
+const AdminOverview = lazy(() => import('./pages/admin/AdminOverview.jsx'));
+const DepartmentsPage = lazy(() => import('./pages/admin/DepartmentsPage.jsx'));
+const SessionsPage = lazy(() => import('./pages/admin/SessionsPage.jsx'));
+const SectionsPage = lazy(() => import('./pages/admin/SectionsPage.jsx'));
+const CrsPage = lazy(() => import('./pages/admin/CrsPage.jsx'));
+const AdminStudentsPage = lazy(() => import('./pages/admin/StudentsPage.jsx'));
+const AdminSubjectsPage = lazy(() => import('./pages/admin/SubjectsPage.jsx'));
+const AdminNotFound = lazy(() => import('./pages/admin/AdminNotFound.jsx'));
+
+const CrLayout = lazy(() => import('./cr/CrLayout.jsx'));
+const CrOverview = lazy(() => import('./pages/cr/CrOverview.jsx'));
+const SectionPage = lazy(() => import('./pages/cr/SectionPage.jsx'));
+const CrStudentsPage = lazy(() => import('./pages/cr/StudentsPage.jsx'));
+const CrSubjectsPage = lazy(() => import('./pages/cr/SubjectsPage.jsx'));
+const CrTeachersPage = lazy(() => import('./pages/cr/TeachersPage.jsx'));
+const AnnouncementsPage = lazy(() => import('./pages/cr/AnnouncementsPage.jsx'));
+const NotesPage = lazy(() => import('./pages/cr/NotesPage.jsx'));
+const AssignmentsPage = lazy(() => import('./pages/cr/AssignmentsPage.jsx'));
+const TimetablePage = lazy(() => import('./pages/cr/TimetablePage.jsx'));
+const AttendancePage = lazy(() => import('./pages/cr/AttendancePage.jsx'));
+const MarksPage = lazy(() => import('./pages/cr/MarksPage.jsx'));
+const NotificationsPage = lazy(() => import('./pages/cr/NotificationsPage.jsx'));
+const CrProfilePage = lazy(() => import('./pages/cr/CrProfilePage.jsx'));
+const CrNotFound = lazy(() => import('./pages/cr/CrNotFound.jsx'));
+
+const StudentLayout = lazy(() => import('./student/StudentLayout.jsx'));
+const StudentOverview = lazy(() => import('./pages/student/StudentOverview.jsx'));
+const StudentSubjectsPage = lazy(() => import('./pages/student/StudentSubjectsPage.jsx'));
+const StudentAnnouncementsPage = lazy(() => import('./pages/student/StudentAnnouncementsPage.jsx'));
+const StudentNotesPage = lazy(() => import('./pages/student/StudentNotesPage.jsx'));
+const StudentAssignmentsPage = lazy(() => import('./pages/student/StudentAssignmentsPage.jsx'));
+const StudentTimetablePage = lazy(() => import('./pages/student/StudentTimetablePage.jsx'));
+const StudentAttendancePage = lazy(() => import('./pages/student/StudentAttendancePage.jsx'));
+const StudentMarksPage = lazy(() => import('./pages/student/StudentMarksPage.jsx'));
+const StudentNotificationsPage = lazy(() => import('./pages/student/StudentNotificationsPage.jsx'));
+const StudentProfilePage = lazy(() => import('./pages/student/StudentProfilePage.jsx'));
+const StudentNotFound = lazy(() => import('./pages/student/StudentNotFound.jsx'));
 
 export default function App() {
   return (
@@ -63,6 +72,7 @@ export default function App() {
       <AuthProvider>
         <MotionConfig reducedMotion="user">
         <BrowserRouter basename={ROUTER_BASENAME}>
+          <Suspense fallback={<FullPageLoader label="Loading…" />}>
           <Routes>
             {/* Public */}
             <Route path="/" element={<RootRedirect />} />
@@ -127,6 +137,7 @@ export default function App() {
             {/* Fallback */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </MotionConfig>
       </AuthProvider>
