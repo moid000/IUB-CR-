@@ -36,7 +36,11 @@ export function RedirectIfAuthenticated({ children }) {
  */
 export function FullPageLoader({ label }) {
   return (
-    <div className="grid min-h-dvh place-items-center bg-slate-50 px-4" role="status" aria-live="polite">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-50 px-4"
+      role="status"
+      aria-live="polite"
+    >
       <FadeIn className="w-full max-w-sm text-center">
         <div className="mb-6 flex justify-center"><Brand /></div>
         <p className="text-sm text-slate-500">{label}</p>
