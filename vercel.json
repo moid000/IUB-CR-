@@ -16,13 +16,6 @@
       }
     }
   ],
-  "redirects": [
-    {
-      "source": "/",
-      "destination": "/frontend/",
-      "permanent": false
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
