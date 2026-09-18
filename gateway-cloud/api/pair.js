@@ -1,27 +1,24 @@
 export const maxDuration = 60;
-import QRCode from 'qrcode';
 import { connectMongo } from '../src/mongo.js';
-import { authed, unauthorized, normalizePk } from '../src/gwsecrets.js';
-import { openSocket, waitFor, isPaired } from '../src/sock.js';
+import { authed, unauthorized } from '../src/gwsecrets.js';
+import { isPaired } from '../src/sock.js';
 
 /**
- * WhatsApp PAIRING page (secret: QR_SECRET).
+ * WhatsApp PAIRING page (secret: QR_SECRET) — LIVE CODE DISPLAY mode.
  *
- * Vercel functions are ephemeral, so pairing works like this:
- *   1. Owner opens /api/pair?key=…&phone=03xxxxxxxxx
- *   2. This invocation opens a socket from the Mongo session, requests a
- *      PAIRING CODE, renders it (+ QR image) and KEEPS THE SOCKET ALIVE
- *      for ~50s so the code stays valid while it is entered.
- *   3. Owner enters the code: WhatsApp → Settings → Linked devices →
- *      Link with phone number. creds.update fires → session saved to Mongo.
- *   4. Page polls /api/status and confirms "Paired ✓".
- *   5. If the window was missed, the page auto-refreshes → new code.
+ * History: the original page created its OWN pairing session, which (a)
+ * raced with the Vercel 60s function limit and (b) CONFLICTED with the
+ * sandbox pairing helper — every auto-reload wiped wa_store, invalidated
+ * the sandbox's pairing code and produced "check your number" errors.
  *
- * Pairing is needed ONCE. After that every sweep invocation connects
- * instantly from the saved session — laptop stays off forever.
+ * NOW: the sandbox helper (scripts/pair-sandbox.mjs) owns the single
+ * pairing session and pushes every fresh code/QR to /api/live-code.
+ * This page is a dumb READ-ONLY display: it polls /api/live-code every
+ * 3s and shows the CURRENT code + QR, so the owner can always type the
+ * newest code within its ~20-60s life. No socket, no wipe, no code
+ * generation happens here. If re-pairing is ever needed, restore the
+ * original full flow (git history has it).
  */
-
-const HOLD_MS = 48000;
 const KEY = process.env.QR_SECRET || '';
 
 function shell(body) {
@@ -34,128 +31,82 @@ function shell(body) {
   .card{max-width:420px;width:100%;background:#1e293b;border-radius:16px;padding:28px;text-align:center}
   h1{font-size:20px;margin:0 0 6px}
   p{font-size:14px;color:#94a3b8;margin:8px 0;line-height:1.5}
-  .code{font-size:38px;letter-spacing:8px;font-weight:800;color:#4ade80;margin:18px 0}
-  .qr{margin:16px auto;width:300px;background:#fff;padding:10px;border-radius:12px}
-  input{font-size:18px;padding:12px;border-radius:10px;border:1px solid #334155;
-        background:#0f172a;color:#e2e8f0;width:100%;box-sizing:border-box;text-align:center}
-  button{margin-top:14px;font-size:16px;padding:12px 26px;border-radius:10px;border:0;
-         background:#2563eb;color:#fff;font-weight:700;width:100%;cursor:pointer}
+  .code{font-size:40px;letter-spacing:8px;font-weight:800;color:#4ade80;margin:18px 0;
+        border:2px dashed #334155;border-radius:12px;padding:12px}
+  .age{font-size:12px;color:#64748b}
+  .qr{margin:16px auto;width:280px;background:#fff;padding:10px;border-radius:12px}
   .ok{color:#4ade80;font-size:22px;font-weight:800}
   .err{color:#f87171}
   ol{text-align:left;font-size:14px;color:#94a3b8;line-height:1.8}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80;
+       margin-right:6px;animation:blink 1.4s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 </style></head><body><div class="card">${body}</div></body></html>`;
-}
-
-async function render(res, body, { holdMs = 0, wait } = {}) {
-  res.statusCode = 200;
-  res.setHeader('content-type', 'text/html; charset=utf-8');
-  res.write(body);
-  if (wait) await wait;
-  if (holdMs) await new Promise((r) => setTimeout(r, holdMs));
-  res.end();
 }
 
 export default async function handler(req, res) {
   if (!authed(req, 'QR_SECRET')) return unauthorized(res);
 
-  const url = new URL(req.url, 'http://x');
-  const phone = url.searchParams.get('phone');
-
   try {
     await connectMongo();
-
-    const registered = await isPaired(); // Mongo creds check — no socket opened
+    const registered = await isPaired();
     if (registered) {
-      return render(res, shell(
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      return res.end(shell(
         `<h1>✅ Already paired</h1>
          <p>Gateway session is linked. Nothing to do here —
          <a style="color:#60a5fa" href="/api/status?key=${KEY}">status</a></p>`));
     }
 
-    if (!phone) {
-      return render(res, shell(
-        `<h1>Pair WhatsApp</h1>
-         <p>Apna WhatsApp number daalo (03… ya 92…). Isi number par pairing code generate hoga.</p>
-         <form method="GET">
-           <input name="key" type="hidden" value="${KEY}">
-           <input name="phone" placeholder="03xx-xxxxxxx" autofocus>
-           <button type="submit">Get pairing code</button>
-         </form>`));
-    }
-
-    const digits = normalizePk(phone);
-    if (!digits) {
-      return render(res, shell(
-        `<h1 class="err">Invalid number</h1>
-         <p>PK number 03… ya 92… format mein daalo. <a style="color:#60a5fa" href="/api/pair?key=${KEY}">Wapas</a></p>`));
-    }
-
-    // Open the real socket and request a pairing code
-    const { sock, events, end } = await openSocket();
-    await waitFor(() => events.qr || events.connected || events.closed, { timeoutMs: 12000 });
-
-    if (events.connected) {
-      end();
-      return render(res, shell('<h1 class="ok">✅ Paired!</h1><p>Session saved.</p>'));
-    }
-    if (!events.qr) {
-      end();
-      return render(res, shell(
-        `<h1 class="err">WhatsApp handshake failed</h1>
-         <p>Thodi der baad page refresh karo.</p>`));
-    }
-
-    let code = null;
-    try {
-      code = await sock.requestPairingCode(digits);
-    } catch (err) {
-      end();
-      return render(res, shell(
-        `<h1 class="err">Pairing code error</h1><p>${err.message}</p>
-         <p><a style="color:#60a5fa" href="/api/pair?key=${KEY}">Dobara try karo</a></p>`));
-    }
-
-    const qrDataUrl = await QRCode.toDataURL(events.qr, { width: 300, margin: 2 });
-
-    // Page shows the code + QR, polls status, and holds this socket alive
-    // while the owner enters the code.
-    const pairedPromise = waitFor(() => events.connected || events.closed, {
-      timeoutMs: HOLD_MS - 2000, everyMs: 500,
-    });
-
     const body = shell(`
-      <h1>Pairing code</h1>
-      <p>Is number par: <b style="color:#e2e8f0">+${digits}</b></p>
-      <div class="code" id="code">${code ?? '…'}</div>
+      <h1><span class="dot"></span>Live pairing code</h1>
+      <div class="code" id="code">…</div>
+      <p class="age" id="age"></p>
       <ol>
-        <li>Phone mein WhatsApp kholo</li>
-        <li><b>Settings → Linked devices → Link with phone number</b></li>
-        <li>Upar wala code enter karo (ya neeche QR scan karo)</li>
+        <li>Phone pe: WhatsApp → <b>Settings → Linked devices</b></li>
+        <li><b>Link a device</b> → <b>Link with phone number instead</b></li>
+        <li>Upar jo code <b>abhi</b> dikh raha hai, FORAN type karo</li>
       </ol>
-      <div class="qr"><img src="${qrDataUrl}" alt="QR" width="280"></div>
-      <p id="status">Code ~50s ke liye valid hai — window nikal jaye to page khud naya code layega…</p>
+      <p style="color:#60a5fa">Code apne aap update hota rehta hai. Agar WhatsApp "invalid" bole to rukna mat — is page pe jo NAYA code aaya hai usi waqt phir type karo.</p>
+      <div class="qr" id="qrbox" style="display:none"><img id="qr" alt="QR" width="240"></div>
+      <p class="age">(QR kisi laptop screen pe khol ke scan bhi kar sakte ho)</p>
       <script>
         (function(){
           var done = false;
-          var el = document.getElementById('status');
+          function poll(){
+            if (done) return;
+            fetch('/api/live-code?key=${KEY}')
+              .then(function(r){return r.json()})
+              .then(function(d){
+                if (d.code) {
+                  document.getElementById('code').textContent = d.code;
+                  document.getElementById('age').textContent =
+                    'ye code ' + (d.ageSec || 0) + ' sec purana hai — jitna naya ho utna behtar';
+                }
+                if (d.qr) {
+                  document.getElementById('qrbox').style.display = 'block';
+                  document.getElementById('qr').src = d.qr;
+                }
+              }).catch(function(){});
+          }
+          poll();
+          setInterval(poll, 3000);
           setInterval(function(){
+            if (done) return;
             fetch('/api/status?key=${KEY}')
               .then(function(r){return r.text()})
               .then(function(t){
-                if (t.indexOf('"paired":true') !== -1 && !done) {
+                if (t.indexOf('"paired":true') !== -1) {
                   done = true;
                   document.body.innerHTML = '<div class="card"><h1 class="ok">✅ Paired!</h1><p>WhatsApp linked — gateway ab 24/7 serverless sends karega. Ye page band kar sakte ho.</p></div>';
                 }
               }).catch(function(){});
-          }, 4000);
+          }, 3000);
         })();
       </script>`);
 
-    await render(res, body, { wait: pairedPromise.then(() => {
-      end();
-    }), holdMs: 0 });
-
-    end();
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.end(body);
   } catch (err) {
     res.statusCode = 500;
     res.setHeader('content-type', 'text/html; charset=utf-8');
