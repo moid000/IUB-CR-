@@ -36,5 +36,8 @@
       "source": "/((?!frontend/|api/|frontend$).*)",
       "destination": "/frontend/index.html"
     }
+  ],
+  "regions": [
+    "bom1"
   ]
 }
