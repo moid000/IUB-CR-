@@ -1,3 +1,4 @@
+export const maxDuration = 60;
 import QRCode from 'qrcode';
 import { connectMongo } from '../src/mongo.js';
 import { authed, unauthorized, normalizePk } from '../src/gwsecrets.js';

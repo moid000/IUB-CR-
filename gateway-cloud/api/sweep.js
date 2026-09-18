@@ -1,3 +1,4 @@
+export const maxDuration = 60;
 import { connectMongo } from '../src/mongo.js';
 import { authed, unauthorized } from '../src/gwsecrets.js';
 import { openSocket, senderFrom, waitFor, isPaired } from '../src/sock.js';

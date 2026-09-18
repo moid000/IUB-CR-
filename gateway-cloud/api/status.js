@@ -1,3 +1,4 @@
+export const maxDuration = 30;
 import { connectMongo } from '../src/mongo.js';
 import { authed, unauthorized } from '../src/gwsecrets.js';
 import { isPaired } from '../src/sock.js';
