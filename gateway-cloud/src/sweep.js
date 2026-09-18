@@ -1,5 +1,5 @@
 import { Assignment, Submission, Teacher, User, Section } from './models.js';
-import { sendText, sendDocument, toJid, now } from './wa.js';
+import { sendText as waSendText, sendDocument as waSendDocument, toJid, now } from './wa.js';
 
 /**
  * Deadline sweep — same rules as the live backend engine:
@@ -56,7 +56,7 @@ async function downloadFile(url) {
   return { buffer, mimetype: res.headers.get('content-type') || undefined };
 }
 
-async function sendSubmission(jid, { index, total, assignment, submission }) {
+async function sendSubmission(send, jid, { index, total, assignment, submission }) {
   const student = submission.student;
   const header = [
     `*Submission ${index}/${total}* — ${assignment.title}`,
@@ -71,7 +71,7 @@ async function sendSubmission(jid, { index, total, assignment, submission }) {
       const caption = files.length === 1 ? header : `${header}\nFile: ${f.originalName ?? 'file'}`;
       try {
         const { buffer, mimetype } = await downloadFile(f.url);
-        await sendDocument(jid, {
+        await send.sendDocument(jid, {
           buffer,
           fileName: f.originalName || `submission.${f.format || 'bin'}`,
           mimetype: f.mimeType || mimetype || 'application/octet-stream',
@@ -79,19 +79,19 @@ async function sendSubmission(jid, { index, total, assignment, submission }) {
         });
       } catch {
         // Download failed (laptop offline to Cloudinary, etc.) — fall back to link
-        await sendText(jid, `${header}\nFiles:\n• ${f.originalName ?? 'file'}: ${f.url}`);
+        await send.sendText(jid, `${header}\nFiles:\n• ${f.originalName ?? 'file'}: ${f.url}`);
       }
       await sleep(INTERMESSAGE_DELAY_MS);
     }
   } else if (submission.textAnswer) {
-    await sendText(jid, `${header}\nAnswer: ${submission.textAnswer.slice(0, 800)}`);
+    await send.sendText(jid, `${header}\nAnswer: ${submission.textAnswer.slice(0, 800)}`);
   } else {
-    await sendText(jid, header);
+    await send.sendText(jid, header);
   }
 }
 
 /** One sweep pass. Safe to call every minute — claims make it idempotent. */
-export async function runSweep() {
+export async function runSweep(send = { sendText: waSendText, sendDocument: waSendDocument }) {
   const nowMs = Date.now();
   const due = await Assignment.find({
     status: 'published',
@@ -142,7 +142,7 @@ export async function runSweep() {
     const jid = toJid(teacher.whatsapp);
     try {
       console.log(`➡️  [${now()}] "${assignment.title}" → ${teacher.name} (${teacher.whatsapp}): summary`);
-      await sendText(jid, buildSummary({
+      await send.sendText(jid, buildSummary({
         assignment, section,
         department: section?.department,
         cr: section?.cr, gr: section?.gr,
@@ -153,7 +153,7 @@ export async function runSweep() {
       for (let i = 0; i < submissions.length; i += 1) {
         try {
           console.log(`➡️  [${now()}] submission ${i + 1}/${submissions.length} (${submitted[i]?.name})`);
-          await sendSubmission(jid, { index: i + 1, total: submissions.length, assignment, submission: submissions[i] });
+          await sendSubmission(send, jid, { index: i + 1, total: submissions.length, assignment, submission: submissions[i] });
         } catch (err) {
           console.log(`   ⚠️  submission ${i + 1} failed: ${err.message} — aage barh raha hun`);
         }

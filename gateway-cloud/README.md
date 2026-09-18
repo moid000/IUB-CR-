@@ -25,3 +25,19 @@ Laptop-free edition. Baileys + MongoDB-backed session + deadline sweep engine.
 Session restart/rebuild/redeploy ke baad bhi zinda rehta hai (MongoDB mein hai) — QR sirf logout hone par dobara chahiye.
 
 Keep-alive: ek 15-min ping (cron-job.org/UptimeRobot) Space URL par → Space kabhi sleep nahi karega.
+
+---
+
+## SERVERLESS mode (Vercel) — laptop OFF forever
+
+Free Vercel serverless deployment; no always-on host needed. cron-job.org pings
+`/api/sweep` every 5 min. Nothing due → instant return (no WhatsApp cost).
+Due → Baileys connects from the Mongo session, sends, disconnects.
+
+- `GET /api/sweep?key=SWEEP_SECRET` — deadline sweep (cron target)
+- `GET /api/pair?key=QR_SECRET[&phone=03…]` — one-time WhatsApp pairing
+  (pairing code + QR; page holds the socket ~50s, auto-refreshes)
+- `GET /api/status?key=QR_SECRET` — paired status + last sweep result
+
+Pairing is needed ONCE. After pairing, every invocation reuses the saved
+session (wa_store in Mongo) — QR never needed again.
