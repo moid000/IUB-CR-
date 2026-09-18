@@ -33,7 +33,7 @@ function normalizeWhatsApp(value) {
  * ends, that subject's teacher automatically receives a summary plus one
  * message per submitted student (name, roll number, file links).
  */
-function TeacherForm({ open, onClose, initial, subjects, onSaved }) {
+function TeacherForm({ open, onClose, initial, subjects, teachers, onSaved }) {
   const isEdit = Boolean(initial?._id);
   const [name, setName] = useState(initial?.name ?? '');
   const [subject, setSubject] = useState(initial?.subject?._id ?? '');
@@ -44,8 +44,9 @@ function TeacherForm({ open, onClose, initial, subjects, onSaved }) {
 
   const intl = normalizeWhatsApp(whatsapp);
   const takenSubjects = new Set(
-    subjects.filter((s) => !isEdit || s._id !== initial?.subject?._id)
-      .map((s) => s._id)
+    (teachers ?? [])
+      .filter((t) => t.subject?._id && (!isEdit || t.subject._id !== initial?.subject?._id))
+      .map((t) => t.subject._id)
   );
 
   const submit = async () => {
@@ -231,6 +232,7 @@ export default function TeachersPage() {
           onClose={() => setModal(null)}
           initial={modal.mode === 'edit' ? modal.teacher : null}
           subjects={subjects}
+          teachers={items}
           onSaved={(msg) => { showFlash(msg); reload(); }}
         />
       )}
