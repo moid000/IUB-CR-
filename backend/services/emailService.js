@@ -71,3 +71,40 @@ export async function sendOtpEmail({ to, name, otp, purpose }) {
   }
   return true;
 }
+
+/**
+ * Watchdog alert email — plain operational notice to the configured owner
+ * address(es). No OTP, no secrets, safe to send repeatedly (callers throttle).
+ */
+export async function sendWatchdogAlertEmail({ subject, text }) {
+  const recipients = env.whatsapp.alertEmails || [];
+  if (!env.brevoApiKey || !env.brevoSenderEmail || recipients.length === 0) {
+    console.error('[brevo] watchdog alert skipped: email not configured');
+    return false;
+  }
+  let res;
+  try {
+    res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': env.brevoApiKey,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: env.brevoSenderName || 'Tri3M', email: env.brevoSenderEmail },
+        to: recipients.map((email) => ({ email })),
+        subject,
+        textContent: text,
+      }),
+    });
+  } catch {
+    console.error('[brevo] watchdog alert network failure');
+    return false;
+  }
+  if (!res.ok) {
+    console.error('[brevo] watchdog alert failed:', res.status);
+    return false;
+  }
+  return true;
+}

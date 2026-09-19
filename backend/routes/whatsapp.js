@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { runDeadlineSweep } from '../services/deadlineSweepService.js';
+import { runWatchdog } from '../services/ultramsgWatchdogService.js';
 
 /**
  * External pinger endpoints (cron-job.org hits this every ~5 minutes).
@@ -45,5 +46,23 @@ const handle = async (req, res, next) => {
 
 router.get('/deadline-sweep', handle);
 router.post('/deadline-sweep', handle);
+
+/**
+ * Gateway watchdog — cron-job.org pings this hourly (same secret guard).
+ * Checks the UltraMsg instance; renews the trial over plain HTTP if it
+ * stopped for non-payment; emails the owner if a QR scan is needed.
+ */
+const watchdogHandle = async (req, res, next) => {
+  try {
+    assertSweepSecret(req);
+    const report = await runWatchdog();
+    res.json({ success: true, data: report });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.get('/watchdog', watchdogHandle);
+router.post('/watchdog', watchdogHandle);
 
 export default router;

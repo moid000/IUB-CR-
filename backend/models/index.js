@@ -18,3 +18,4 @@ export { default as Notification } from './Notification.js';
 export { default as Otp } from './Otp.js';
 export { default as PushSubscription } from './PushSubscription.js';
 export { default as AuditLog } from './AuditLog.js';
+export { default as WatchdogState } from './WatchdogState.js';
