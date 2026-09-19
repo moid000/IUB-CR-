@@ -16,7 +16,15 @@ export function PushSetupCard({ variant = 'student' }) {
 
   useEffect(() => {
     if (!pushSupported()) { setState({ supported: false }); return; }
-    pushState().then(setState).catch(() => setState({ supported: false }));
+    // Browser DOES support the Push API — treat a probe failure (e.g. a
+    // transient SW registration hiccup) as a real error, never as
+    // "unsupported": that message is iOS-specific and misleads Android users.
+    pushState()
+      .then(setState)
+      .catch((err) => {
+        setState({ supported: true, permission: Notification.permission, subscribed: false });
+        setError(err?.message || 'Could not check notification status — try reloading the page.');
+      });
   }, []);
 
   if (!state) return null; // still probing — render nothing rather than a skeleton flash

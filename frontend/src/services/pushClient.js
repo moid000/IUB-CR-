@@ -8,7 +8,7 @@ let swRegistration = null;
 
 export async function ensureSw() {
   if (!('serviceWorker' in navigator)) throw new Error('This browser does not support notifications');
-  if (!swRegistration) swRegistration = await navigator.serviceWorker.register('/sw.js');
+  if (!swRegistration) swRegistration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
   return swRegistration;
 }
 
