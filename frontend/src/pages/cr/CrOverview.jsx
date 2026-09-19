@@ -116,7 +116,7 @@ export default function CrOverview() {
         </Stagger>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ---- Today's timetable ---- */}
         <Card className="p-5 sm:p-6">
           <div className="mb-4 flex items-center justify-between">
