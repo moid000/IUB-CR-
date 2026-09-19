@@ -1,6 +1,7 @@
 import { Note } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { makeSectionContentService, validateSectionSubject } from './sectionContent.js';
+import { notifySection } from './notificationService.js';
 import * as v from '../utils/validators.js';
 
 const assertText = v.assertText;
@@ -49,6 +50,20 @@ export default makeSectionContentService({
       }
       return fields;
     },
+    // New note → in-app + device push notification for CURRENT active section
+    // members. Recipients/dedupe keys are fully server-derived; retries are
+    // idempotent via the notification unique index (same as announcements).
+    afterCreate: (doc, req) => notifySection({
+      req,
+      section: doc.section,
+      actorId: req.user._id,
+      type: 'note',
+      title: 'New note uploaded',
+      message: doc.title,
+      refType: 'Note',
+      refId: doc._id,
+      dedupePrefix: 'note',
+    }),
     applyUpdate: (doc, fields) => {
       if (fields.title !== undefined) doc.title = fields.title;
       if (fields.content !== undefined) doc.content = fields.content;

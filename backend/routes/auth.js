@@ -41,4 +41,18 @@ router.post('/forgot-password/request-otp', activation.resetRequestOtp);
 router.post('/forgot-password/verify-otp', activation.resetVerifyOtp);
 router.post('/forgot-password/set-password', activation.resetSetPassword);
 
+
+/* ---- Web Push (device notifications) — owner-scoped subscription mgmt ---- */
+import { getVapidPublicKey, subscribePush, unsubscribePush } from '../services/pushService.js';
+
+router.get('/push/key', protect, (req, res, next) => {
+  try { res.json({ success: true, data: getVapidPublicKey() }); } catch (err) { next(err); }
+});
+router.post('/push/subscribe', protect, async (req, res, next) => {
+  try { res.json({ success: true, data: await subscribePush(req) }); } catch (err) { next(err); }
+});
+router.post('/push/unsubscribe', protect, async (req, res, next) => {
+  try { res.json({ success: true, data: await unsubscribePush(req) }); } catch (err) { next(err); }
+});
+
 export default router;

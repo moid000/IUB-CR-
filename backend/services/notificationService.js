@@ -4,6 +4,7 @@ import { audit } from '../utils/audit.js';
 import { now, nowDate, karachiWallClock, karachiDateKey } from '../utils/clock.js';
 import { parsePagination, paginationMeta } from '../utils/pagination.js';
 import * as v from '../utils/validators.js';
+import { sendPushToUsers, pushUrlFor } from './pushService.js';
 
 /**
  * Centralized in-app notification service.
@@ -147,7 +148,7 @@ export async function notifySection({
   // is no longer in this query and receives nothing new.
   const recipients = await User.find(
     { section: sectionId, registrationStatus: 'active', role: 'student' },
-    { _id: 1 },
+    { _id: 1, role: 1 },
   ).lean();
   const ids = recipients.map((u) => u._id);
 
@@ -175,6 +176,30 @@ export async function notifySection({
       dedupeKey: `${dedupePrefix}:${refId}:${recipientId}`,
     })),
   );
+
+  // Device push (Web Push/VAPID) — best-effort, NEVER blocks or fails the
+  // content creation. Only pushed when new in-app rows were actually inserted
+  // (dedupe retry is a silent no-op here too). Students and reps get deep
+  // links into their own portal.
+  if (inserted > 0) {
+    const actorName = req?.user?.name ? ` — from ${req.user.name}` : '';
+    const roles = {};
+    for (const id of ids) roles[String(id)] = 'student';
+    for (const repId of [sec?.cr, sec?.gr]) {
+      if (repId) roles[String(repId)] = 'cr';
+    }
+    const byRole = { student: [], cr: [] };
+    for (const id of ids) byRole[roles[String(id)] ?? 'student'].push(id);
+    for (const [role, roleIds] of Object.entries(byRole)) {
+      if (!roleIds.length) continue;
+      sendPushToUsers(roleIds, {
+        title: title ? safeTitle(title) : 'New notification',
+        body: `${safeMessage(message)}${actorName}`,
+        url: pushUrlFor(type, role),
+        tag: `${type}:${refId}`,
+      }).catch((err) => console.error('[push] fan-out failed:', err.message));
+    }
+  }
 
   await audit({
     actor: actorId ?? null,
@@ -230,7 +255,16 @@ export async function generateTimetableReminders(user) {
     // Karachi-local date key — see karachiWallClock()
     dedupeKey: `reminder:${slot._id}:${dateStr}`,
   }));
-  return createManyNotifications(docs);
+  const inserted = await createManyNotifications(docs);
+  if (inserted > 0) {
+    sendPushToUsers([user._id], {
+      title: 'Class starting soon',
+      body: docs.map((d) => d.message).join(' · ').slice(0, 500),
+      url: pushUrlFor('timetable', user.role),
+      tag: `timetable:${dateStr}`,
+    }).catch((err) => console.error('[push] timetable reminder failed:', err.message));
+  }
+  return inserted;
 }
 
 /**
@@ -260,7 +294,16 @@ export async function generateDeadlineReminders(user) {
     refId: a._id,
     dedupeKey: `assignment_deadline:${a._id}:${dateStr}:${user._id}`,
   }));
-  return createManyNotifications(docs);
+  const inserted = await createManyNotifications(docs);
+  if (inserted > 0) {
+    sendPushToUsers([user._id], {
+      title: 'Assignment deadline approaching',
+      body: docs.map((d) => d.message).join(' · ').slice(0, 500),
+      url: pushUrlFor('reminder', user.role),
+      tag: `deadlines:${dateStr}`,
+    }).catch((err) => console.error('[push] deadline reminder failed:', err.message));
+  }
+  return inserted;
 }
 
 /**

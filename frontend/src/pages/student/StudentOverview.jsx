@@ -10,6 +10,7 @@ import { MiniEmpty } from '../../components/ui/MiniEmpty.jsx';
 import { Stagger } from '../../components/motion/primitives.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
+import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
 import {
   IconBook, IconClipboard, IconCalendar, IconBell, IconQr,
   IconArrowRight, IconClock, IconMegaphone, IconCheckCircle,
@@ -117,6 +118,8 @@ export default function StudentOverview() {
           <StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
         </Stagger>
       )}
+
+            <PushSetupCard variant="student" />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ---- Today's timetable ---- */}

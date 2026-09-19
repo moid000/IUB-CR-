@@ -16,4 +16,5 @@ export { default as Assessment } from './Assessment.js';
 export { default as Mark } from './Mark.js';
 export { default as Notification } from './Notification.js';
 export { default as Otp } from './Otp.js';
+export { default as PushSubscription } from './PushSubscription.js';
 export { default as AuditLog } from './AuditLog.js';

@@ -25,6 +25,11 @@ export const authApi = {
     remove: () => api.post('/api/auth/avatar/remove'),
   },
 
+  /* Web Push (device notifications) */
+  pushKey: () => api.get('/api/auth/push/key'),
+  pushSubscribe: (subscription) => api.post('/api/auth/push/subscribe', { subscription }),
+  pushUnsubscribe: (body) => api.post('/api/auth/push/unsubscribe', body),
+
   requestResetOtp: (email) => api.post('/api/auth/forgot-password/request-otp', { email }),
   verifyResetOtp: (email, otp) => api.post('/api/auth/forgot-password/verify-otp', { email, otp }),
   setResetPassword: (resetToken, password) =>

@@ -12,6 +12,7 @@ import { Stagger } from '../../components/motion/primitives.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
+import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
 import {
   IconUsers, IconBook, IconClipboard, IconCalendar, IconBell, IconMegaphone,
   IconClock, IconArrowRight,
@@ -115,6 +116,8 @@ export default function CrOverview() {
           <StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
         </Stagger>
       )}
+
+            <PushSetupCard variant="cr" />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ---- Today's timetable ---- */}

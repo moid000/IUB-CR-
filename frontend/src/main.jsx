@@ -13,6 +13,12 @@ if (LEGACY.test(window.location.pathname)) {
   window.location.replace(clean + window.location.search + window.location.hash);
 }
 
+// Register the service worker early — device notifications (Web Push) are
+// delivered by the SW even when the app is closed. Non-blocking, best-effort.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+}
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
