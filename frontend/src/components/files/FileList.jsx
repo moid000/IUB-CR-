@@ -25,31 +25,33 @@ export function FileList({ files = [], emptyText = null, className = '', onRemov
         {list.map((f) => {
           const isImage = f.resourceType === 'image' || ['png', 'jpg', 'jpeg', 'webp'].includes(f.format);
           return (
-            <li key={f._id ?? f.publicId} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
-              {isImage ? (
-                <button
-                  type="button"
-                  onClick={() => setPreview(f)}
-                  aria-label={`Preview ${f.originalName ?? 'image'}`}
-                  className="size-11 shrink-0 overflow-hidden rounded-lg border border-slate-100"
-                >
-                  <img
-                    src={thumbUrl(f.url, 96)} alt={f.originalName ?? 'attachment'}
-                    loading="lazy"
-                    className="size-full object-cover"
-                    onError={(e) => { e.currentTarget.replaceWith(Object.assign(document.createElement('span'), { className: 'grid size-full place-items-center text-[10px] font-bold text-slate-400', textContent: typeLabel(f.format) })); }}
-                  />
-                </button>
-              ) : (
-                <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold tracking-wide text-slate-500">
-                  {typeLabel(f.format).slice(0, 4)}
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-800">{f.originalName ?? 'Attachment'}</p>
-                <p className="text-xs text-slate-400">{typeLabel(f.format)} · {formatBytes(f.size)}</p>
+            <li key={f._id ?? f.publicId} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                {isImage ? (
+                  <button
+                    type="button"
+                    onClick={() => setPreview(f)}
+                    aria-label={`Preview ${f.originalName ?? 'image'}`}
+                    className="size-11 shrink-0 overflow-hidden rounded-lg border border-slate-100"
+                  >
+                    <img
+                      src={thumbUrl(f.url, 96)} alt={f.originalName ?? 'attachment'}
+                      loading="lazy"
+                      className="size-full object-cover"
+                      onError={(e) => { e.currentTarget.replaceWith(Object.assign(document.createElement('span'), { className: 'grid size-full place-items-center text-[10px] font-bold text-slate-400', textContent: typeLabel(f.format) })); }}
+                    />
+                  </button>
+                ) : (
+                  <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold tracking-wide text-slate-500">
+                    {typeLabel(f.format).slice(0, 4)}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800">{f.originalName ?? 'Attachment'}</p>
+                  <p className="text-xs text-slate-400">{typeLabel(f.format)} · {formatBytes(f.size)}</p>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-1 sm:w-auto">
                 {onRemove && (
                   <Button
                     variant="ghost" size="sm" icon={IconX}
