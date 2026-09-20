@@ -12,7 +12,8 @@ import {
   cancelAttendanceSession, listAttendanceRecords,
 } from '../controllers/crController.js';
 import {
-  listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
+  listMyNotifications, getUnreadCount, getUnreadCountByType, markNotificationRead,
+  markAllNotificationsRead, markNotificationsReadByType,
 } from '../controllers/notificationController.js';
 import {
   createAssessment, listAssessmentsCr, getAssessmentCr, updateAssessment,
@@ -49,8 +50,10 @@ router.post('/files/remove', removeFileUpload);
 // In-app notifications — own mailbox only; lazy reminders generated on poll
 router.get('/notifications', listMyNotifications);
 router.get('/notifications/unread-count', getUnreadCount);
+router.get('/notifications/unread-count-by-type', getUnreadCountByType);
 router.post('/notifications/:id/read', markNotificationRead);
 router.post('/notifications/read-all', markAllNotificationsRead);
+router.post('/notifications/read-by-type', markNotificationsReadByType);
 
 router.get('/students', listStudents);
 router.post('/students', precreateStudent);

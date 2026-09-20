@@ -22,6 +22,18 @@ import {
 
 const EASE = [0.22, 1, 0.36, 1];
 
+/**
+ * Per-tab unread badges. Keys are exact tab paths; values are the notification
+ * types that tab "owns". Visiting the page silently marks those unread rows
+ * read (server: read-by-type) — the number disappears once the tab is seen,
+ * exactly like the owner asked.
+ */
+const BADGE_TYPES_FOR_PATH = {
+  '/student/announcements': ['announcement'],
+  '/student/assignments': ['assignment', 'reminder'], // deadline reminders belong to Assignments
+  '/student/timetable': ['timetable'],
+};
+
 const NAV_GROUPS = [
   {
     items: [{ to: '/student', label: 'Dashboard', icon: IconGrid, end: true }],
@@ -91,7 +103,8 @@ export default function StudentLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [unread, setUnread] = useState(null);
+  const [unread, setUnread] = useState(null); // total — sidebar Notifications + More badge
+  const [unreadByType, setUnreadByType] = useState(null); // per-tab numbers
 
   const section = user?.section;
 
@@ -99,14 +112,43 @@ export default function StudentLayout() {
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
   useBodyScrollLock(drawerOpen);
 
-  // Unread notification count — fetched once per navigation (lazy server reminders)
+  // Per-type unread counts — fetched once per navigation (lazy server reminders).
+  // Landing on a tab page ALSO clears that tab's unread rows server-side, so
+  // its number disappears as soon as the tab is opened and seen.
   useEffect(() => {
     let cancelled = false;
-    studentApi.notifications.unreadCount()
-      .then((res) => { if (!cancelled) setUnread(res?.data?.count ?? 0); })
-      .catch(() => {}); // badge is decorative — never block the shell
+    const clearTypes = BADGE_TYPES_FOR_PATH[location.pathname];
+    studentApi.notifications.unreadByType()
+      .then((res) => {
+        if (cancelled) return;
+        const byType = res?.data?.byType ?? {};
+        setUnread(res?.data?.total ?? 0);
+        setUnreadByType(byType);
+        if (clearTypes && clearTypes.some((t) => byType[t] > 0)) {
+          studentApi.notifications.readByType(clearTypes)
+            .then((r) => {
+              if (cancelled) return;
+              const cleared = r?.data?.count ?? 0;
+              setUnreadByType((prev) => {
+                const next = { ...prev };
+                for (const t of clearTypes) delete next[t];
+                return next;
+              });
+              setUnread((prev) => Math.max(0, (prev ?? 0) - cleared));
+            })
+            .catch(() => {}); // badge clear is best-effort
+        }
+      })
+      .catch(() => {}); // badges are decorative — never block the shell
     return () => { cancelled = true; };
   }, [location.pathname]);
+
+  // Per-tab badge number (sum of that tab's notification types)
+  const tabBadge = (types) => {
+    if (!unreadByType) return null;
+    const n = types.reduce((sum, t) => sum + (unreadByType[t] ?? 0), 0);
+    return n > 0 ? n : null;
+  };
 
   const handleLogout = async () => {
     await logout(); // POST /api/auth/logout clears the httpOnly cookie
@@ -189,9 +231,9 @@ export default function StudentLayout() {
       <BottomTabBar
         items={[
           { to: '/student', label: 'Dashboard', icon: IconGrid, end: true },
-          { to: '/student/announcements', label: 'Announcements', icon: IconMegaphone },
-          { to: '/student/assignments', label: 'Assignments', icon: IconClipboard },
-          { to: '/student/timetable', label: 'Timetable', icon: IconCalendar },
+          { to: '/student/announcements', label: 'Announcements', icon: IconMegaphone, badge: tabBadge(['announcement']) },
+          { to: '/student/assignments', label: 'Assignments', icon: IconClipboard, badge: tabBadge(['assignment', 'reminder']) },
+          { to: '/student/timetable', label: 'Timetable', icon: IconCalendar, badge: tabBadge(['timetable']) },
         ]}
         onMore={() => setDrawerOpen(true)}
         moreBadge={unread || null}

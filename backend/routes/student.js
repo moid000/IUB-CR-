@@ -8,7 +8,8 @@ import {
   attendWithCode, attendWithQr, listMyAttendance, listSessionsStudent,
 } from '../controllers/studentController.js';
 import {
-  listMyNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead,
+  listMyNotifications, getUnreadCount, getUnreadCountByType, markNotificationRead,
+  markAllNotificationsRead, markNotificationsReadByType,
 } from '../controllers/notificationController.js';
 import { listAssessmentsStudent, getAssessmentStudent, listMyMarks } from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload, removeFileUpload } from '../controllers/fileController.js';
@@ -55,8 +56,10 @@ router.post('/files/remove', removeFileUpload);
 // In-app notifications — own mailbox only; lazy reminders generated on poll
 router.get('/notifications', listMyNotifications);
 router.get('/notifications/unread-count', getUnreadCount);
+router.get('/notifications/unread-count-by-type', getUnreadCountByType);
 router.post('/notifications/:id/read', markNotificationRead);
 router.post('/notifications/read-all', markAllNotificationsRead);
+router.post('/notifications/read-by-type', markNotificationsReadByType);
 
 // Subjects of the student's OWN section (server-derived — never a query param)
 router.get('/subjects', async (req, res, next) => {

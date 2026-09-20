@@ -59,9 +59,10 @@ const cr2 = makeSession();  // section B
 const s1 = makeSession();   // section A active
 const s2 = makeSession();   // section A active
 const s3 = makeSession();   // section A active (later rolls over to B)
+const s4 = makeSession();   // section A active — isolated user for by-type badge tests
 
 let deptCS, session1, secA, secB, subA1, subB1;
-let s1Id, s2Id, s3Id, cr1Id, cr2Id;
+let s1Id, s2Id, s3Id, s4Id, cr1Id, cr2Id;
 let ann1, ann1Id, ann2Id;   // announcements
 let asg1Id;                 // assignment
 
@@ -108,13 +109,22 @@ test('fixtures: hierarchy, users, logins', async () => {
   assert.equal((await cr2.api('POST', '/api/auth/login', { email: 'cr2@test.local', password: 'Pass1234!' })).status, 200);
   assert.equal((await s1.api('POST', '/api/auth/login', { email: 'ns1@test.local', password: 'Pass1234!' })).status, 200);
   assert.equal((await s2.api('POST', '/api/auth/login', { email: 'ns2@test.local', password: 'Pass1234!' })).status, 200);
+  const s4Hash = await bcrypt.hash('Pass1234!', 10);
+  // secB, not secA — kept OUT of every secA fan-out recipient count in D1/E1/etc.
+  s4Id = (await User.create({
+    name: 'Student Four', email: 'ns4@test.local', phone: '+923001119997', role: 'student',
+    registrationStatus: 'active', emailVerified: true, password: s4Hash, section: secB, rollNo: 'NB-006',
+  }))._id;
   assert.equal((await s3.api('POST', '/api/auth/login', { email: 'ns3@test.local', password: 'Pass1234!' })).status, 200);
+  assert.equal((await s4.api('POST', '/api/auth/login', { email: 'ns4@test.local', password: 'Pass1234!' })).status, 200);
 });
 
 /* ------------------------------ A. AUTH ------------------------------ */
 test('A. unauthenticated notification access → 401', async () => {
   assert.equal((await makeSession().api('GET', '/api/student/notifications')).status, 401);
   assert.equal((await makeSession().api('GET', '/api/student/notifications/unread-count')).status, 401);
+  assert.equal((await makeSession().api('GET', '/api/student/notifications/unread-count-by-type')).status, 401);
+  assert.equal((await makeSession().api('POST', '/api/student/notifications/read-by-type', { types: ['announcement'] })).status, 401);
   assert.equal((await makeSession().api('POST', '/api/student/notifications/507f1f77bcf86cd799439011/read')).status, 401);
   assert.equal((await makeSession().api('GET', '/api/cr/notifications')).status, 401);
   assert.equal((await makeSession().api('GET', '/api/admin/notifications')).status, 401);
@@ -401,6 +411,50 @@ test('H1–H5. mark one read / mark all read / counts / idempotency', async () =
 
   // invalid id → 400
   assert.equal((await s2.api('POST', '/api/student/notifications/zzz/read')).status, 400);
+});
+
+test('H-BYTYPE. unread-count-by-type aggregates correctly; read-by-type clears only matching types', async () => {
+  // s4 is a fresh isolated user (never touched by earlier fan-outs in this
+  // file) — seed a KNOWN mix directly via the service for an exact assertion.
+  await notifSvc.createManyNotifications([
+    { recipient: s4Id, type: 'announcement', title: 'A1', message: 'm', dedupeKey: `bytype:ann1:${s4Id}` },
+    { recipient: s4Id, type: 'announcement', title: 'A2', message: 'm', dedupeKey: `bytype:ann2:${s4Id}` },
+    { recipient: s4Id, type: 'assignment', title: 'As1', message: 'm', dedupeKey: `bytype:asg1:${s4Id}` },
+    { recipient: s4Id, type: 'reminder', title: 'R1', message: 'm', dedupeKey: `bytype:rem1:${s4Id}` },
+  ]);
+
+  const before = await s4.api('GET', '/api/student/notifications/unread-count-by-type');
+  assert.equal(before.status, 200);
+  assert.equal(before.json.data.byType.announcement, 2);
+  assert.equal(before.json.data.byType.assignment, 1);
+  assert.equal(before.json.data.byType.reminder, 1);
+  assert.equal(before.json.data.total, 4);
+
+  // clear only announcement + assignment (the "Assignments tab" mapping is
+  // assignment + reminder in the frontend — here we test partial clearing)
+  const cleared = await s4.api('POST', '/api/student/notifications/read-by-type', { types: ['announcement', 'assignment'] });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.json.data.count, 3); // 2 announcement + 1 assignment
+
+  const after = await s4.api('GET', '/api/student/notifications/unread-count-by-type');
+  assert.equal(after.json.data.byType.announcement ?? 0, 0);
+  assert.equal(after.json.data.byType.assignment ?? 0, 0);
+  assert.equal(after.json.data.byType.reminder, 1); // untouched
+  assert.equal(after.json.data.total, 1);
+
+  // unknown/garbage types are silently ignored, not an error
+  const noop = await s4.api('POST', '/api/student/notifications/read-by-type', { types: ['not_a_real_type'] });
+  assert.equal(noop.status, 200);
+  assert.equal(noop.json.data.count, 0);
+
+  // cross-user isolation: s1's by-type call never sees s4's rows
+  const s1ByType = await s1.api('GET', '/api/student/notifications/unread-count-by-type');
+  assert.equal(s1ByType.status, 200);
+
+  // cleanup the seeded reminder
+  await s4.api('POST', '/api/student/notifications/read-by-type', { types: ['reminder'] });
+  const finalCount = await s4.api('GET', '/api/student/notifications/unread-count-by-type');
+  assert.equal(finalCount.json.data.total, 0);
 });
 
 test('H6. list: newest first, pagination, unread filter, no cross-user rows', async () => {

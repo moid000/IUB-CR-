@@ -358,6 +358,27 @@ export async function countMyUnread(req) {
 }
 
 /**
+ * Unread count broken down by type — powers per-tab badges (e.g. the mobile
+ * bottom tab bar shows "1" on Assignments when a new assignment/deadline
+ * reminder is unread, independent of the Announcements/Timetable counts).
+ * `total` is included so callers don't need a second round-trip.
+ */
+export async function countMyUnreadByType(req) {
+  await generateDueReminders(req.user);
+  const rows = await Notification.aggregate([
+    { $match: { recipient: req.user._id, read: false } },
+    { $group: { _id: '$type', count: { $sum: 1 } } },
+  ]);
+  const byType = {};
+  let total = 0;
+  for (const row of rows) {
+    byType[row._id] = row.count;
+    total += row.count;
+  }
+  return { byType, total };
+}
+
+/**
  * Mark one notification read. Cross-user ids resolve to 404 (existence must
  * not leak); re-reading an already-read notification is an idempotent no-op.
  */
@@ -389,6 +410,32 @@ export async function markAllMyNotificationsRead(req) {
       actor: req.user._id, actorRole: req.user.role,
       action: 'notification.read_all', entityType: 'notification',
       after: { count: res.modifiedCount },
+    });
+  }
+  return { count: res.modifiedCount };
+}
+
+/**
+ * Marks all unread notifications of the given type(s) read for the current
+ * user — powers "opening a tab clears its badge" (e.g. visiting Assignments
+ * silently clears unread assignment + deadline-reminder notifications).
+ * Silently ignores unknown types instead of throwing: a badge-clear call is
+ * best-effort UX, never a reason to surface an error to the user.
+ */
+export async function markMyNotificationsReadByType(req) {
+  const requested = Array.isArray(req.body?.types) ? req.body.types : [];
+  const types = requested.filter((t) => TYPE_ENUM.includes(t));
+  if (!types.length) return { count: 0 };
+
+  const res = await Notification.updateMany(
+    { recipient: req.user._id, read: false, type: { $in: types } },
+    { $set: { read: true, readAt: nowDate() } },
+  );
+  if (res.modifiedCount > 0) {
+    await audit({
+      actor: req.user._id, actorRole: req.user.role,
+      action: 'notification.read_by_type', entityType: 'notification',
+      after: { types, count: res.modifiedCount },
     });
   }
   return { count: res.modifiedCount };

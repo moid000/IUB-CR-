@@ -7,7 +7,8 @@ import { IconMenu } from '../icons.jsx';
  * Motion drawer as the hamburger. Professional app pattern (WhatsApp/Instagram).
  *
  * Props:
- *  - items: [{ to, label, icon, end? }]
+ *  - items: [{ to, label, icon, end?, badge? }] — badge shows the per-tab
+ *    unread count (e.g. '1' on Assignments when a new assignment is unseen);
  *  - onMore: opens the portal drawer
  *  - moreBadge: optional unread count shown as a dot on the More button
  */
@@ -32,7 +33,14 @@ export function BottomTabBar({ items, onMore, moreLabel = 'More', moreBadge = nu
                 }`
               }
             >
-              <Icon className="size-5" />
+              <span className="relative">
+                <Icon className="size-5" />
+                {item.badge ? (
+                  <span className="absolute -right-1.5 -top-0.5 grid min-w-3.5 place-items-center rounded-full bg-primary-600 px-1 text-[9px] font-bold leading-none text-white">
+                    {item.badge > 9 ? '9+' : item.badge}
+                  </span>
+                ) : null}
+              </span>
               <span className="max-w-full truncate">{item.label}</span>
             </NavLink>
           );

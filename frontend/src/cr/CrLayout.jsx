@@ -23,6 +23,17 @@ import {
 
 const EASE = [0.22, 1, 0.36, 1];
 
+/**
+ * Per-tab unread badges (same contract as the student shell). CRs receive
+ * notifications when ADMIN posts content + deadline reminders — visiting the
+ * tab page silently marks its unread rows read so the number clears.
+ */
+const BADGE_TYPES_FOR_PATH = {
+  '/cr/announcements': ['announcement'],
+  '/cr/assignments': ['assignment', 'reminder'],
+  '/cr/timetable': ['timetable'],
+};
+
 const NAV_GROUPS = [
   {
     items: [{ to: '/cr', label: 'Dashboard', icon: IconGrid, end: true }],
@@ -99,7 +110,8 @@ export default function CrLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [unread, setUnread] = useState(null);
+  const [unread, setUnread] = useState(null); // total — sidebar Notifications + More badge
+  const [unreadByType, setUnreadByType] = useState(null); // per-tab numbers
 
   const section = user?.section;
 
@@ -107,14 +119,42 @@ export default function CrLayout() {
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
   useBodyScrollLock(drawerOpen);
 
-  // Unread notification count — fetched once per navigation (lazy server reminders)
+  // Per-type unread counts — fetched once per navigation (lazy server reminders).
+  // Landing on a tab page ALSO clears that tab's unread rows server-side.
   useEffect(() => {
     let cancelled = false;
-    crApi.notifications.unreadCount()
-      .then((res) => { if (!cancelled) setUnread(res?.data?.count ?? 0); })
-      .catch(() => {}); // badge is decorative — never block the shell
+    const clearTypes = BADGE_TYPES_FOR_PATH[location.pathname];
+    crApi.notifications.unreadByType()
+      .then((res) => {
+        if (cancelled) return;
+        const byType = res?.data?.byType ?? {};
+        setUnread(res?.data?.total ?? 0);
+        setUnreadByType(byType);
+        if (clearTypes && clearTypes.some((t) => byType[t] > 0)) {
+          crApi.notifications.readByType(clearTypes)
+            .then((r) => {
+              if (cancelled) return;
+              const cleared = r?.data?.count ?? 0;
+              setUnreadByType((prev) => {
+                const next = { ...prev };
+                for (const t of clearTypes) delete next[t];
+                return next;
+              });
+              setUnread((prev) => Math.max(0, (prev ?? 0) - cleared));
+            })
+            .catch(() => {}); // badge clear is best-effort
+        }
+      })
+      .catch(() => {}); // badges are decorative — never block the shell
     return () => { cancelled = true; };
   }, [location.pathname]);
+
+  // Per-tab badge number (sum of that tab's notification types)
+  const tabBadge = (types) => {
+    if (!unreadByType) return null;
+    const n = types.reduce((sum, t) => sum + (unreadByType[t] ?? 0), 0);
+    return n > 0 ? n : null;
+  };
 
   const handleLogout = async () => {
     await logout(); // POST /api/auth/logout clears the httpOnly cookie
@@ -197,9 +237,9 @@ export default function CrLayout() {
       <BottomTabBar
         items={[
           { to: '/cr', label: 'Dashboard', icon: IconGrid, end: true },
-          { to: '/cr/announcements', label: 'Announcements', icon: IconMegaphone },
-          { to: '/cr/assignments', label: 'Assignments', icon: IconClipboard },
-          { to: '/cr/timetable', label: 'Timetable', icon: IconCalendar },
+          { to: '/cr/announcements', label: 'Announcements', icon: IconMegaphone, badge: tabBadge(['announcement']) },
+          { to: '/cr/assignments', label: 'Assignments', icon: IconClipboard, badge: tabBadge(['assignment', 'reminder']) },
+          { to: '/cr/timetable', label: 'Timetable', icon: IconCalendar, badge: tabBadge(['timetable']) },
         ]}
         onMore={() => setDrawerOpen(true)}
         moreBadge={unread || null}

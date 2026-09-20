@@ -106,7 +106,9 @@ export const crApi = {
   /* ---- Notifications (own mailbox; reminders lazily generated server-side) ---- */
   notifications: {
     list: (params) => api.get(`/api/cr/notifications${qs(params)}`), // unread | page | limit
-    unreadCount: () => api.get('/api/cr/notifications/unread-count'), // → { count }
+    unreadCount: () => api.get('/api/cr/notifications/unread-count'),
+    unreadByType: () => api.get('/api/cr/notifications/unread-count-by-type'), // -> { byType, total }
+    readByType: (types) => api.post('/api/cr/notifications/read-by-type', { types }), // → { count }
     read: (id) => api.post(`/api/cr/notifications/${id}/read`),
     readAll: () => api.post('/api/cr/notifications/read-all'),
   },

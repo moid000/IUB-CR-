@@ -7,15 +7,13 @@ import { CountUp } from './CountUp.jsx';
 export function StatCard({ to, icon: Icon = null, label, value, hint, className = '' }) {
   const body = (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
-        {Icon && (
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6">
-            <Icon className="size-4" />
-          </span>
-        )}
-      </div>
-      <p className="mt-2.5 text-2xl font-semibold tracking-tight text-slate-900"><CountUp value={value} /></p>
+      {Icon && (
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6">
+          <Icon className="size-4.5" />
+        </span>
+      )}
+      <p className="mt-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-900"><CountUp value={value} /></p>
       {hint && <p className="mt-0.5 truncate text-xs text-slate-500">{hint}</p>}
     </>
   );

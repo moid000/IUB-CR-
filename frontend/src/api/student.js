@@ -69,6 +69,8 @@ export const studentApi = {
   notifications: {
     list: (params) => api.get(`/api/student/notifications${qs(params)}`),
     unreadCount: () => api.get('/api/student/notifications/unread-count'),
+    unreadByType: () => api.get('/api/student/notifications/unread-count-by-type'), // -> { byType, total }
+    readByType: (types) => api.post('/api/student/notifications/read-by-type', { types }),
     read: (id) => api.post(`/api/student/notifications/${id}/read`),
     readAll: () => api.post('/api/student/notifications/read-all'),
   },
