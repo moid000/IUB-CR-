@@ -5,6 +5,7 @@ import { PageTransition } from '../components/motion/primitives.jsx';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useBodyScrollLock } from '../components/ui/useBodyScrollLock.js';
 import { SidebarBrand, NavGroup } from '../components/layout/Sidebar.jsx';
+import { BottomTabBar } from '../components/layout/BottomTabBar.jsx';
 import { AccountMenu } from '../components/layout/AccountMenu.jsx';
 import {
   IconGrid, IconBuilding, IconCalendar, IconLayers, IconUserSquare,
@@ -157,7 +158,7 @@ export default function AdminLayout() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 px-4 pt-4 pb-28 sm:px-6 sm:pt-6 lg:p-8">
           <div className="mx-auto w-full max-w-6xl">
             <PageTransition key={location.pathname}>
               <Outlet />
@@ -165,6 +166,17 @@ export default function AdminLayout() {
           </div>
         </main>
       </div>
+
+      {/* ---- Mobile bottom tab bar (drawer handles the rest) ---- */}
+      <BottomTabBar
+        items={[
+          { to: '/admin', label: 'Overview', icon: IconGrid, end: true },
+          { to: '/admin/sections', label: 'Sections', icon: IconLayers },
+          { to: '/admin/students', label: 'Students', icon: IconGraduation },
+          { to: '/admin/subjects', label: 'Subjects', icon: IconBook },
+        ]}
+        onMore={() => setDrawerOpen(true)}
+      />
     </div>
   );
 }

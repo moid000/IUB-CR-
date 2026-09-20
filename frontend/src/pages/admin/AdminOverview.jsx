@@ -133,7 +133,7 @@ export default function AdminOverview() {
         </Alert>
       )}
 
-      <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
         {cards.map((c) => (
           <StaggerItem><MetricCard
             key={c.label}

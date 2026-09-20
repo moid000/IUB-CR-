@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { studentApi } from '../../api/student.js';
-import { formatDate, formatDateTime } from '../../admin/format.js';
+import { formatDate, formatDateTime, fmtRoom } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
@@ -17,6 +17,7 @@ import {
 } from '../../components/icons.jsx';
 
 const TZ = 'Asia/Karachi';
+const todayLabelFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
 
 
 /**
@@ -29,6 +30,7 @@ export default function StudentOverview() {
 
   // Today's date in Pakistan time (daily timetable — any calendar date)
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
+  const todayLabel = useMemo(() => todayLabelFmt.format(new Date()), []);
 
   const [counts, setCounts] = useState({ subjects: null, assignments: null, attendance: null, unread: null });
   const [recent, setRecent] = useState({ announcements: [], assignments: [], todayClasses: [] });
@@ -113,9 +115,9 @@ export default function StudentOverview() {
         <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           <StatCard to="/student/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
           <StatCard to="/student/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} hint="published for your section" />
-          <StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
+          <StatCard to="/student/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${todayLabel}`} />
           <StatCard to="/student/attendance" icon={IconQr} label="Attendance" value={counts.attendance ?? '—'} hint="sessions attended" />
-          <StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
+          <StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" className="col-span-2 lg:col-span-1" />
         </Stagger>
       )}
 
@@ -137,7 +139,7 @@ export default function StudentOverview() {
               <div key={c._id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-800">{c.subject?.name ?? 'Class'}</p>
-                  {c.room && <p className="text-xs text-slate-500">Room {c.room}</p>}
+                  {c.room && <p className="text-xs text-slate-500">Room {fmtRoom(c.room)}</p>}
                 </div>
                 <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-600">
                   <IconClock className="size-3.5 text-slate-400" />

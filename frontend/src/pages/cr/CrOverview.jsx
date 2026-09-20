@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery } from '../../admin/hooks.js';
-import { formatDate, formatDateTime, timeAgo } from '../../admin/format.js';
+import { formatDate, formatDateTime, timeAgo, fmtRoom } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
@@ -19,6 +19,7 @@ import {
 } from '../../components/icons.jsx';
 
 const TZ = 'Asia/Karachi';
+const todayLabelFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
 
 
 
@@ -28,6 +29,7 @@ export default function CrOverview() {
 
   // Today's date in Pakistan time (daily timetable — any calendar date)
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
+  const todayLabel = useMemo(() => todayLabelFmt.format(new Date()), []);
 
   const [counts, setCounts] = useState({ students: null, subjects: null, assignments: null, unread: null });
   const [recent, setRecent] = useState({ announcements: [], assignments: [], todayClasses: [] });
@@ -112,8 +114,8 @@ export default function CrOverview() {
           <StatCard to="/cr/students" icon={IconUsers} label="Students" value={counts.students ?? '—'} />
           <StatCard to="/cr/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
           <StatCard to="/cr/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} />
-          <StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${today}`} />
-          <StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" />
+          <StatCard to="/cr/timetable" icon={IconCalendar} label="Today's classes" value={recent.todayClasses.length} hint={`on ${todayLabel}`} />
+          <StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" className="col-span-2 lg:col-span-1" />
         </Stagger>
       )}
 
@@ -139,7 +141,7 @@ export default function CrOverview() {
                   <IconClock className="size-4 shrink-0 text-primary-500" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-800">{t.subject?.name ?? '—'}</p>
-                    <p className="text-xs text-slate-500">{t.room ? `Room ${t.room} · ` : ''}{t.subject?.code}</p>
+                    <p className="text-xs text-slate-500">{t.room ? `Room ${fmtRoom(t.room)} · ` : ''}{t.subject?.code}</p>
                   </div>
                   <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">
                     {t.startTime}–{t.endTime}

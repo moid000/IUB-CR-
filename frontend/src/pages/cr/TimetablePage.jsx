@@ -177,7 +177,7 @@ export default function TimetablePage() {
         <IconClock className="size-4 shrink-0 text-primary-500" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-slate-800">{t.subject?.name ?? '—'}</p>
-          <p className="text-xs text-slate-500">{t.subject?.code}{t.room ? ` · Room ${t.room}` : ''}</p>
+          <p className="text-xs text-slate-500">{t.subject?.code}{t.room ? ` · Room ${fmtRoom(t.room)}` : ''}</p>
         </div>
         <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{t.startTime}–{t.endTime}</span>
       </div>

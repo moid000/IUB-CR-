@@ -7,6 +7,7 @@ import { useBodyScrollLock } from '../components/ui/useBodyScrollLock.js';
 import { crApi } from '../api/cr.js';
 import { Badge } from '../components/ui/Badge.jsx';
 import { SidebarBrand, NavGroup, NavItem } from '../components/layout/Sidebar.jsx';
+import { BottomTabBar } from '../components/layout/BottomTabBar.jsx';
 import { AccountMenu } from '../components/layout/AccountMenu.jsx';
 import {
   IconGrid, IconLayers, IconUsers, IconBook, IconMegaphone, IconFileText,
@@ -185,12 +186,24 @@ export default function CrLayout() {
           </div>
         </header>
 
-        <main className="px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <main className="px-4 pt-6 pb-28 sm:px-6 sm:pt-8 lg:px-8 lg:pb-8">
           <PageTransition key={location.pathname}>
             <Outlet />
           </PageTransition>
         </main>
       </div>
+
+      {/* ---- Mobile bottom tab bar (drawer handles the rest) ---- */}
+      <BottomTabBar
+        items={[
+          { to: '/cr', label: 'Dashboard', icon: IconGrid, end: true },
+          { to: '/cr/announcements', label: 'Announcements', icon: IconMegaphone },
+          { to: '/cr/assignments', label: 'Assignments', icon: IconClipboard },
+          { to: '/cr/timetable', label: 'Timetable', icon: IconCalendar },
+        ]}
+        onMore={() => setDrawerOpen(true)}
+        moreBadge={unread || null}
+      />
     </div>
   );
 }

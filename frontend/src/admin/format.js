@@ -40,3 +40,10 @@ export function formatDateTimeNoYear(value) {
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? '—' : dateTimeNoYearFmt.format(d);
 }
+
+/** Room labels are stored exactly as the CR typed them (often already "Room 12") —
+ *  strip a redundant leading "Room" so the UI never shows "Room Room 12". */
+export function fmtRoom(room) {
+  if (!room) return '';
+  return String(room).trim().replace(/^rooms?\s*[-–:.]?\s*/i, '');
+}

@@ -4,7 +4,7 @@ import { CountUp } from './CountUp.jsx';
 
 /** Metric card — real backend counts only. Icon in a soft chip, strong value,
  *  quiet metadata. Whole card is a link when `to` is given. */
-export function StatCard({ to, icon: Icon = null, label, value, hint }) {
+export function StatCard({ to, icon: Icon = null, label, value, hint, className = '' }) {
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
@@ -21,7 +21,7 @@ export function StatCard({ to, icon: Icon = null, label, value, hint }) {
   );
   const surface = 'rounded-2xl border border-slate-200/80 bg-white p-4.5 shadow-soft transition-all duration-300 hover:-translate-y-1 hover:shadow-lift sm:p-5';
   return (
-    <StaggerItem>
+    <StaggerItem className={className}>
       {to ? (
         <Link to={to} className={`group block ${surface} hover:border-primary-200 hover:shadow-lift`}>{body}</Link>
       ) : (

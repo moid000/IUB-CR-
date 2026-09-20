@@ -105,7 +105,7 @@ export default function StudentTimetablePage() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-800">{s.subject?.name ?? 'Class'}</p>
                   <p className="text-xs text-slate-500">
-                    {s.subject?.code}{s.room ? ` · Room ${s.room}` : ''}
+                    {s.subject?.code}{s.room ? ` · Room ${fmtRoom(s.room)}` : ''}
                   </p>
                 </div>
               </div>

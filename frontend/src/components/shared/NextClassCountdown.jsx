@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../ui/Button.jsx';
 import { IconBell, IconClock } from '../icons.jsx';
+import { fmtRoom } from '../../admin/format.js';
 
 /**
  * Next-class countdown + 30-minute alert.
@@ -16,6 +17,8 @@ import { IconBell, IconClock } from '../icons.jsx';
  */
 const TZ = 'Asia/Karachi';
 const ALERT_WINDOW_MS = 30 * 60 * 1000;
+
+const todayLabelFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
 
 /** Current instant as "PKT wall-clock read as UTC" — comparable with slotPoints(). */
 function pktNow() {
@@ -56,6 +59,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
   const notifiedRef = useRef(new Set());
 
   const today = useMemo(() => pktToday(), []);
+  const todayLabel = useMemo(() => todayLabelFmt.format(new Date()), []);
   const live = useMemo(() => pktNow(), [tick]);
 
   useEffect(() => {
@@ -87,7 +91,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
         new Notification('Class starting soon!', {
-          body: `${state.slot.subject?.name ?? 'Class'} starts at ${state.slot.startTime}${state.slot.room ? ` — Room ${state.slot.room}` : ''}`,
+          body: `${state.slot.subject?.name ?? 'Class'} starts at ${state.slot.startTime}${state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}`,
           tag: `iubcr-class-${state.slot._id}`,
         });
       } catch { /* some browsers throw on construction — non-fatal */ }
@@ -114,7 +118,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
             <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
           </span>
           <p className="text-sm font-semibold text-slate-900">
-            {name(state.slot)} chal rahi hai{state.slot.room ? ` — Room ${state.slot.room}` : ''}
+            {name(state.slot)} chal rahi hai{state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}
           </p>
         </div>
         <p className="mt-1 text-xs text-slate-500">Ends at {state.slot.endTime} · {fmtCountdown(state.end - live)} left</p>
@@ -131,7 +135,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
           <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">30-min alert</span>
         </div>
         <p className="mt-1 text-xs text-amber-800/80">
-          Starts {state.slot.startTime} · ends {state.slot.endTime}{state.slot.room ? ` · Room ${state.slot.room}` : ''}
+          Starts {state.slot.startTime} · ends {state.slot.endTime}{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}
         </p>
       </>
     );
@@ -139,7 +143,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
     body = (
       <>
         <p className="text-sm font-semibold text-slate-900">Next class: {name(state.slot)} at {state.slot.startTime}</p>
-        <p className="mt-1 text-xs text-slate-500">{fmtCountdown(state.start - live)} to go{state.slot.room ? ` · Room ${state.slot.room}` : ''}</p>
+        <p className="mt-1 text-xs text-slate-500">{fmtCountdown(state.start - live)} to go{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}</p>
       </>
     );
   } else if (todaySlots.length === 0) {
@@ -163,7 +167,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <h3 className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          <IconClock className="size-3.5" /> Today · {today}
+          <IconClock className="size-3.5" /> Today · {todayLabel}
         </h3>
         {perm === 'default' && <Button variant="secondary" size="sm" onClick={requestPermission}>Enable alerts</Button>}
       </div>

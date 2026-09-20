@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { useBodyScrollLock } from '../components/ui/useBodyScrollLock.js';
 import { studentApi } from '../api/student.js';
 import { SidebarBrand, NavGroup, NavItem } from '../components/layout/Sidebar.jsx';
+import { BottomTabBar } from '../components/layout/BottomTabBar.jsx';
 import { AccountMenu } from '../components/layout/AccountMenu.jsx';
 import {
   IconGrid, IconBook, IconMegaphone, IconFileText, IconClipboard, IconCalendar,
@@ -177,12 +178,24 @@ export default function StudentLayout() {
           </div>
         </header>
 
-        <main className="px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <main className="px-4 pt-6 pb-28 sm:px-6 sm:pt-8 lg:px-8 lg:pb-8">
           <PageTransition key={location.pathname}>
             <Outlet />
           </PageTransition>
         </main>
       </div>
+
+      {/* ---- Mobile bottom tab bar (drawer handles the rest) ---- */}
+      <BottomTabBar
+        items={[
+          { to: '/student', label: 'Dashboard', icon: IconGrid, end: true },
+          { to: '/student/announcements', label: 'Announcements', icon: IconMegaphone },
+          { to: '/student/assignments', label: 'Assignments', icon: IconClipboard },
+          { to: '/student/timetable', label: 'Timetable', icon: IconCalendar },
+        ]}
+        onMore={() => setDrawerOpen(true)}
+        moreBadge={unread || null}
+      />
     </div>
   );
 }
