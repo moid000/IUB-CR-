@@ -293,6 +293,135 @@ test('timetable create broadcasts the slot', async () => {
   assert.ok(sent[0].params.body.includes('9:00 AM – 10:30 AM'), sent[0].params.body);
 });
 
+/* ---------------- combined one-shot broadcast (owner 2026-09-20) ----------- */
+
+test('suppressGroupBroadcast: create sends NOTHING until the explicit broadcast', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/announcements', {
+    title: 'Pic with details', content: 'Full description here.',
+    suppressGroupBroadcast: true,
+  });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(sent.length, 0, 'create must stay silent when suppressed');
+
+  const id = res.json.data._id;
+  const out = await cr.api('POST', `/api/cr/announcements/${id}/broadcast`);
+  assert.equal(out.status, 200, out.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'chat');
+  assert.ok(sent[0].params.body.includes('Pic with details'));
+  assert.ok(sent[0].params.body.includes('Full description here.'));
+});
+
+test('second broadcast call does NOT duplicate the burst (idempotency)', async () => {
+  stubGateway();
+  const ann = (await cr.api('POST', '/api/cr/announcements', {
+    title: 'Idempotent burst', content: 'Ek hi dafa.', suppressGroupBroadcast: true,
+  })).json.data;
+  const first = (await cr.api('POST', `/api/cr/announcements/${ann._id}/broadcast`)).json.data;
+  assert.equal(first.sent, true);
+  const second = (await cr.api('POST', `/api/cr/announcements/${ann._id}/broadcast`)).json.data;
+  assert.equal(second.sent, false);
+  assert.equal(second.reason, 'already-broadcast');
+  const stored = await Announcement.findById(ann._id);
+  assert.ok(stored.groupBroadcastAt, 'groupBroadcastAt persists');
+  // messages sent to the mock gateway: exactly ONE chat from the first broadcast
+  const sentChats = sent.filter((m) => m.params?.to === GROUP_ID && m.kind === 'chat');
+  assert.equal(sentChats.filter((m) => m.params?.body?.includes('Idempotent burst')).length, 1);
+});
+
+test('broadcast endpoint delivers text + ALL attachments together in one burst', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/notes', {
+    title: 'Combined note', content: 'Chapter 4 summary', subject,
+    suppressGroupBroadcast: true,
+  });
+  assert.equal(res.status, 200, res.text);
+  const id = res.json.data._id;
+
+  // attach two fake files directly (metadata shape only — media send is stubbed)
+  const { Note } = models;
+  await Note.updateOne({ _id: id }, { $set: { attachments: [
+    { publicId: 'a1', url: 'https://res.cloudinary.com/t/i/one.png', mimeType: 'image/png', originalName: 'one.png' },
+    { publicId: 'a2', url: 'https://res.cloudinary.com/t/i/two.pdf', mimeType: 'application/pdf', originalName: 'two.pdf' },
+  ] } });
+
+  const out = await cr.api('POST', `/api/cr/notes/${id}/broadcast`);
+  assert.equal(out.status, 200, out.text);
+  assert.equal(sent.length, 3, 'text + image + document, one burst');
+  assert.equal(sent[0].kind, 'chat');
+  assert.equal(sent[1].kind, 'image');
+  assert.equal(sent[2].kind, 'document');
+  assert.equal(sent[2].params.filename, 'two.pdf');
+});
+
+test('broadcast marks groupBroadcastAt so later attach-confirmed files also go out', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/announcements', {
+    title: 'Later file', content: 'More coming.', suppressGroupBroadcast: true,
+  });
+  const id = res.json.data._id;
+  await cr.api('POST', `/api/cr/announcements/${id}/broadcast`);
+  assert.equal(sent.length, 1);
+
+  const { Announcement } = models;
+  const doc = await Announcement.findById(id);
+  assert.ok(doc.groupBroadcastAt, 'groupBroadcastAt must be set after broadcast');
+
+  // later-attached file (confirm flow) goes to the group on its own
+  await broadcastAttachmentToSectionGroup(doc.section, {
+    publicId: 'late1', url: 'https://res.cloudinary.com/t/i/late.jpg',
+    mimeType: 'image/jpeg', originalName: 'late.jpg',
+  });
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].kind, 'image');
+});
+
+test('assignment: suppressed create + broadcast endpoint sends text with deadline', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/assignments', {
+    title: 'Lab 5', instructions: 'Bring kits', subject,
+    deadline: new Date(Date.now() + 48 * 3600e3).toISOString(),
+    suppressGroupBroadcast: true,
+  });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(sent.length, 0);
+
+  const out = await cr.api('POST', `/api/cr/assignments/${res.json.data._id}/broadcast`);
+  assert.equal(out.status, 200, out.text);
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].params.body.includes('Lab 5'));
+  assert.ok(/Due:/.test(sent[0].params.body));
+});
+
+test('broadcast endpoint: cross-section doc 404s; archived doc 404s', async () => {
+  stubGateway();
+  await linkGroup();
+
+  const sec = await Section.findById(section);
+  const other = await admin.api('POST', '/api/admin/sections', {
+    name: 'WA-Other', department: sec.department, session: sec.session, semester: sec.semester,
+  });
+  const otherId = other.json.data._id;
+  const made = await admin.api('POST', '/api/admin/announcements', {
+    section: otherId, title: 'Other section', content: 'x',
+  });
+  const out = await cr.api('POST', `/api/cr/announcements/${made.json.data._id}/broadcast`);
+  assert.equal(out.status, 404);
+});
+
 /* -------------------- attachment / media broadcasts ----------------------- */
 
 test('announcement text carries FULL content and NO app link', async () => {

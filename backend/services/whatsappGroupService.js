@@ -248,6 +248,9 @@ export async function broadcastContentToGroup(req, { Model, kind, buildMessage }
   const id = v.assertObjectId(req.params.id, 'id');
   const doc = await Model.findOne({ _id: id, section: req.user.section, status: 'published' });
   if (!doc) throw new ApiError(404, `${kind} not found`);
+  // Idempotency guard (2026-09-20): an explicit broadcast fires ONCE per post.
+  // A second call must not duplicate the burst in the group.
+  if (doc.groupBroadcastAt) return { sent: false, reason: 'already-broadcast', mediaSent: 0 };
   const message = await buildMessage(doc);
   const out = await broadcastToSectionGroup(doc.section, message, doc.attachments);
   if (out.sent) {
