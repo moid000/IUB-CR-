@@ -188,7 +188,7 @@ export function SlotTimeline({ slots, isToday, now, renderActions }) {
         return (
           <li
             key={s._id}
-            className={`relative grid grid-cols-[64px_1fr] gap-3 ${st === 'past' ? 'opacity-55' : ''}`}
+            className={`relative grid grid-cols-[64px_minmax(0,1fr)] gap-3 ${st === 'past' ? 'opacity-55' : ''}`}
           >
             {/* Time rail */}
             <div className="flex flex-col items-end justify-center pt-1 text-right">
@@ -253,7 +253,7 @@ export function TimelineSkeleton({ rows = 4 }) {
   return (
     <div className="space-y-3" role="status" aria-label="Loading timetable">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="grid grid-cols-[64px_1fr] gap-3">
+        <div key={i} className="grid grid-cols-[64px_minmax(0,1fr)] gap-3">
           <div className="flex flex-col items-end gap-1.5 pt-1">
             <div className="h-3 w-10 rounded skeleton-shimmer" />
             <div className="h-2 w-8 rounded skeleton-shimmer" />
