@@ -13,11 +13,15 @@ import {
 } from '../controllers/notificationController.js';
 import { listAssessmentsStudent, getAssessmentStudent, listMyMarks } from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload, removeFileUpload } from '../controllers/fileController.js';
+import { studentOverview } from '../controllers/overviewController.js';
 
 const router = Router();
 
 // Student routes are READ-ONLY — no student mutation route exists in any phase.
 router.use(protect, studentOnly, sectionScope);
+
+// ONE-request dashboard aggregate (was 7 parallel GETs — felt slow on phones)
+router.get('/overview', studentOverview);
 
 // Attendance — single verification path for manual code AND signed QR
 router.get('/attendance/sessions', listSessionsStudent); // active own-section sessions (no code/hash)

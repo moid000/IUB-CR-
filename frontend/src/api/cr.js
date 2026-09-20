@@ -14,6 +14,9 @@ const qs = (params = {}) => {
 };
 
 export const crApi = {
+  /* ---- ONE-request dashboard aggregate ---- */
+  overview: () => api.get('/api/cr/overview'), // { counts, announcements, assignments, todayClasses }
+
   /* ---- Students (list + precreate — section ALWAYS server-derived) ---- */
   students: {
     list: (params) => api.get(`/api/cr/students${qs(params)}`), // page | limit → { data, pagination }

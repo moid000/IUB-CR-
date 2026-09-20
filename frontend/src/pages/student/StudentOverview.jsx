@@ -41,31 +41,20 @@ export default function StudentOverview() {
     let cancelled = false;
     const safe = (p) => p.catch(() => null);
     (async () => {
-      const [subjects, assignments, attendance, unread, announcements, upcoming, timetable] = await Promise.all([
-        safe(studentApi.subjects.list({ status: 'active', limit: 1 })),
-        safe(studentApi.assignments.list({ status: 'published', limit: 5 })),
-        safe(studentApi.attendance.history({ limit: 1 })),
-        safe(studentApi.notifications.unreadCount()),
-        safe(studentApi.announcements.list({ limit: 4 })),
-        safe(studentApi.assignments.list({ status: 'published', limit: 4 })),
-        safe(studentApi.timetable.list({ date: today, status: 'active', limit: 10 })),
-      ]);
+      // ONE aggregate request (was 7 parallel GETs — dashboard felt slow on phones)
+      const ov = await safe(studentApi.overview());
       if (cancelled) return;
-      setCounts({
-        subjects: subjects?.pagination?.total ?? null,
-        assignments: assignments?.pagination?.total ?? null,
-        attendance: attendance?.pagination?.total ?? null,
-        unread: unread?.data?.count ?? null,
-      });
+      const d = ov?.data ?? {};
+      setCounts(d.counts ?? {});
       // upcoming = soonest-deadline published assignments (server sorts by createdAt,
       // so order client-side by deadline — never by fabricated data)
-      const upcomingItems = (upcoming?.data ?? [])
+      const upcomingItems = (d.assignments ?? [])
         .filter((a) => !a.deadlinePassed)
         .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
       setRecent({
-        announcements: announcements?.data ?? [],
+        announcements: d.announcements ?? [],
         assignments: upcomingItems,
-        todayClasses: timetable?.data ?? [],
+        todayClasses: d.todayClasses ?? [],
       });
       setLoaded(true);
     })();

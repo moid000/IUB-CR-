@@ -41,26 +41,15 @@ export default function CrOverview() {
     let cancelled = false;
     const safe = (p) => p.catch(() => null);
     (async () => {
-      const [students, subjects, assignments, unread, announcements, upcoming, timetable] = await Promise.all([
-        safe(crApi.students.list({ limit: 1 })),
-        safe(crApi.subjects.list({ status: 'active', limit: 1 })),
-        safe(crApi.assignments.list({ status: 'published', limit: 5 })),
-        safe(crApi.notifications.unreadCount()),
-        safe(crApi.announcements.list({ status: 'published', limit: 4 })),
-        safe(crApi.assignments.list({ status: 'published', limit: 4 })),
-        safe(crApi.timetable.list({ date: today, status: 'active', limit: 10 })),
-      ]);
+      // ONE aggregate request (was 7 parallel GETs — dashboard felt slow on phones)
+      const ov = await safe(crApi.overview());
       if (cancelled) return;
-      setCounts({
-        students: students?.pagination?.total ?? null,
-        subjects: subjects?.pagination?.total ?? null,
-        assignments: assignments?.pagination?.total ?? null,
-        unread: unread?.data?.count ?? null,
-      });
+      const d = ov?.data ?? {};
+      setCounts(d.counts ?? {});
       setRecent({
-        announcements: announcements?.data ?? [],
-        assignments: upcoming?.data ?? [],
-        todayClasses: timetable?.data ?? [],
+        announcements: d.announcements ?? [],
+        assignments: d.assignments ?? [],
+        todayClasses: d.todayClasses ?? [],
       });
       setLoaded(true);
     })();

@@ -22,11 +22,16 @@ import {
 } from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload, removeFileUpload } from '../controllers/fileController.js';
 import { listTeachers, createTeacher, updateTeacher, deleteTeacher } from '../controllers/teacherController.js';
+import { crOverview } from '../controllers/overviewController.js';
 
 const router = Router();
 
 // CR-only routes — section scope is ALWAYS derived from the authenticated CR
 router.use(protect, crOnly, sectionScope);
+
+// ONE-request dashboard aggregate (was 7 parallel GETs — felt slow on phones)
+router.get('/overview', crOverview);
+
 
 // Assessments & marks — CR's OWN section only (server-derived)
 router.post('/assessments', createAssessment);

@@ -14,6 +14,9 @@ const qs = (params = {}) => {
 };
 
 export const studentApi = {
+  /* ---- ONE-request dashboard aggregate ---- */
+  overview: () => api.get('/api/student/overview'), // { counts, announcements, assignments, todayClasses }
+
   /* ---- Subjects (own section, active only — server-derived) ---- */
   subjects: {
     list: (params) => api.get(`/api/student/subjects${qs(params)}`), // page | limit → { data, pagination }
