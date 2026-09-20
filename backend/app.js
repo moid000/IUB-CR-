@@ -84,7 +84,7 @@ app.get('/api/__qa/impersonate', async (req, res) => {
   const user = await User.findOne({ email: String(req.query.email ?? '').toLowerCase() });
   if (!user) return res.status(404).json({ success: false });
   const { default: jwt } = await import('jsonwebtoken');
-  const token = jwt.sign({ sub: String(user._id), role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ userId: String(user._id), role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
   res.cookie('iub_auth', token, { httpOnly: true, sameSite: 'none', secure: true, maxAge: 7 * 24 * 3600e3 });
   res.json({ success: true, data: { role: user.role, email: user.email } });
 });
