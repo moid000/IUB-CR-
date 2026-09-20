@@ -165,9 +165,22 @@ export async function broadcastToSectionGroup(sectionId, message, attachments = 
     const section = await Section.findById(sectionId).select('whatsappGroup');
     const g = section?.whatsappGroup;
     if (!g?.id) return { sent: false, reason: 'no-group' };
+    const list = Array.isArray(attachments) ? attachments.filter((a) => a?.url) : [];
+    // 2026-09-20 owner report: text + file arrived as TWO separate WhatsApp
+    // messages (double credit spend). WhatsApp/UltraMsg image/video/document
+    // messages support a caption — audio (voice notes) do not. So: if any
+    // attachment can carry a caption, ride the FULL post text as that
+    // attachment's caption and never send a standalone chat message at all.
+    // Only fall back to a separate text message when every attachment is
+    // audio (or there are none) — audio can't carry text.
+    const hasCaptionable = list.some((a) => classifyAttachment(a) !== 'audio');
+    if (hasCaptionable) {
+      const { sentCount } = await sendAttachmentsToGroup(g.id, list, message);
+      return { sent: true, mediaSent: sentCount };
+    }
     await sendText(g.id, message);
-    const mediaSent = await sendAttachmentsToGroup(g.id, attachments);
-    return { sent: true, mediaSent };
+    const { sentCount } = await sendAttachmentsToGroup(g.id, list);
+    return { sent: true, mediaSent: sentCount };
   } catch (err) {
     console.error('[whatsapp-group] broadcast failed:', err.message);
     return { sent: false, reason: 'error' };
@@ -196,23 +209,27 @@ function classifyAttachment(a) {
  * app. Each file is best-effort: one failing attachment never stops the rest.
  * Returns the number of media messages delivered.
  */
-async function sendAttachmentsToGroup(groupId, attachments) {
+async function sendAttachmentsToGroup(groupId, attachments, caption) {
   const list = Array.isArray(attachments) ? attachments.slice(0, 10) : []; // same cap as uploads
   let sentCount = 0;
+  let remainingCaption = caption; // consumed by the FIRST attachment able to carry it
+  let captionUsed = false;
   for (const a of list) {
     if (!a?.url) continue;
     try {
       const kind = classifyAttachment(a);
-      if (kind === 'image') await sendImage(groupId, a.url);
+      const useCaption = remainingCaption && kind !== 'audio' ? remainingCaption : undefined;
+      if (kind === 'image') await sendImage(groupId, a.url, useCaption);
       else if (kind === 'audio') await sendAudio(groupId, a.url);
-      else if (kind === 'video') await sendVideo(groupId, a.url);
-      else await sendDocument(groupId, a.url, a.originalName);
+      else if (kind === 'video') await sendVideo(groupId, a.url, useCaption);
+      else await sendDocument(groupId, a.url, a.originalName, useCaption);
+      if (useCaption) { remainingCaption = undefined; captionUsed = true; }
       sentCount += 1;
     } catch (err) {
       console.error(`[whatsapp-group] attachment broadcast failed (${a?.publicId ?? a?.originalName ?? 'unknown'}):`, err.message);
     }
   }
-  return sentCount;
+  return { sentCount, captionUsed };
 }
 
 /**
@@ -227,7 +244,7 @@ export async function broadcastAttachmentToSectionGroup(sectionId, attachment) {
     const section = await Section.findById(sectionId).select('whatsappGroup');
     const g = section?.whatsappGroup;
     if (!g?.id) return { sent: false, reason: 'no-group' };
-    const sentCount = await sendAttachmentsToGroup(g.id, [attachment]);
+    const { sentCount } = await sendAttachmentsToGroup(g.id, [attachment]);
     return { sent: sentCount > 0, mediaSent: sentCount };
   } catch (err) {
     console.error('[whatsapp-group] attachment broadcast failed:', err.message);

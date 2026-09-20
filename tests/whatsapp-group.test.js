@@ -369,11 +369,57 @@ test('broadcast endpoint delivers text + ALL attachments together in one burst',
 
   const out = await cr.api('POST', `/api/cr/notes/${id}/broadcast`);
   assert.equal(out.status, 200, out.text);
-  assert.equal(sent.length, 3, 'text + image + document, one burst');
+  // 2026-09-20 follow-up: text rides as the FIRST attachment's caption —
+  // no separate chat message, so 2 WhatsApp messages (not 3) for 1 credit less.
+  assert.equal(sent.length, 2, 'image (captioned) + document, no standalone chat');
+  assert.equal(sent[0].kind, 'image');
+  assert.ok(sent[0].params.caption.includes('Combined note'), sent[0].params.caption);
+  assert.equal(sent[1].kind, 'document');
+  assert.equal(sent[1].params.filename, 'two.pdf');
+  assert.ok(!sent[1].params.caption, 'second attachment must not repeat the caption');
+});
+
+test('SINGLE document attachment: text rides as caption, ONE WhatsApp message not two (owner-reported bug)', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/announcements', {
+    title: '222222222222', content: '2222222222222', suppressGroupBroadcast: true,
+  });
+  const id = res.json.data._id;
+  const { Announcement } = models;
+  await Announcement.updateOne({ _id: id }, { $set: { attachments: [
+    { publicId: 'x1', url: 'https://res.cloudinary.com/t/d/car.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', originalName: 'Pakistan_Car_Mechanics.xlsx' },
+  ] } });
+
+  const out = await cr.api('POST', `/api/cr/announcements/${id}/broadcast`);
+  assert.equal(out.status, 200, out.text);
+  assert.equal(sent.length, 1, 'exactly ONE WhatsApp message — no separate chat send');
+  assert.equal(sent[0].kind, 'document');
+  assert.equal(sent[0].params.filename, 'Pakistan_Car_Mechanics.xlsx');
+  assert.ok(sent[0].params.caption.includes('222222222222'), sent[0].params.caption);
+});
+
+test('AUDIO-only attachment cannot carry a caption: falls back to text + audio (2 messages)', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/announcements', {
+    title: 'Voice note', content: 'Listen up', suppressGroupBroadcast: true,
+  });
+  const id = res.json.data._id;
+  const { Announcement } = models;
+  await Announcement.updateOne({ _id: id }, { $set: { attachments: [
+    { publicId: 'v1', url: 'https://res.cloudinary.com/t/a/note.mp3', mimeType: 'audio/mpeg', originalName: 'note.mp3' },
+  ] } });
+
+  const out = await cr.api('POST', `/api/cr/announcements/${id}/broadcast`);
+  assert.equal(out.status, 200, out.text);
+  assert.equal(sent.length, 2, 'audio has no caption support — text must still be sent');
   assert.equal(sent[0].kind, 'chat');
-  assert.equal(sent[1].kind, 'image');
-  assert.equal(sent[2].kind, 'document');
-  assert.equal(sent[2].params.filename, 'two.pdf');
+  assert.equal(sent[1].kind, 'audio');
 });
 
 test('broadcast marks groupBroadcastAt so later attach-confirmed files also go out', async () => {

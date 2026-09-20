@@ -101,10 +101,11 @@ export function sendImage(to, imageUrl, caption) {
   return sendMedia('/messages/image', { to, media });
 }
 
-/** Sends a document (PDF/DOC/XLS/ZIP/…) by URL, with a display filename. */
-export function sendDocument(to, url, filename) {
+/** Sends a document (PDF/DOC/XLS/ZIP/…) by URL, with a display filename and optional caption (2026-09-20: lets a document carry the post text so it doesn't need a separate chat message). */
+export function sendDocument(to, url, filename, caption) {
   const media = { document: url };
   if (filename) media.filename = String(filename).slice(0, 255);
+  if (caption) media.caption = String(caption).slice(0, 1024);
   return sendMedia('/messages/document', { to, media });
 }
 
