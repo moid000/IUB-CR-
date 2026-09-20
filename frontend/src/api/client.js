@@ -41,6 +41,35 @@ const sanitize = (message) =>
     ? message
     : null; // anything odd/stack-like is dropped
 
+/**
+ * Tiny in-memory GET cache — perceived-speed only, zero API/logic change.
+ *
+ * - A GET served within GET_FRESH_MS of its last success resolves
+ *   instantly from memory (back-navigation / tab revisits feel instant).
+ * - Identical GETs in flight share one network request.
+ * - ANY mutation (POST/PUT/PATCH/DELETE) clears the whole cache, so data
+ *   never stays stale after the user changes something.
+ * - Auth endpoints are never cached; aborted requests bypass the cache.
+ */
+const GET_FRESH_MS = 8000;
+const getCache = new Map(); // path -> { data, ts }
+const inflight = new Map(); // path -> Promise<data>
+
+function cacheClear() {
+  getCache.clear();
+  inflight.clear();
+}
+
+function cachedGet(path) {
+  const hit = getCache.get(path);
+  if (hit && Date.now() - hit.ts < GET_FRESH_MS) return hit.data;
+  const existing = inflight.get(path);
+  if (existing) return existing;
+  const p = request(path).finally(() => inflight.delete(path));
+  inflight.set(path, p);
+  return p;
+}
+
 async function request(path, { method = 'GET', body, signal } = {}) {
   let res;
   try {
@@ -75,9 +104,13 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 }
 
 export const api = {
-  get: (path, opts) => request(path, opts),
-  post: (path, body, opts) => request(path, { method: 'POST', body, ...opts }),
-  put: (path, body, opts) => request(path, { method: 'PUT', body, ...opts }),
-  patch: (path, body, opts) => request(path, { method: 'PATCH', body, ...opts }),
-  del: (path, opts) => request(path, { method: 'DELETE', ...opts }),
+  get: (path, opts) =>
+    // aborted or auth-session requests always hit the network
+    (opts?.signal || path.startsWith('/api/auth'))
+      ? request(path, opts)
+      : cachedGet(path),
+  post: (path, body, opts) => { cacheClear(); return request(path, { method: 'POST', body, ...opts }); },
+  put: (path, body, opts) => { cacheClear(); return request(path, { method: 'PUT', body, ...opts }); },
+  patch: (path, body, opts) => { cacheClear(); return request(path, { method: 'PATCH', body, ...opts }); },
+  del: (path, opts) => { cacheClear(); return request(path, { method: 'DELETE', ...opts }); },
 };

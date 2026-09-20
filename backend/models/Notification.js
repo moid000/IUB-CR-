@@ -32,6 +32,8 @@ const notificationSchema = new Schema(
 );
 
 notificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
+// Covers the unread-count-by-type aggregate entirely from the index.
+notificationSchema.index({ recipient: 1, read: 1, type: 1 });
 notificationSchema.index(
   { recipient: 1, dedupeKey: 1 },
   { unique: true, partialFilterExpression: { dedupeKey: { $exists: true } } }

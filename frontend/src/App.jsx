@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { MotionConfig } from 'motion/react';
 
 // The SPA is namespaced under /frontend/ (vite base), but root-level URLs
@@ -66,12 +66,59 @@ const StudentNotificationsPage = lazy(() => import('./pages/student/StudentNotif
 const StudentProfilePage = lazy(() => import('./pages/student/StudentProfilePage.jsx'));
 const StudentNotFound = lazy(() => import('./pages/student/StudentNotFound.jsx'));
 
+// Background prefetch (perceived speed, zero behavior change): once the
+// user is settled in a portal, quietly download that portal's tab chunks
+// so tab switches are instant. Same modules the lazy() routes use, so
+// nothing is downloaded twice. Skipped for save-data / 2g users.
+const PORTAL_PREFETCH = {
+  student: () => Promise.all([
+    import('./pages/student/StudentAnnouncementsPage.jsx'),
+    import('./pages/student/StudentAssignmentsPage.jsx'),
+    import('./pages/student/StudentTimetablePage.jsx'),
+    import('./pages/student/StudentNotesPage.jsx'),
+    import('./pages/student/StudentNotificationsPage.jsx'),
+  ]),
+  cr: () => Promise.all([
+    import('./pages/cr/AnnouncementsPage.jsx'),
+    import('./pages/cr/AssignmentsPage.jsx'),
+    import('./pages/cr/TimetablePage.jsx'),
+    import('./pages/cr/NotesPage.jsx'),
+    import('./pages/cr/NotificationsPage.jsx'),
+  ]),
+  admin: () => Promise.all([
+    import('./pages/admin/SectionsPage.jsx'),
+    import('./pages/admin/StudentsPage.jsx'),
+    import('./pages/admin/SubjectsPage.jsx'),
+  ]),
+};
+const prefetchedPortals = new Set();
+
+function PortalPrefetcher() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const portal = pathname.startsWith('/student') ? 'student'
+      : pathname.startsWith('/cr') ? 'cr'
+        : pathname.startsWith('/admin') ? 'admin' : null;
+    if (!portal || prefetchedPortals.has(portal)) return;
+    const conn = navigator.connection;
+    if (conn && (conn.saveData || /2g/.test(conn.effectiveType || ''))) return;
+    const id = setTimeout(() => {
+      if (prefetchedPortals.has(portal)) return;
+      prefetchedPortals.add(portal);
+      PORTAL_PREFETCH[portal]().catch(() => {});
+    }, 2500);
+    return () => clearTimeout(id);
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
         <MotionConfig reducedMotion="user">
         <BrowserRouter basename={ROUTER_BASENAME}>
+          <PortalPrefetcher />
           <Suspense fallback={<FullPageLoader label="Loading…" />}>
           <Routes>
             {/* Public */}
