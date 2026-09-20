@@ -71,9 +71,11 @@ export async function sendText(to, body) {
 
 /**
  * Lists every WhatsApp group the paired number currently belongs to.
- * Returns a normalized [{ id, name }] — the caller (CR group picker) never
- * sees raw vendor payloads. Empty array simply means the number has not
- * been added to any group yet.
+ * Returns a normalized [{ id, name, participants }] — participants are
+ * member numbers as bare international digits (e.g. 923019670950),
+ * extracted from the vendor's groupMetadata. The caller (CR group picker)
+ * never sees raw vendor payloads. Empty array simply means the number has
+ * not been added to any group yet.
  */
 export async function listGroups() {
   if (!isConfigured()) {
@@ -92,9 +94,14 @@ export async function listGroups() {
   }
   return json
     .map((g) => {
-      if (typeof g === 'string') return { id: g, name: g };
+      if (typeof g === 'string') return { id: g, name: g, participants: [] };
       const id = String(g?.id ?? '');
-      return { id, name: String(g?.name ?? (id || 'Group')) };
+      const participants = Array.isArray(g?.groupMetadata?.participants)
+        ? g.groupMetadata.participants
+            .map((p) => String(p?.id ?? '').split('@')[0].replace(/[^\d]/g, ''))
+            .filter(Boolean)
+        : [];
+      return { id, name: String(g?.name ?? (id || 'Group')), participants };
     })
     .filter((g) => g.id); // skip malformed entries
 }

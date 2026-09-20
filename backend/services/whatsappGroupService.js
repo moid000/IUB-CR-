@@ -2,6 +2,7 @@ import { Section, Subject } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import { sendText, listGroups, isConfigured } from './whatsappService.js';
+import { normalizeWhatsApp } from './teacherService.js';
 import { env } from '../config/env.js';
 import * as v from '../utils/validators.js';
 
@@ -73,20 +74,63 @@ export async function getGroupConfigCr(req) {
   };
 }
 
+/**
+ * "923019670950" → "+92 301 9670950" (for UI display only).
+ */
+function prettyNumber(intl) {
+  if (!intl) return null;
+  if (intl.startsWith('92') && intl.length >= 12) return `+92 ${intl.slice(2, 5)} ${intl.slice(5)}`;
+  return `+${intl}`;
+}
+
+/**
+ * Groups the CR is personally a member of (their registered WhatsApp number
+ * appears in the participant list). Owner-confirmed privacy rule 2026-09-20:
+ * the Tri3M number may be a member of MANY sections' groups — a CR must only
+ * ever see (and link) groups that contain THEIR OWN number, so other
+ * sections' group names never leak to them.
+ */
+function myGroups(all, user) {
+  const crPhone = normalizeWhatsApp(user?.phone ?? '');
+  if (!crPhone) return { phone: null, groups: [] };
+  const mine = all.filter((g) => (g.participants ?? []).includes(crPhone));
+  return { phone: crPhone, groups: mine };
+}
+
 /** Fresh group list straight from the gateway — the CR's "Refresh" button. */
 export async function refreshGroupsCr(req) {
   await ownSection(req); // a sectionless CR/GR can never configure broadcasts
-  const groups = await listGroups();
-  return { groups };
+  const all = await listGroups();
+  const { phone, groups: mine } = myGroups(all, req.user);
+  if (!phone) {
+    // CR has no usable WhatsApp number on their profile — nothing can match.
+    return { groups: [], totalGroups: all.length, reason: 'no-phone' };
+  }
+  return {
+    groups: mine.map(({ id, name }) => ({ id, name })),
+    totalGroups: all.length,
+    matchedPhone: prettyNumber(phone),
+  };
 }
 
 export async function linkGroupCr(req) {
   const section = await ownSection(req);
   const body = v.pick(req.body, ['groupId', 'groupName']);
   const id = v.assertText(body.groupId, 'groupId').trim();
-  const name = v.assertText(body.groupName, 'groupName').trim();
   if (!GROUP_ID_RE.test(id)) throw new ApiError(400, 'Invalid WhatsApp group id');
-  if (name.length < 1 || name.length > 100) throw new ApiError(400, 'Group name must be 1–100 characters');
+
+  // Security: only groups that contain the CR's OWN registered number can be
+  // linked — the client cannot inject another section's group id/name.
+  const all = await listGroups();
+  const { phone, groups: mine } = myGroups(all, req.user);
+  const group = mine.find((g) => g.id === id);
+  if (!phone) {
+    throw new ApiError(400, 'Your profile has no WhatsApp number — ask the admin to add it first');
+  }
+  if (!group) {
+    throw new ApiError(400, 'You can only link a group that contains your own WhatsApp number');
+  }
+  const name = String(group.name || 'Group').trim().slice(0, 100);
 
   section.whatsappGroup = { id, name, linkedBy: req.user._id, linkedAt: new Date() };
   await section.save();

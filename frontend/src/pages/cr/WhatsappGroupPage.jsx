@@ -31,6 +31,20 @@ function StepCard({ n, title, children }) {
   );
 }
 
+/**
+ * Human explanation for an empty group list — the privacy filter means
+ * "empty" has three very different causes.
+ */
+function explainEmpty(d) {
+  if (d.reason === 'no-phone') {
+    return 'Your profile has no WhatsApp number — ask the admin to add it to your profile, then refresh again.';
+  }
+  if ((d.totalGroups ?? 0) > 0) {
+    return `The Tri3M number is in ${d.totalGroups} group${d.totalGroups === 1 ? '' : 's'}, but none of them contains your WhatsApp number ${d.matchedPhone ?? ''}. Only groups where YOU are a member are shown — join your class group with this same number, then refresh.`;
+  }
+  return 'No groups found. Make sure the Tri3M number was added to your class WhatsApp group first.';
+}
+
 export default function WhatsappGroupPage() {
   const { user } = useAuth();
   const section = user?.section;
@@ -38,6 +52,7 @@ export default function WhatsappGroupPage() {
 
   const [cfg, setCfg] = useState(null); // { group, instanceNumber, appUrl }
   const [groups, setGroups] = useState(null); // null = not fetched yet
+  const [meta, setMeta] = useState(null); // { totalGroups, matchedPhone, reason }
   const [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -61,9 +76,12 @@ export default function WhatsappGroupPage() {
     try {
       const res = await crApi.whatsappGroup.refreshGroups();
       setGroups(res.data.groups);
-      if (!res.data.groups.length) {
-        setError('No groups found. Make sure the Tri3M number was added to your class group first.');
-      }
+      setMeta({
+        totalGroups: res.data.totalGroups ?? 0,
+        matchedPhone: res.data.matchedPhone ?? null,
+        reason: res.data.reason ?? null,
+      });
+      if (!res.data.groups.length) setError(explainEmpty(res.data));
     } catch (err) {
       setError(err.message);
       setGroups([]);
@@ -160,7 +178,7 @@ export default function WhatsappGroupPage() {
           {(groups ?? null) !== null && (
             <div className="mt-5">
               <p className="mb-2 text-sm font-medium text-slate-700">Pick a different group</p>
-              <GroupPicker groups={groups} selected={selected} onSelect={setSelected} />
+              <GroupPicker groups={groups} selected={selected} onSelect={setSelected} emptyNote={error} />
               <div className="mt-3 flex justify-end">
                 <Button onClick={save} disabled={!selected || saving}>
                   {saving ? 'Saving…' : 'Save group'}
@@ -190,7 +208,7 @@ export default function WhatsappGroupPage() {
               member, exactly like any other member. Only a group admin can do this.
             </StepCard>
             <StepCard n={2} title="Refresh below">
-              Every group the number belongs to will be listed here.
+              Only groups that contain your own WhatsApp number are listed — other sections' groups stay hidden.
             </StepCard>
             <StepCard n={3} title="Select your section's group and save">
               Announcements, assignments, notes and timetable changes will then reach the group automatically.
@@ -206,7 +224,7 @@ export default function WhatsappGroupPage() {
 
           {groups !== null && (
             <div className="mt-5">
-              <GroupPicker groups={groups} selected={selected} onSelect={setSelected} />
+              <GroupPicker groups={groups} selected={selected} onSelect={setSelected} emptyNote={error} />
               <div className="mt-3 flex justify-end">
                 <Button onClick={save} disabled={!selected || saving}>
                   {saving ? 'Saving…' : 'Link group'}
@@ -234,13 +252,13 @@ export default function WhatsappGroupPage() {
   );
 }
 
-function GroupPicker({ groups, selected, onSelect }) {
+function GroupPicker({ groups, selected, onSelect, emptyNote }) {
   if (!groups.length) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 p-5 text-center">
-        <p className="text-sm font-medium text-slate-600">No groups found</p>
+        <p className="text-sm font-medium text-slate-600">No matching groups</p>
         <p className="mt-1 text-sm text-slate-400">
-          Add the Tri3M number to your class WhatsApp group first, then refresh.
+          {emptyNote || 'Add the Tri3M number to your class WhatsApp group first, then refresh.'}
         </p>
       </div>
     );

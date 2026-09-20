@@ -327,7 +327,13 @@ test('22b. transaction rollback keeps both sides consistent on mid-transaction f
   const target = await Section.findOne({ name: '3E' });
   const origSave = mongoose.models.Section.prototype.save;
   mongoose.models.Section.prototype.save = function (...args) {
-    if (String(this._id) === String(target._id)) return Promise.reject(new Error('boom'));
+    if (String(this._id) === String(target._id)) {
+      // attach a silent catch so a stray second save() never flags as an
+      // unhandled rejection (the transaction's own await still sees it)
+      const boom = Promise.reject(new Error('boom'));
+      boom.catch(() => {});
+      return boom;
+    }
     return origSave.apply(this, args);
   };
   try {

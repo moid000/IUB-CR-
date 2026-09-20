@@ -47,7 +47,14 @@ const sent = []; // captured gateway sends: { url, params }
 const realFetch = globalThis.fetch;
 
 /** Intercepts ONLY UltraMsg URLs; every other fetch hits the real server. */
-function stubGateway({ groups = [{ id: GROUP_ID, name: GROUP_NAME }], fail = false } = {}) {
+const CR_WA = '923001110001'; // the CR's registered number, as bare intl digits
+
+/** Gateway-shaped group object (participants = member JIDs). */
+function waGroup(id, name, participantIds) {
+  return { id, name, groupMetadata: { participants: participantIds.map((n) => ({ id: `${n}@c.us` })) } };
+}
+
+function stubGateway({ groups = [waGroup(GROUP_ID, GROUP_NAME, [CR_WA, '923001110002'])], fail = false } = {}) {
   globalThis.fetch = async (url, opts) => {
     if (!String(url).includes('ultramsg.test.local')) return realFetch(url, opts);
     if (String(url).includes('/messages/chat')) {
@@ -139,6 +146,8 @@ test('config starts unlinked; refresh returns the gateway group list', async () 
   const list = await cr.api('GET', '/api/cr/whatsapp-group/groups');
   assert.equal(list.status, 200);
   assert.deepEqual(list.json.data.groups, [{ id: GROUP_ID, name: GROUP_NAME }]);
+  assert.equal(list.json.data.totalGroups, 1);
+  assert.equal(list.json.data.matchedPhone, '+92 300 1110001');
 });
 
 test('empty gateway list means "number not in any group yet"', async () => {
@@ -146,6 +155,54 @@ test('empty gateway list means "number not in any group yet"', async () => {
   const list = await cr.api('GET', '/api/cr/whatsapp-group/groups');
   assert.equal(list.status, 200);
   assert.deepEqual(list.json.data.groups, []);
+  assert.equal(list.json.data.totalGroups, 0);
+});
+
+/* -------------------- owner privacy rule: MY groups only -------------------- */
+
+test('refresh hides other sections\' groups — only groups containing the CR\'s number are returned', async () => {
+  stubGateway({
+    groups: [
+      waGroup(GROUP_ID, GROUP_NAME, [CR_WA, '923001110002']),           // my class group
+      waGroup('999@g.us', 'Section 2M class group', ['923001119999']), // another section's group
+      waGroup('998@g.us', 'Random group', ['923001118888']),
+    ],
+  });
+  const list = await cr.api('GET', '/api/cr/whatsapp-group/groups');
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.json.data.groups, [{ id: GROUP_ID, name: GROUP_NAME }]);
+  assert.equal(list.json.data.totalGroups, 3); // total known, but only mine listed
+});
+
+test('link rejects a group the CR is not a member of', async () => {
+  stubGateway({ groups: [waGroup('999@g.us', 'Other section', ['923001119999'])] });
+  const res = await cr.api('PUT', '/api/cr/whatsapp-group', { groupId: '999@g.us', groupName: 'Other section' });
+  assert.equal(res.status, 400);
+  assert.match(res.json.message, /own WhatsApp number/);
+});
+
+test('link uses the gateway\'s group name, never the client\'s', async () => {
+  stubGateway();
+  const res = await cr.api('PUT', '/api/cr/whatsapp-group', { groupId: GROUP_ID, groupName: 'Fake Name' });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.json.data.group.name, GROUP_NAME); // gateway truth wins
+});
+
+test('CR without a registered phone gets a no-phone reason and cannot link', async () => {
+  const hash = await bcrypt.hash('Pass1234!', 10);
+  await User.create({ name: 'NoPhone CR', email: 'nophonecr@test.local', role: 'cr', registrationStatus: 'active', emailVerified: true, password: hash, section });
+  const nocr = makeSession();
+  await nocr.api('POST', '/api/auth/login', { email: 'nophonecr@test.local', password: 'Pass1234!' });
+
+  stubGateway();
+  const list = await nocr.api('GET', '/api/cr/whatsapp-group/groups');
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.json.data.groups, []);
+  assert.equal(list.json.data.reason, 'no-phone');
+  assert.equal(list.json.data.totalGroups, 1);
+
+  const res = await nocr.api('PUT', '/api/cr/whatsapp-group', { groupId: GROUP_ID, groupName: GROUP_NAME });
+  assert.equal(res.status, 400);
 });
 
 test('link saves the group; get returns it; unlink clears it', async () => {
