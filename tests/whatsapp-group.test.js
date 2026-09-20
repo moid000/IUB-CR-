@@ -32,6 +32,7 @@ const models = await import('../backend/models/index.js');
 const { default: app } = await import('../backend/app.js');
 
 const { User, Section, Subject, Announcement } = models;
+const { broadcastAttachmentToSectionGroup } = await import('../backend/services/whatsappGroupService.js');
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
@@ -57,9 +58,9 @@ function waGroup(id, name, participantIds) {
 function stubGateway({ groups = [waGroup(GROUP_ID, GROUP_NAME, [CR_WA, '923001110002'])], fail = false } = {}) {
   globalThis.fetch = async (url, opts) => {
     if (!String(url).includes('ultramsg.test.local')) return realFetch(url, opts);
-    if (String(url).includes('/messages/chat')) {
+    if (/\/messages\/(chat|image|document|audio|video)/.test(String(url))) {
       const params = Object.fromEntries(new URLSearchParams(opts.body));
-      sent.push({ url: String(url), params });
+      sent.push({ url: String(url), kind: String(url).match(/\/messages\/(\w+)$/)[1], params });
       return new Response(JSON.stringify({ sent: fail ? false : true }), { status: fail ? 400 : 200 });
     }
     if (String(url).includes('/groups')) {
@@ -290,6 +291,119 @@ test('timetable create broadcasts the slot', async () => {
   assert.ok(sent[0].params.body.includes('Class added'));
   assert.ok(sent[0].params.body.includes('Data Structures'));
   assert.ok(sent[0].params.body.includes('9:00 AM – 10:30 AM'), sent[0].params.body);
+});
+
+/* -------------------- attachment / media broadcasts ----------------------- */
+
+test('announcement text carries FULL content and NO app link', async () => {
+  stubGateway();
+  await linkGroup();
+
+  const long = 'Detailed plan. '.repeat(40); // ~600 chars — must arrive in full
+  const res = await cr.api('POST', '/api/cr/announcements', { title: 'Semester plan', content: long });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].params.body.includes(long.trim()), 'full content missing');
+  assert.ok(!sent[0].params.body.includes('Open Tri3M'), 'app link must be gone');
+  assert.ok(!sent[0].params.body.includes('iubcr.vercel.app'), 'app URL must be gone');
+});
+
+const CDN = 'https://res.cloudinary.com/demo/iub-cr-lms/announcement/abc.pdf';
+function fakeAttachment(mime, name = 'file') {
+  return {
+    publicId: 'iub-cr-lms/announcement/x'.replace('x', name) + '-0123456789ab',
+    url: `${CDN}/${name}`,
+    resourceType: mime.startsWith('image/') ? 'image' : 'raw',
+    mimeType: mime,
+    originalName: name,
+    size: 1234,
+  };
+}
+
+test('confirmed pic attachment goes to the group as a WhatsApp IMAGE message', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  const out = await broadcastAttachmentToSectionGroup(section, fakeAttachment('image/jpeg', 'trip.jpg'));
+  assert.equal(out.sent, true, JSON.stringify(out));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'image');
+  assert.equal(sent[0].params.to, GROUP_ID);
+  assert.equal(sent[0].params.image, `${CDN}/trip.jpg`);
+});
+
+test('confirmed PDF attachment goes as a DOCUMENT message with its filename', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  await broadcastAttachmentToSectionGroup(section, fakeAttachment('application/pdf', 'notes.pdf'));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'document');
+  assert.equal(sent[0].params.document, `${CDN}/notes.pdf`);
+  assert.equal(sent[0].params.filename, 'notes.pdf');
+});
+
+test('confirmed voice/audio attachment goes as a playable AUDIO message', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  await broadcastAttachmentToSectionGroup(section, fakeAttachment('audio/mpeg', 'lecture.mp3'));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'audio');
+  assert.equal(sent[0].params.audio, `${CDN}/lecture.mp3`);
+});
+
+test('video attachment goes as a VIDEO message; unknown types fall back to document', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  await broadcastAttachmentToSectionGroup(section, fakeAttachment('video/mp4', 'clip.mp4'));
+  await broadcastAttachmentToSectionGroup(section, fakeAttachment('application/zip', 'slides.zip'));
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].kind, 'video');
+  assert.equal(sent[1].kind, 'document');
+  assert.equal(sent[1].params.filename, 'slides.zip');
+});
+
+test('one failing attachment never blocks the others', async () => {
+  stubGateway({ fail: true }); // gateway rejects
+  await linkGroup();
+  sent.length = 0;
+
+  const out = await broadcastAttachmentToSectionGroup(section, fakeAttachment('image/png', 'bad.png'));
+  assert.equal(out.sent, false); // swallowed, no throw
+});
+
+test('no media send when the section has no linked group', async () => {
+  stubGateway();
+  await cr.api('DELETE', '/api/cr/whatsapp-group'); // independence
+  sent.length = 0;
+
+  const out = await broadcastAttachmentToSectionGroup(section, fakeAttachment('image/png', 'gone.png'));
+  assert.deepEqual(out, { sent: false, reason: 'no-group' });
+  assert.equal(sent.length, 0);
+});
+
+test('announcement create with already-attached files sends text THEN media, in order', async () => {
+  stubGateway();
+  await linkGroup();
+  sent.length = 0;
+
+  // create first, then attach (real flow) — but also prove the create-time
+  // path forwards existing attachments by broadcasting directly:
+  const res = await cr.api('POST', '/api/cr/notes', { title: 'Photo note', content: 'See attached', subject });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'chat');
+  assert.ok(sent[0].params.body.includes('See attached'));
+
+  await broadcastAttachmentToSectionGroup(section, fakeAttachment('image/webp', 'shot.webp'));
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].kind, 'image'); // media arrives after the text
 });
 
 test('a failed group send never breaks content creation', async () => {

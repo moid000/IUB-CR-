@@ -68,7 +68,7 @@ export default makeSectionContentService({
         dedupePrefix: 'announcement',
       });
       // WhatsApp class-group broadcast (best-effort; marks are never broadcast)
-      await broadcastToSectionGroup(doc.section, announcementMessage(doc));
+      await broadcastToSectionGroup(doc.section, announcementMessage(doc), doc.attachments);
     },
     applyUpdate: (doc, fields) => {
       if (fields.title !== undefined) doc.title = fields.title;

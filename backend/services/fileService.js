@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Announcement, Note, Assignment, Submission, Section, User } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
+import { broadcastAttachmentToSectionGroup } from './whatsappGroupService.js';
 import { now } from '../utils/clock.js';
 import * as v from '../utils/validators.js';
 
@@ -343,6 +344,14 @@ export async function confirmUpload(req) {
     section: parent.section,
     after: { parentType, format, size: bytes, publicId }, // publicId is metadata, never a secret
   });
+
+  // WhatsApp class-group broadcast (best-effort, NEVER blocks the confirm):
+  // CR posts content FIRST and attaches files afterwards, so each confirmed
+  // pic/PDF/voice/... is delivered to the section's group as real WhatsApp
+  // media. Student submissions are NEVER broadcast.
+  if (parentType !== 'submission') {
+    await broadcastAttachmentToSectionGroup(parent.section, fileMeta);
+  }
 
   return (updated[field]).find((f) => f.publicId === publicId) ?? fileMeta;
 }

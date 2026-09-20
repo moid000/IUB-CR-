@@ -112,7 +112,7 @@ export async function createAssignmentAdmin(req) {
     after: { title: doc.title, subject: String(subject), deadline: doc.deadline.toISOString() },
   });
   await notifyAssignmentCreated(req, doc); // updates/archives never re-notify
-  await broadcastToSectionGroup(doc.section, await assignmentMessage(doc, subject)); // WhatsApp class-group (best-effort)
+  await broadcastToSectionGroup(doc.section, await assignmentMessage(doc, subject), doc.attachments); // WhatsApp class-group (best-effort)
   return doc;
 }
 
@@ -136,7 +136,7 @@ export async function createAssignmentCr(req) {
     after: { title: doc.title, subject: String(subject), deadline: doc.deadline.toISOString() },
   });
   await notifyAssignmentCreated(req, doc); // updates/archives never re-notify
-  await broadcastToSectionGroup(doc.section, await assignmentMessage(doc, subject)); // WhatsApp class-group (best-effort)
+  await broadcastToSectionGroup(doc.section, await assignmentMessage(doc, subject), doc.attachments); // WhatsApp class-group (best-effort)
   return doc;
 }
 

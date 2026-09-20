@@ -172,7 +172,10 @@ export default function WhatsappGroupPage() {
               <p>📄 Notes</p>
               <p>📅 Timetable changes &amp; cancellations</p>
             </div>
-            <p className="mt-2.5 text-xs text-slate-400">Marks are never sent to the group.</p>
+            <p className="mt-2.5 text-xs text-slate-500">
+              Attached photos, PDFs, videos &amp; voice notes arrive in the group as real WhatsApp media — members never need to open the app.
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Marks are never sent to the group.</p>
           </div>
 
           {(groups ?? null) !== null && (

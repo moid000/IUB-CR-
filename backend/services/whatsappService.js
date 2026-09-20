@@ -69,6 +69,57 @@ export async function sendText(to, body) {
   return json;
 }
 
+/* --------------------------- media sends -------------------------------- */
+
+/**
+ * Shared send path for all media endpoints (image/document/audio/video).
+ * Same contract as sendText: throws ApiError on gateway failure.
+ */
+async function sendMedia(path, params) {
+  if (!isConfigured()) {
+    throw new ApiError(503, 'WhatsApp gateway is not configured');
+  }
+  const { ok, status, json } = await postForm(endpoint(path), {
+    token: env.whatsapp.token,
+    to: params.to,
+    ...params.media,
+  });
+  if (!ok || json?.error) {
+    const detail = json?.error || `HTTP ${status}`;
+    throw new ApiError(502, `WhatsApp send failed: ${detail}`);
+  }
+  return json;
+}
+
+/**
+ * Sends an image by PUBLIC URL (UltraMsg downloads it server-side).
+ * Cloudinary secure_urls are public, so attachments can be passed as-is.
+ */
+export function sendImage(to, imageUrl, caption) {
+  const media = { image: imageUrl };
+  if (caption) media.caption = String(caption).slice(0, 1024);
+  return sendMedia('/messages/image', { to, media });
+}
+
+/** Sends a document (PDF/DOC/XLS/ZIP/…) by URL, with a display filename. */
+export function sendDocument(to, url, filename) {
+  const media = { document: url };
+  if (filename) media.filename = String(filename).slice(0, 255);
+  return sendMedia('/messages/document', { to, media });
+}
+
+/** Sends an audio file by URL — arrives as a playable audio message. */
+export function sendAudio(to, url) {
+  return sendMedia('/messages/audio', { to, media: { audio: url } });
+}
+
+/** Sends a video file by URL. */
+export function sendVideo(to, url, caption) {
+  const media = { video: url };
+  if (caption) media.caption = String(caption).slice(0, 1024);
+  return sendMedia('/messages/video', { to, media });
+}
+
 /**
  * Lists every WhatsApp group the paired number currently belongs to.
  * Returns a normalized [{ id, name, participants }] — participants are

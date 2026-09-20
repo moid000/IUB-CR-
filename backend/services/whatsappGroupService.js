@@ -1,7 +1,7 @@
 import { Section, Subject } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
-import { sendText, listGroups, isConfigured } from './whatsappService.js';
+import { sendText, sendImage, sendDocument, sendAudio, sendVideo, listGroups, isConfigured } from './whatsappService.js';
 import { normalizeWhatsApp } from './teacherService.js';
 import { env } from '../config/env.js';
 import * as v from '../utils/validators.js';
@@ -159,16 +159,78 @@ export async function unlinkGroupCr(req) {
  * Sends `message` to the section's linked WhatsApp group. NEVER throws —
  * returns { sent, reason } so callers can treat it as fire-safe.
  */
-export async function broadcastToSectionGroup(sectionId, message) {
+export async function broadcastToSectionGroup(sectionId, message, attachments = []) {
   try {
     if (!isConfigured()) return { sent: false, reason: 'not-configured' };
     const section = await Section.findById(sectionId).select('whatsappGroup');
     const g = section?.whatsappGroup;
     if (!g?.id) return { sent: false, reason: 'no-group' };
     await sendText(g.id, message);
-    return { sent: true };
+    const mediaSent = await sendAttachmentsToGroup(g.id, attachments);
+    return { sent: true, mediaSent };
   } catch (err) {
     console.error('[whatsapp-group] broadcast failed:', err.message);
+    return { sent: false, reason: 'error' };
+  }
+}
+
+/**
+ * Maps a verified FileMeta attachment to the right WhatsApp media type:
+ * images → image message, audio → playable audio message, video → video
+ * message, everything else (PDF/DOC/XLS/ZIP/…) → document message with the
+ * original filename. mimeType is server-verified at upload confirmation, so
+ * it is trustworthy for routing.
+ */
+function classifyAttachment(a) {
+  const mime = String(a?.mimeType ?? '').toLowerCase();
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime === 'application/ogg') return 'audio'; // .ogg audio variant
+  if (mime.startsWith('video/')) return 'video';
+  return 'document';
+}
+
+/**
+ * Sends each attachment to the group as REAL WhatsApp media — students get
+ * the actual pic/PDF/voice in WhatsApp itself and never need to open the
+ * app. Each file is best-effort: one failing attachment never stops the rest.
+ * Returns the number of media messages delivered.
+ */
+async function sendAttachmentsToGroup(groupId, attachments) {
+  const list = Array.isArray(attachments) ? attachments.slice(0, 10) : []; // same cap as uploads
+  let sentCount = 0;
+  for (const a of list) {
+    if (!a?.url) continue;
+    try {
+      const kind = classifyAttachment(a);
+      if (kind === 'image') await sendImage(groupId, a.url);
+      else if (kind === 'audio') await sendAudio(groupId, a.url);
+      else if (kind === 'video') await sendVideo(groupId, a.url);
+      else await sendDocument(groupId, a.url, a.originalName);
+      sentCount += 1;
+    } catch (err) {
+      console.error(`[whatsapp-group] attachment broadcast failed (${a?.publicId ?? a?.originalName ?? 'unknown'}):`, err.message);
+    }
+  }
+  return sentCount;
+}
+
+/**
+ * Broadcasts ONE freshly-confirmed attachment (announcement/note/assignment)
+ * to its section's group. Used by the upload-confirmation hook — files are
+ * attached AFTER the post is created, so each confirmed file goes out as its
+ * own WhatsApp media message. Best-effort: NEVER throws.
+ */
+export async function broadcastAttachmentToSectionGroup(sectionId, attachment) {
+  try {
+    if (!isConfigured()) return { sent: false, reason: 'not-configured' };
+    const section = await Section.findById(sectionId).select('whatsappGroup');
+    const g = section?.whatsappGroup;
+    if (!g?.id) return { sent: false, reason: 'no-group' };
+    const sentCount = await sendAttachmentsToGroup(g.id, [attachment]);
+    return { sent: sentCount > 0, mediaSent: sentCount };
+  } catch (err) {
+    console.error('[whatsapp-group] attachment broadcast failed:', err.message);
     return { sent: false, reason: 'error' };
   }
 }
@@ -181,10 +243,12 @@ function contentPreview(content, max = 200) {
 }
 
 export function announcementMessage(doc) {
+  // Full content — the group receives EVERYTHING and never needs the app
+  // link (owner request 2026-09-20). 3500 keeps us safely under WhatsApp's
+  // 4096-char text limit even with the longest allowed announcement.
   const lines = [`📢 *New announcement*`, ``, `"${doc.title}"`];
-  const preview = contentPreview(doc.content);
-  if (preview) lines.push(``, preview);
-  lines.push(``, `Open Tri3M: ${APP_URL}`);
+  const full = contentPreview(doc.content, 3500);
+  if (full) lines.push(``, full);
   return lines.join('\n');
 }
 
@@ -194,7 +258,8 @@ export async function noteMessage(doc) {
     const subject = await Subject.findById(doc.subject).select('name');
     if (subject) lines.push(``, `Subject: ${subject.name}`);
   }
-  lines.push(``, `Open Tri3M: ${APP_URL}`);
+  const full = contentPreview(doc.content, 3500);
+  if (full) lines.push(``, full);
   return lines.join('\n');
 }
 
@@ -203,7 +268,8 @@ export async function assignmentMessage(doc, subjectId) {
   const lines = [`📋 *New assignment*`, ``, `"${doc.title}"`];
   if (subject) lines.push(``, `Subject: ${subject.name}`);
   lines.push(``, `Due: ${PKT_DEADLINE_FMT.format(new Date(doc.deadline))} (PKT)`);
-  lines.push(``, `Open Tri3M: ${APP_URL}`);
+  const full = contentPreview(doc.instructions, 3500);
+  if (full) lines.push(``, full);
   return lines.join('\n');
 }
 
@@ -221,12 +287,10 @@ export async function timetableMessage({ verb, sectionId, subjectId, date, start
     `${fmtWallDate(date)} · ${fmt12(startTime)} – ${endTime ? fmt12(endTime) : '--:--'}`,
   ];
   if (room) lines.push(`Room: ${room}`);
-  lines.push(``, `Open Tri3M: ${APP_URL}`);
   return lines.join('\n');
 }
 
 export function timetableCopyMessage({ copied, fromDate, toDate }) {
   const lines = [`📅 *Timetable updated*`, ``, `${copied} class${copied === 1 ? '' : 'es'} copied to ${fmtWallDate(toDate)}`];
-  lines.push(``, `Open Tri3M: ${APP_URL}`);
   return lines.join('\n');
 }
