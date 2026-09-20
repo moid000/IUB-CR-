@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery } from '../../admin/hooks.js';
-import { formatDate, formatDateTime, timeAgo, fmtRoom } from '../../admin/format.js';
+import { formatDate, formatDateTime, timeAgo, fmtRoom, fmtTime } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
@@ -144,7 +144,7 @@ export default function CrOverview() {
                     <p className="text-xs text-slate-500">{t.room ? `Room ${fmtRoom(t.room)} · ` : ''}{t.subject?.code}</p>
                   </div>
                   <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">
-                    {t.startTime}–{t.endTime}
+                    {fmtTime(t.startTime)} – {fmtTime(t.endTime)}
                   </span>
                 </li>
               ))}

@@ -47,3 +47,24 @@ export function fmtRoom(room) {
   if (!room) return '';
   return String(room).trim().replace(/^rooms?\s*[-–:.]?\s*/i, '');
 }
+
+/** "13:00" -> "1:00 PM" — slots are stored 24h "HH:MM"; users read 12-hour. */
+export function fmtTime(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = String(hhmm).split(':').map(Number);
+  if (Number.isNaN(h)) return hhmm;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hr = h % 12 || 12;
+  return `${hr}:${String(m ?? 0).padStart(2, '0')} ${ampm}`;
+}
+
+/** Milliseconds -> "1h 30m" (>=1h), "29m 45s" (<1h), "45s" (<1m). */
+export function fmtDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}

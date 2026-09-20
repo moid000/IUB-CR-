@@ -10,6 +10,7 @@ import { Input } from '../../components/ui/Input.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { IconCalendar, IconClock, IconChevronLeft, IconChevronRight } from '../../components/icons.jsx';
+import { fmtRoom, fmtTime } from '../../admin/format.js';
 
 const TZ = 'Asia/Karachi';
 
@@ -109,7 +110,7 @@ export default function StudentTimetablePage() {
                   </p>
                 </div>
               </div>
-              <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{s.startTime}–{s.endTime}</span>
+              <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{fmtTime(s.startTime)} – {fmtTime(s.endTime)}</span>
             </li>
           ))}
         </ul>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { studentApi } from '../../api/student.js';
-import { formatDate, formatDateTime, fmtRoom } from '../../admin/format.js';
+import { formatDate, formatDateTime, fmtRoom, fmtTime } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
@@ -143,7 +143,7 @@ export default function StudentOverview() {
                 </div>
                 <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-600">
                   <IconClock className="size-3.5 text-slate-400" />
-                  {c.startTime}–{c.endTime}
+                  {fmtTime(c.startTime)} – {fmtTime(c.endTime)}
                 </span>
               </div>
             ))}

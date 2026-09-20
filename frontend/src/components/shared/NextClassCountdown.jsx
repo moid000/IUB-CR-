@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../ui/Button.jsx';
 import { IconBell, IconClock } from '../icons.jsx';
-import { fmtRoom } from '../../admin/format.js';
+import { fmtRoom, fmtTime, fmtDuration } from '../../admin/format.js';
 
 /**
  * Next-class countdown + 30-minute alert.
@@ -48,8 +48,7 @@ function slotPoints(slot) {
 }
 
 function fmtCountdown(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  return fmtDuration(ms);
 }
 
 export default function NextClassCountdown({ slots, loading = false }) {
@@ -91,7 +90,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
         new Notification('Class starting soon!', {
-          body: `${state.slot.subject?.name ?? 'Class'} starts at ${state.slot.startTime}${state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}`,
+          body: `${state.slot.subject?.name ?? 'Class'} starts at ${fmtTime(state.slot.startTime)}${state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}`,
           tag: `iubcr-class-${state.slot._id}`,
         });
       } catch { /* some browsers throw on construction — non-fatal */ }
@@ -121,7 +120,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
             {name(state.slot)} chal rahi hai{state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}
           </p>
         </div>
-        <p className="mt-1 text-xs text-slate-500">Ends at {state.slot.endTime} · {fmtCountdown(state.end - live)} left</p>
+        <p className="mt-1 text-xs text-slate-500">Ends at {fmtTime(state.slot.endTime)} · {fmtCountdown(state.end - live)} left</p>
       </>
     );
   } else if (state.mode === 'upcoming' && state.start - live <= ALERT_WINDOW_MS) {
@@ -135,14 +134,14 @@ export default function NextClassCountdown({ slots, loading = false }) {
           <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">30-min alert</span>
         </div>
         <p className="mt-1 text-xs text-amber-800/80">
-          Starts {state.slot.startTime} · ends {state.slot.endTime}{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}
+          Starts {fmtTime(state.slot.startTime)} · ends {fmtTime(state.slot.endTime)}{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}
         </p>
       </>
     );
   } else if (state.mode === 'upcoming') {
     body = (
       <>
-        <p className="text-sm font-semibold text-slate-900">Next class: {name(state.slot)} at {state.slot.startTime}</p>
+        <p className="text-sm font-semibold text-slate-900">Next class: {name(state.slot)} at {fmtTime(state.slot.startTime)}</p>
         <p className="mt-1 text-xs text-slate-500">{fmtCountdown(state.start - live)} to go{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}</p>
       </>
     );

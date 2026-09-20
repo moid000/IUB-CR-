@@ -10,6 +10,7 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconClock, IconCopy, IconChevronLeft, IconChevronRight } from '../../components/icons.jsx';
+import { fmtRoom, fmtTime } from '../../admin/format.js';
 
 const TZ = 'Asia/Karachi';
 
@@ -179,7 +180,7 @@ export default function TimetablePage() {
           <p className="truncate text-sm font-medium text-slate-800">{t.subject?.name ?? '—'}</p>
           <p className="text-xs text-slate-500">{t.subject?.code}{t.room ? ` · Room ${fmtRoom(t.room)}` : ''}</p>
         </div>
-        <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{t.startTime}–{t.endTime}</span>
+        <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{fmtTime(t.startTime)} – {fmtTime(t.endTime)}</span>
       </div>
       <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:gap-1 sm:opacity-0 sm:transition-opacity sm:focus-within:opacity-100 sm:group-hover:opacity-100">
         <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
@@ -266,7 +267,7 @@ export default function TimetablePage() {
         open={Boolean(archiveTarget)}
         onClose={() => setArchiveTarget(null)}
         title="Remove class slot?"
-        body={<p><span className="font-medium">{archiveTarget?.subject?.name}</span> ({archiveTarget?.date}, {archiveTarget?.startTime}–{archiveTarget?.endTime}) will be removed from the timetable. Students will no longer see it.</p>}
+        body={<p><span className="font-medium">{archiveTarget?.subject?.name}</span> ({archiveTarget?.date}, {fmtTime(archiveTarget?.startTime)} – {fmtTime(archiveTarget?.endTime)}) will be removed from the timetable. Students will no longer see it.</p>}
         confirmLabel="Remove slot"
         onConfirm={confirmArchive}
         busy={archiveBusy}
@@ -277,7 +278,7 @@ export default function TimetablePage() {
         open={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
         title="Delete class slot?"
-        body={<p><span className="font-medium">{deleteTarget?.subject?.name}</span> ({deleteTarget?.date}, {deleteTarget?.startTime}–{deleteTarget?.endTime}) will be permanently deleted. This cannot be undone.</p>}
+        body={<p><span className="font-medium">{deleteTarget?.subject?.name}</span> ({deleteTarget?.date}, {fmtTime(deleteTarget?.startTime)} – {fmtTime(deleteTarget?.endTime)}) will be permanently deleted. This cannot be undone.</p>}
         confirmLabel="Delete slot"
         onConfirm={confirmDelete}
         busy={deleteBusy}
