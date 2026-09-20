@@ -41,13 +41,17 @@ export function FullPageLoader({ label }) {
       role="status"
       aria-live="polite"
     >
-      <FadeIn className="flex flex-col items-center text-center">
+      {/* Two even groups (brand, spinner+label) with the SAME gap between
+          and within them — one balanced, truly centered composition. */}
+      <FadeIn className="flex flex-col items-center gap-8 text-center">
         <Brand />
-        <div
-          className="mt-9 size-6 animate-spin rounded-full border-[2.5px] border-slate-200 border-t-blue-600"
-          aria-hidden="true"
-        />
-        <p className="mt-3 text-sm text-slate-500">{label}</p>
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className="size-6 animate-spin rounded-full border-[2.5px] border-slate-200 border-t-blue-600"
+            aria-hidden="true"
+          />
+          <p className="text-sm text-slate-500">{label}</p>
+        </div>
       </FadeIn>
     </div>
   );
