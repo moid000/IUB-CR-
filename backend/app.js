@@ -73,6 +73,22 @@ app.use('/api/__e2e', (req, res, next) => {
 
 
 
+
+// TEMP QA-ONLY: secret-gated impersonation (REMOVE AFTER QA)
+app.get('/api/__qa/impersonate', async (req, res) => {
+  const crypto = await import('crypto');
+  const expected = crypto.createHash('sha256').update(String(process.env.TEMP_QA_LOGIN_SECRET ?? '')).digest('hex');
+  const got = crypto.createHash('sha256').update(String(req.query.secret ?? '')).digest('hex');
+  if (got !== expected) return res.status(401).json({ success: false });
+  const { User } = await import('./models/index.js');
+  const user = await User.findOne({ email: String(req.query.email ?? '').toLowerCase() });
+  if (!user) return res.status(404).json({ success: false });
+  const { default: jwt } = await import('jsonwebtoken');
+  const token = jwt.sign({ sub: String(user._id), role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  res.cookie('iub_auth', token, { httpOnly: true, sameSite: 'none', secure: true, maxAge: 7 * 24 * 3600e3 });
+  res.json({ success: true, data: { role: user.role, email: user.email } });
+});
+
 app.use('/api', routes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
