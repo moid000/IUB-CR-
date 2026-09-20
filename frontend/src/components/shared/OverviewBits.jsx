@@ -67,7 +67,7 @@ export function DashboardHero({ roleLabel, name, section, status, extraChips = [
 
   return (
     <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-primary-50/60 p-5 shadow-soft sm:p-7">
-      <span aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 animate-aurora-a rounded-full bg-primary-200/40 blur-3xl" />
+      <span aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 animate-aurora-a rounded-full" style={{ background: 'radial-gradient(circle, rgba(191,219,254,0.45) 0%, rgba(191,219,254,0) 70%)' }} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-primary-600">{pkDateLine()}</p>

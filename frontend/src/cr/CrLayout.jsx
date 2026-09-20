@@ -178,16 +178,16 @@ export default function CrLayout() {
         {drawerOpen && (
           <>
             <motion.div
-              className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: EASE }}
+              transition={{ duration: 0.15, ease: EASE }}
               onClick={() => setDrawerOpen(false)}
               aria-hidden="true"
             />
             <motion.aside
               className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white shadow-lift lg:hidden"
               initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
-              transition={{ duration: 0.28, ease: EASE }}
+              transition={{ duration: 0.18, ease: EASE }}
               aria-label="CR navigation"
             >
               <SidebarBody section={section} unread={unread} onNavigateMobile={() => setDrawerOpen(false)} />
@@ -198,7 +198,7 @@ export default function CrLayout() {
 
       {/* ---- Main column ---- */}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur-md">
+        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 lg:bg-white/85 lg:backdrop-blur-md">
           <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
             <button
               type="button" onClick={() => setDrawerOpen(true)} aria-label="Open navigation menu"

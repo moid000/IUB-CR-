@@ -117,16 +117,16 @@ export default function AdminLayout() {
         {drawerOpen && (
           <>
             <motion.div
-              className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: EASE }}
+              transition={{ duration: 0.15, ease: EASE }}
               onClick={() => setDrawerOpen(false)}
               aria-hidden="true"
             />
             <motion.aside
               className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white shadow-lift lg:hidden"
               initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
-              transition={{ duration: 0.28, ease: EASE }}
+              transition={{ duration: 0.18, ease: EASE }}
               aria-label="Admin navigation"
             >
               <SidebarBody onNavigateMobile={() => setDrawerOpen(false)} onToggleCollapse={null} {...sidebarBodyProps} />
@@ -137,7 +137,7 @@ export default function AdminLayout() {
 
       {/* ---- Main column ---- */}
       <div className={`flex min-h-dvh flex-col transition-[padding] duration-200 ${collapsed ? 'lg:pl-[76px]' : 'lg:pl-64'}`}>
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200/70 bg-white/80 px-4 backdrop-blur-md sm:px-6">
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200/70 bg-white/95 px-4 lg:bg-white/80 lg:backdrop-blur-md sm:px-6">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
