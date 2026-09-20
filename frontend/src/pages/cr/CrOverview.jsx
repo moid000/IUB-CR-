@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery } from '../../admin/hooks.js';
-import { formatDate, formatDateTime, timeAgo, fmtRoom, fmtTime } from '../../admin/format.js';
+import { formatDateTime, timeAgo } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
@@ -13,9 +13,10 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
+import { DashboardHero, TodayClassesCard, DueChip } from '../../components/shared/OverviewBits.jsx';
 import {
   IconUsers, IconBook, IconClipboard, IconCalendar, IconBell, IconMegaphone,
-  IconClock, IconArrowRight,
+  IconArrowRight,
 } from '../../components/icons.jsx';
 
 const TZ = 'Asia/Karachi';
@@ -76,28 +77,14 @@ export default function CrOverview() {
   const firstName = (user?.name ?? '').split(' ')[0];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      {/* ---- Greeting ---- */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft sm:p-7">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <Badge variant="primary">{user?.role === 'GR' ? 'General Representative' : 'Class Representative'}</Badge>
-            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-              Welcome back{firstName ? `, ${firstName}` : ''} 👋
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Managing <span className="font-medium text-slate-700">{section.name}</span>
-              {section.department?.name ? ` · ${section.department.name}` : ''}
-              {section.semester != null ? ` · Semester ${section.semester}` : ''}
-            </p>
-          </div>
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium
-            ${section.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-            <span className={`size-1.5 rounded-full ${section.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-            Section {section.status}
-          </span>
-        </div>
-      </div>
+    <div className="mx-auto max-w-6xl space-y-5 sm:space-y-6">
+      {/* ---- Greeting + academic context ---- */}
+      <DashboardHero
+        roleLabel={user?.role === 'GR' ? 'General Representative' : 'Class Representative'}
+        name={user?.name}
+        section={section}
+        status={section.status}
+      />
 
       {/* ---- Live countdown to next class (30-min alert) ---- */}
       <NextClassCountdown slots={recent.todayClasses} loading={!loaded} />
@@ -119,66 +106,43 @@ export default function CrOverview() {
         </Stagger>
       )}
 
-            <PushSetupCard variant="cr" />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* ---- Today's timetable ---- */}
-        <Card className="p-5 sm:p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Today's timetable</h3>
-            <Link to="/cr/timetable" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
-              Manage <IconArrowRight className="size-3.5" />
-            </Link>
-          </div>
-          {!loaded ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
-          ) : recent.todayClasses.length === 0 ? (
-            <MiniEmpty icon={IconCalendar} text="No classes scheduled for today — add your first slot from the timetable." />
-          ) : (
-            <ul className="space-y-2">
-              {recent.todayClasses.map((t) => (
-                <li key={t._id} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
-                  <IconClock className="size-4 shrink-0 text-primary-500" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{t.subject?.name ?? '—'}</p>
-                    <p className="text-xs text-slate-500">{t.room ? `Room ${fmtRoom(t.room)} · ` : ''}{t.subject?.code}</p>
-                  </div>
-                  <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">
-                    {fmtTime(t.startTime)} – {fmtTime(t.endTime)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+      {/* ---- Today's classes (live states) ---- */}
+      <TodayClassesCard
+        slots={recent.todayClasses}
+        loading={!loaded}
+        to="/cr/timetable"
+        linkLabel="Manage"
+        emptyText="No classes scheduled for today — add your first slot from the timetable."
+      />
 
-        {/* ---- Recent announcements ---- */}
-        <Card className="p-5 sm:p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Recent announcements</h3>
-            <Link to="/cr/announcements" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
-              All announcements <IconArrowRight className="size-3.5" />
-            </Link>
-          </div>
-          {!loaded ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 skeleton-shimmer rounded-lg" />)}</div>
-          ) : recent.announcements.length === 0 ? (
-            <MiniEmpty icon={IconMegaphone} text="No announcements yet — everything you publish here reaches your section." />
-          ) : (
-            <ul className="space-y-2">
-              {recent.announcements.map((a) => (
-                <li key={a._id} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
-                  <IconMegaphone className="mt-0.5 size-4 shrink-0 text-primary-500" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{a.title}</p>
-                    <p className="text-xs text-slate-500">{a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
+      {/* ---- Recent announcements ---- */}
+      <Card className="p-5">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900">Recent announcements</h3>
+          <Link to="/cr/announcements" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
+            All announcements <IconArrowRight className="size-3.5" />
+          </Link>
+        </div>
+        {!loaded ? (
+          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 skeleton-shimmer rounded-xl" />)}</div>
+        ) : recent.announcements.length === 0 ? (
+          <MiniEmpty icon={IconMegaphone} text="No announcements yet — everything you publish here reaches your section." />
+        ) : (
+          <ul className="space-y-2">
+            {recent.announcements.map((a) => (
+              <li key={a._id} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3">
+                <IconMegaphone className="mt-0.5 size-4 shrink-0 text-primary-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800">{a.title}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)}</p>
+                </div>
+                {a.pinned && <Badge variant="primary">Pinned</Badge>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       {/* ---- Open assignments ---- */}
       <Card className="p-5 sm:p-6">
@@ -198,16 +162,17 @@ export default function CrOverview() {
               <li key={a._id} className="flex flex-wrap items-center gap-2 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-800">{a.title}</p>
-                  <p className="text-xs text-slate-500">{a.subject?.name ?? '—'}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{a.subject?.name ?? '—'} · Due {formatDateTime(a.deadline)}</p>
                 </div>
-                <span className={`text-xs font-medium ${a.deadlinePassed ? 'text-red-600' : 'text-slate-600'}`}>
-                  Due {formatDate(a.deadline)}
-                </span>
+                <DueChip deadline={a.deadline} passed={a.deadlinePassed} />
               </li>
             ))}
           </ul>
         )}
       </Card>
+
+      {/* ---- Device notifications (action, last) ---- */}
+      <PushSetupCard variant="cr" />
     </div>
   );
 }

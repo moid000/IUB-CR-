@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { studentApi } from '../../api/student.js';
-import { formatDate, formatDateTime, fmtRoom, fmtTime } from '../../admin/format.js';
+import { formatDateTime, timeAgo } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
@@ -11,9 +11,10 @@ import { Stagger } from '../../components/motion/primitives.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
+import { DashboardHero, TodayClassesCard, DueChip, Chip } from '../../components/shared/OverviewBits.jsx';
 import {
   IconBook, IconClipboard, IconCalendar, IconBell, IconQr,
-  IconArrowRight, IconClock, IconMegaphone, IconCheckCircle,
+  IconArrowRight, IconCheckCircle, IconMegaphone,
 } from '../../components/icons.jsx';
 
 const TZ = 'Asia/Karachi';
@@ -74,32 +75,16 @@ export default function StudentOverview() {
 
   if (!section) return <NoSection />;
 
-  const firstName = (user?.name ?? '').split(' ')[0];
-
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-5 sm:space-y-6">
       {/* ---- Greeting + academic context ---- */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft sm:p-7">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <Badge variant="primary">Student</Badge>
-            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-              Welcome back{firstName ? `, ${firstName}` : ''} 👋
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {section.department?.name ? `${section.department.name} · ` : ''}
-              Section <span className="font-medium text-slate-700">{section.name}</span>
-              {section.semester != null ? ` · Semester ${section.semester}` : ''}
-              {user?.rollNo ? ` · Roll no. ${user.rollNo}` : ''}
-            </p>
-          </div>
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium
-            ${section.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-            <span className={`size-1.5 rounded-full ${section.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-            Section {section.status}
-          </span>
-        </div>
-      </div>
+      <DashboardHero
+        roleLabel="Student"
+        name={user?.name}
+        section={section}
+        status={section.status}
+        extraChips={user?.rollNo ? [<Chip key="roll" text={`Roll no. ${user.rollNo}`} />] : []}
+      />
 
       {/* ---- Live countdown to next class (30-min alert) ---- */}
       <NextClassCountdown slots={recent.todayClasses} loading={!loaded} />
@@ -121,86 +106,78 @@ export default function StudentOverview() {
         </Stagger>
       )}
 
-            <PushSetupCard variant="student" />
+      {/* ---- Today's classes (live states) ---- */}
+      <TodayClassesCard
+        slots={recent.todayClasses}
+        loading={!loaded}
+        to="/student/timetable"
+        linkLabel="Full timetable"
+        emptyText="No classes scheduled for today — your CR / GR publishes the daily schedule."
+      />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* ---- Today's timetable ---- */}
-        <Card className="p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Today's classes</h3>
-            <Link to="/student/timetable" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
-              Full timetable <IconArrowRight className="size-3.5" />
-            </Link>
-          </div>
-          <div className="mt-3 space-y-2">
-            {recent.todayClasses.length === 0 ? (
-              <MiniEmpty icon={IconCalendar} text="No classes scheduled for today — your CR / GR publishes the daily schedule." />
-            ) : recent.todayClasses.map((c) => (
-              <div key={c._id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-800">{c.subject?.name ?? 'Class'}</p>
-                  {c.room && <p className="text-xs text-slate-500">Room {fmtRoom(c.room)}</p>}
-                </div>
-                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-600">
-                  <IconClock className="size-3.5 text-slate-400" />
-                  {fmtTime(c.startTime)} – {fmtTime(c.endTime)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        {/* ---- Upcoming assignments ---- */}
-        <Card className="p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Upcoming assignments</h3>
-            <Link to="/student/assignments" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
-              All assignments <IconArrowRight className="size-3.5" />
-            </Link>
-          </div>
-          <div className="mt-3 space-y-2">
-            {recent.assignments.length === 0 ? (
-              <MiniEmpty icon={IconCheckCircle} text="No upcoming deadlines — you're all caught up." />
-            ) : recent.assignments.map((a) => (
-              <Link key={a._id} to="/student/assignments" className="block rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 transition-colors hover:bg-slate-100/70">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="truncate text-sm font-medium text-slate-800">{a.title}</p>
-                  {a.mySubmission
-                    ? <Badge variant="success">Submitted</Badge>
-                    : <Badge variant={a.deadlinePassed ? 'danger' : 'warning'}>{a.deadlinePassed ? 'Overdue' : 'Pending'}</Badge>}
-                </div>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {a.subject?.name ? `${a.subject.name} · ` : ''}Due {formatDateTime(a.deadline)}
-                </p>
-              </Link>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* ---- Recent announcements ---- */}
+      {/* ---- Upcoming assignments ---- */}
       <Card className="p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900">Recent announcements</h3>
-          <Link to="/student/announcements" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
-            View all <IconArrowRight className="size-3.5" />
-            </Link>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900">Upcoming assignments</h3>
+          <Link to="/student/assignments" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
+            All assignments <IconArrowRight className="size-3.5" />
+          </Link>
         </div>
         <div className="mt-3 space-y-2">
-          {recent.announcements.length === 0 ? (
-            <MiniEmpty icon={IconMegaphone} text="No announcements yet — your CR / GR posts will appear here." />
-          ) : recent.announcements.map((a) => (
-            <div key={a._id} className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-sm font-medium text-slate-800">{a.title}</p>
-                {a.pinned && <Badge variant="primary">Pinned</Badge>}
-              </div>
-              <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{a.content}</p>
-              <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400">{formatDate(a.createdAt)}</p>
+          {!loaded ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 skeleton-shimmer rounded-xl" />)}
             </div>
+          ) : recent.assignments.length === 0 ? (
+            <MiniEmpty icon={IconCheckCircle} text="No upcoming deadlines — you're all caught up." />
+          ) : recent.assignments.map((a) => (
+            <Link key={a._id} to="/student/assignments" className="block rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 transition-colors hover:bg-slate-100/70">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 truncate text-sm font-medium text-slate-800">{a.title}</p>
+                {a.mySubmission
+                  ? <Badge variant="success">Submitted</Badge>
+                  : <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {a.subject?.name ? `${a.subject.name} · ` : ''}Due {formatDateTime(a.deadline)}
+              </p>
+            </Link>
           ))}
         </div>
       </Card>
+
+      {/* ---- Recent announcements ---- */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900">Recent announcements</h3>
+          <Link to="/student/announcements" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
+            View all <IconArrowRight className="size-3.5" />
+          </Link>
+        </div>
+        <div className="mt-3 space-y-2">
+          {!loaded ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 skeleton-shimmer rounded-xl" />)}
+            </div>
+          ) : recent.announcements.length === 0 ? (
+            <MiniEmpty icon={IconMegaphone} text="No announcements yet — your CR / GR posts will appear here." />
+          ) : recent.announcements.map((a) => (
+            <Link key={a._id} to="/student/announcements" className="block rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 transition-colors hover:bg-slate-100/70">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 text-sm font-medium text-slate-800">{a.title}</p>
+                {a.pinned && <Badge variant="primary">Pinned</Badge>}
+              </div>
+              <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{a.content}</p>
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                {a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)}
+              </p>
+            </Link>
+          ))}
+        </div>
+      </Card>
+
+      {/* ---- Device notifications (action, last) ---- */}
+      <PushSetupCard variant="student" />
     </div>
   );
 }
