@@ -3,14 +3,15 @@ import { IconMenu } from '../icons.jsx';
 
 /**
  * Mobile-only bottom tab bar (hidden from lg up, where the sidebar rail lives).
- * Gives the 4 most-used pages thumb-reach navigation; "More" opens the same
- * Motion drawer as the hamburger. Professional app pattern (WhatsApp/Instagram).
+ * Gives the 4 most-used pages full-width thumb-reach navigation — each tab
+ * shows its full label (the header hamburger opens the same Motion drawer the
+ * old "More" button did). Professional app pattern (WhatsApp/Instagram).
  *
  * Props:
  *  - items: [{ to, label, icon, end?, badge? }] — badge shows the per-tab
  *    unread count (e.g. '1' on Assignments when a new assignment is unseen);
- *  - onMore: opens the portal drawer
- *  - moreBadge: optional unread count shown as a dot on the More button
+ *  - onMore/moreLabel/moreBadge: OPTIONAL legacy "More" button — render only
+ *    when onMore is passed (currently unused by all shells)
  */
 export function BottomTabBar({ items, onMore, moreLabel = 'More', moreBadge = null }) {
   return (
@@ -45,6 +46,7 @@ export function BottomTabBar({ items, onMore, moreLabel = 'More', moreBadge = nu
             </NavLink>
           );
         })}
+        {onMore ? (
         <button
           type="button"
           onClick={onMore}
@@ -61,6 +63,7 @@ export function BottomTabBar({ items, onMore, moreLabel = 'More', moreBadge = nu
           </span>
           <span className="max-w-full truncate">{moreLabel}</span>
         </button>
+        ) : null}
       </div>
     </nav>
   );

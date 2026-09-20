@@ -103,7 +103,7 @@ export default function StudentLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [unread, setUnread] = useState(null); // total — sidebar Notifications + More badge
+  const [unread, setUnread] = useState(null); // total — drawer Notifications badge
   const [unreadByType, setUnreadByType] = useState(null); // per-tab numbers
 
   const section = user?.section;
@@ -235,8 +235,6 @@ export default function StudentLayout() {
           { to: '/student/assignments', label: 'Assignments', icon: IconClipboard, badge: tabBadge(['assignment', 'reminder']) },
           { to: '/student/timetable', label: 'Timetable', icon: IconCalendar, badge: tabBadge(['timetable']) },
         ]}
-        onMore={() => setDrawerOpen(true)}
-        moreBadge={unread || null}
       />
     </div>
   );

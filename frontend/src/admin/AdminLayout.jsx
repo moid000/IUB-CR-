@@ -175,7 +175,6 @@ export default function AdminLayout() {
           { to: '/admin/students', label: 'Students', icon: IconGraduation },
           { to: '/admin/subjects', label: 'Subjects', icon: IconBook },
         ]}
-        onMore={() => setDrawerOpen(true)}
       />
     </div>
   );
