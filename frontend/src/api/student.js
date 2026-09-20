@@ -21,6 +21,7 @@ export const studentApi = {
   /* ---- Subjects (own section, active only — server-derived) ---- */
   subjects: {
     list: (params) => api.get(`/api/student/subjects${qs(params)}`), // page | limit → { data, pagination }
+    cachedList: (params) => api.peek(`/api/student/subjects${qs(params)}`), // SWR snapshot
   },
 
   /* ---- Announcements (read-only) ---- */

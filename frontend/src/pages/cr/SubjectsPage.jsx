@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
-import { DataTable } from '../../components/admin/DataTable.jsx';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
 import { Button } from '../../components/ui/Button.jsx';
@@ -10,7 +9,8 @@ import { Input } from '../../components/ui/Input.jsx';
 import { Textarea } from '../../components/ui/Textarea.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive, IconTrash } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash, IconBook } from '../../components/icons.jsx';
+import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 
 const CODE_RE = /^[A-Z0-9-]{2,12}$/;
 
@@ -94,7 +94,12 @@ export default function SubjectsPage() {
       status: status !== 'all' ? status : undefined,
       page, limit: 20,
     }),
-    [debouncedSearch, status, page]
+    [debouncedSearch, status, page],
+    () => crApi.subjects.cachedList({
+      search: debouncedSearch || undefined,
+      status: status !== 'all' ? status : undefined,
+      page, limit: 20,
+    })
   );
 
   // Reset to page 1 when filters change
@@ -134,28 +139,6 @@ export default function SubjectsPage() {
     }
   };
 
-  const columns = [
-    { key: 'code', header: 'Code', render: (s) => <span className="font-mono text-xs font-semibold text-slate-800">{s.code}</span> },
-    { key: 'name', header: 'Subject', render: (s) => <span className="font-medium text-slate-900">{s.name}</span> },
-    { key: 'teacherName', header: 'Teacher', className: 'hidden lg:table-cell', render: (s) => s.teacherName || '—' },
-    { key: 'creditHours', header: 'Credits', className: 'hidden md:table-cell', render: (s) => s.creditHours ?? '—' },
-    { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} /> },
-    {
-      key: 'actions', header: '', headerClassName: 'text-right', className: 'text-right whitespace-nowrap',
-      render: (s) => (
-        <div className="flex justify-end gap-1">
-          {s.status === 'active' && (
-            <>
-              <Button variant="ghost" size="sm" icon={IconPencil} onClick={() => setModal({ mode: 'edit', subject: s })}>Edit</Button>
-              <Button variant="ghost" size="sm" icon={IconArchive} className="text-slate-500 hover:text-red-600" onClick={() => { setArchiveTarget(s); setArchiveError(null); }}>Archive</Button>
-              <Button variant="ghost" size="sm" icon={IconTrash} className="text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget(s); setDeleteError(null); }}>Delete</Button>
-            </>
-          )}
-        </div>
-      ),
-    },
-  ];
-
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Subjects" description={`Courses taught in ${section.name}.`}>
@@ -173,18 +156,68 @@ export default function SubjectsPage() {
         </FilterSelect>
       </FilterBar>
 
-      <DataTable
-        columns={columns}
-        rows={items}
-        loading={loading}
-        error={error}
-        onRetry={reload}
-        pagination={pagination}
-        onPageChange={setPage}
-        emptyTitle="No subjects found"
-        emptyDescription="Subjects are the courses your section studies — announcements, assignments and marks all belong to a subject."
-        emptyAction={<Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>New subject</Button>}
-      />
+      {error ? (
+        <Alert variant="danger">
+          <p className="font-medium">{error.message}</p>
+          <div className="mt-2"><Button variant="secondary" size="sm" onClick={reload}>Try again</Button></div>
+        </Alert>
+      ) : loading ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="status" aria-label="Loading subjects">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-28 skeleton-shimmer rounded-2xl border border-slate-200/60" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-6 py-14 text-center">
+          <div className="mb-3 flex justify-center text-slate-300"><IconBook className="size-10" /></div>
+          <h3 className="text-sm font-semibold text-slate-700">No subjects found</h3>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
+            Subjects are the courses your section studies — announcements, assignments and marks all belong to a subject.
+          </p>
+          <div className="mt-5"><Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>New subject</Button></div>
+        </div>
+      ) : (
+        <Stagger className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="list" aria-label="Subjects">
+          {items.map((s) => (
+            <StaggerItem key={s._id} role="listitem" className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]">
+              <div className="flex items-start gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary-50 text-sm font-bold text-primary-700 ring-1 ring-primary-100">
+                  {(s.name ?? '?').trim().slice(0, 2).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="min-w-0 truncate text-sm font-semibold text-slate-900">{s.name}</h3>
+                    <StatusBadge status={s.status} />
+                  </div>
+                  <p className="mt-1 truncate text-xs text-slate-500">
+                    <span className="font-mono font-semibold text-slate-600">{s.code}</span>
+                    {s.teacherName ? ` · ${s.teacherName}` : ''}
+                    {s.creditHours ? ` · ${s.creditHours} credit${s.creditHours === 1 ? '' : 's'}` : ''}
+                  </p>
+                  {s.description && <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-slate-500">{s.description}</p>}
+                </div>
+              </div>
+              {s.status === 'active' && (
+                <div className="mt-3 grid w-full grid-cols-3 gap-1.5 border-t border-slate-100 pt-3 sm:grid-cols-3">
+                  <Button variant="ghost" size="sm" className="w-full" icon={IconPencil} onClick={() => setModal({ mode: 'edit', subject: s })}>Edit</Button>
+                  <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600" icon={IconArchive} onClick={() => { setArchiveTarget(s); setArchiveError(null); }}>Archive</Button>
+                  <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700" icon={IconTrash} onClick={() => { setDeleteTarget(s); setDeleteError(null); }}>Delete</Button>
+                </div>
+              )}
+            </StaggerItem>
+          ))}
+        </Stagger>
+      )}
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
+          <span>Page {pagination.page} of {pagination.totalPages}</span>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
+            <Button variant="secondary" size="sm" disabled={page >= pagination.totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <SubjectForm
