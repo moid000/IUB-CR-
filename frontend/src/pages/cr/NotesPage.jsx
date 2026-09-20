@@ -50,6 +50,7 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
     else ({
       doc: created,
     } = await createPostAndBroadcast({
+      body,
       create: (b) => crApi.notes.create(b),
       files,
       parentType: 'note',

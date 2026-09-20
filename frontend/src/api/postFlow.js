@@ -11,6 +11,7 @@ import { uploadToCloudinary } from './upload.js';
  * (they auto-send to the group once the post has been broadcast).
  */
 export async function createPostAndBroadcast({
+  body = {}, // the post fields (title, content, …) — MERGED into the create call
   create, // (body) => api response with .data = created doc
   files = [],
   parentType,
@@ -18,7 +19,7 @@ export async function createPostAndBroadcast({
   broadcast, // (id) => api response
   onProgress, // optional (done, total)
 }) {
-  const res = await create({ suppressGroupBroadcast: true });
+  const res = await create({ ...body, suppressGroupBroadcast: true });
   const doc = res?.data ?? res;
   const id = doc?._id ?? doc?.id;
   if (!id) throw new Error('The post was created but its id is missing — files were not attached.');

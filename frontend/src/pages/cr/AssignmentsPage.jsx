@@ -68,6 +68,7 @@ function AssignmentForm({ open, onClose, initial, subjects, onSaved }) {
     else ({
       doc: created,
     } = await createPostAndBroadcast({
+      body,
       create: (b) => crApi.assignments.create(b),
       files,
       parentType: 'assignment',

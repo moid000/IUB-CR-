@@ -44,6 +44,7 @@ function AnnouncementForm({ open, onClose, initial, onSaved }) {
     else ({
       doc: created,
     } = await createPostAndBroadcast({
+      body,
       create: (b) => crApi.announcements.create(b),
       files,
       parentType: 'announcement',
