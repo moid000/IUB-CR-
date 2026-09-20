@@ -19,6 +19,8 @@ import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
+import { StagedFiles } from '../../components/files/StagedFiles.jsx';
+import { createPostAndBroadcast } from '../../api/postFlow.js';
 
 /** datetime-local default: tomorrow 23:59 in Pakistan time, value for <input> */
 function defaultDeadline() {
@@ -42,6 +44,7 @@ function AssignmentForm({ open, onClose, initial, subjects, onSaved }) {
       : defaultDeadline()
   );
   const [errors, setErrors] = useState({});
+  const [files, setFiles] = useState([]);
 
   const activeSubjects = useMemo(() => subjects.filter((s) => s.status === 'active'), [subjects]);
 
@@ -62,7 +65,16 @@ function AssignmentForm({ open, onClose, initial, subjects, onSaved }) {
 
     let created = null;
     if (isEdit) await crApi.assignments.update(initial._id, body);
-    else created = (await crApi.assignments.create(body))?.data;
+    else ({
+      doc: created,
+    } = await createPostAndBroadcast({
+      create: (b) => crApi.assignments.create(b),
+      files,
+      parentType: 'assignment',
+      api: crApi.files,
+      broadcast: (id) => crApi.assignments.broadcast(id),
+    }));
+    setFiles([]);
     onSaved(isEdit ? 'Assignment updated.' : 'Assignment created.', created);
   };
 
@@ -82,6 +94,13 @@ function AssignmentForm({ open, onClose, initial, subjects, onSaved }) {
             hint="Shown to students in Pakistan time (PKT)." error={errors.deadline ?? fieldErrors?.deadline ?? null}
           />
           <Textarea id="asg-instructions" rows={4} label="Instructions (optional)" value={instructions} onChange={(e) => setInstructions(e.target.value)} error={fieldErrors?.instructions} placeholder="What should students submit, and how?" />
+          {!isEdit && (
+            <StagedFiles
+              files={files}
+              onAdd={(fs) => setFiles((prev) => [...prev, ...fs])}
+              onRemove={(i) => setFiles((prev) => prev.filter((_, j) => j !== i))}
+            />
+          )}
         </>
       )}
     </FormModal>

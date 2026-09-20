@@ -16,6 +16,8 @@ import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconFileText, IconPaperclip, IconBook, IconChevronRight } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
+import { StagedFiles } from '../../components/files/StagedFiles.jsx';
+import { createPostAndBroadcast } from '../../api/postFlow.js';
 
 /** CR notes — section-scoped, linked to an ACTIVE subject of the SAME section
  *  (validated server-side; archived subjects are rejected). */
@@ -25,6 +27,7 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
   const [subject, setSubject] = useState(initial?.subject?._id ?? initial?.subject ?? '');
   const [content, setContent] = useState(initial?.content ?? '');
   const [errors, setErrors] = useState({});
+  const [files, setFiles] = useState([]);
 
   const activeSubjects = useMemo(() => subjects.filter((s) => s.status === 'active'), [subjects]);
   // Categorised notes: a note MUST land in a subject category whenever the
@@ -44,7 +47,16 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
 
     let created = null;
     if (isEdit) await crApi.notes.update(initial._id, body);
-    else created = (await crApi.notes.create(body))?.data;
+    else ({
+      doc: created,
+    } = await createPostAndBroadcast({
+      create: (b) => crApi.notes.create(b),
+      files,
+      parentType: 'note',
+      api: crApi.files,
+      broadcast: (id) => crApi.notes.broadcast(id),
+    }));
+    setFiles([]);
     onSaved(isEdit ? 'Note updated.' : 'Note created.', created);
   };
 
@@ -65,7 +77,14 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
             {activeSubjects.length === 0 && <option value="" disabled>No active subjects — create a subject first.</option>}
           </Select>
           <Input label="Title" required id="note-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Chapter 4 — lecture summary" error={errors.title ?? fieldErrors?.title ?? null} />
-          <Textarea id="note-content" rows={6} label="Content (optional)" value={content} onChange={(e) => setContent(e.target.value)} error={fieldErrors?.content} placeholder="Write the note… files can be attached after saving." />
+          <Textarea id="note-content" rows={6} label="Content (optional)" value={content} onChange={(e) => setContent(e.target.value)} error={fieldErrors?.content} placeholder="Write the note…" />
+          {!isEdit && (
+            <StagedFiles
+              files={files}
+              onAdd={(fs) => setFiles((prev) => [...prev, ...fs])}
+              onRemove={(i) => setFiles((prev) => prev.filter((_, j) => j !== i))}
+            />
+          )}
         </>
       )}
     </FormModal>

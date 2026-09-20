@@ -8,7 +8,7 @@ const assertText = v.assertText;
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 import { now, nowDate } from '../utils/clock.js';
 import { notifySection } from './notificationService.js';
-import { broadcastToSectionGroup, assignmentMessage } from './whatsappGroupService.js';
+import { broadcastToSectionGroup, broadcastContentToGroup, assignmentMessage } from './whatsappGroupService.js';
 
 /**
  * Assignments + Submissions (Step 6).
@@ -136,7 +136,10 @@ export async function createAssignmentCr(req) {
     after: { title: doc.title, subject: String(subject), deadline: doc.deadline.toISOString() },
   });
   await notifyAssignmentCreated(req, doc); // updates/archives never re-notify
+  // suppressGroupBroadcast: CR portal uploads files after create, then fires the combined broadcast once.
+  if (req.body?.suppressGroupBroadcast !== true) {
   await broadcastToSectionGroup(doc.section, await assignmentMessage(doc, subject), doc.attachments); // WhatsApp class-group (best-effort)
+  }
   return doc;
 }
 
@@ -449,4 +452,13 @@ export async function getSubmissionAdmin(req) {
 export async function getSubmissionCr(req) {
   if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
   return findScopedSubmission(req, { forceSection: true });
+}
+
+/** POST /api/cr/assignments/:id/broadcast — combined text+media group send. */
+export function broadcastAssignmentToGroup(req) {
+  return broadcastContentToGroup(req, {
+    Model: Assignment,
+    kind: 'assignment',
+    buildMessage: (doc) => assignmentMessage(doc, doc.subject),
+  });
 }

@@ -18,6 +18,7 @@ const assignmentSchema = new Schema(
     attachments: [FileMetaSchema],
     createdBy: { type: ObjectId, ref: 'User', required: true },
     status: { type: String, enum: ['published', 'archived'], default: 'published' },
+    groupBroadcastAt: { type: Date, default: null }, // set once the combined group broadcast (text+media) has gone out
     // Set the moment the WhatsApp deadline report was sent to the subject's
     // teacher — the sweep only processes assignments where this is null.
     deadlineNotifiedAt: { type: Date, default: null },

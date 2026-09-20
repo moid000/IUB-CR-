@@ -14,6 +14,7 @@ const announcementSchema = new Schema(
     author: { type: ObjectId, ref: 'User', required: true },
     pinned: { type: Boolean, default: false },
     status: { type: String, enum: ['published', 'archived'], default: 'published' },
+    groupBroadcastAt: { type: Date, default: null }, // set once the combined group broadcast (text+media) has gone out
   },
   { timestamps: true }
 );

@@ -58,6 +58,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/announcements', body), // { title, content, pinned? }
     update: (id, body) => api.patch(`/api/cr/announcements/${id}`, body), // { title?, content?, pinned? }
     archive: (id) => api.post(`/api/cr/announcements/${id}/archive`),
+    broadcast: (id) => api.post(`/api/cr/announcements/${id}/broadcast`), // combined text+media group send
     delete: (id) => api.del(`/api/cr/announcements/${id}`), // permanently removes the announcement
   },
 
@@ -68,6 +69,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/notes', body), // { title, content?, subject? }
     update: (id, body) => api.patch(`/api/cr/notes/${id}`, body),
     archive: (id) => api.post(`/api/cr/notes/${id}/archive`),
+    broadcast: (id) => api.post(`/api/cr/notes/${id}/broadcast`), // combined text+media group send
     delete: (id) => api.del(`/api/cr/notes/${id}`), // permanently removes the note + its files
   },
 
@@ -79,6 +81,7 @@ export const crApi = {
     create: (body) => api.post('/api/cr/assignments', body), // { subject, title, instructions?, deadline }
     update: (id, body) => api.patch(`/api/cr/assignments/${id}`, body), // { subject?, title?, instructions?, deadline? }
     archive: (id) => api.post(`/api/cr/assignments/${id}/archive`),
+    broadcast: (id) => api.post(`/api/cr/assignments/${id}/broadcast`), // combined text+media group send
     delete: (id) => api.del(`/api/cr/assignments/${id}`), // permanently removes the assignment + all submissions
     submissions: (id, params) => api.get(`/api/cr/assignments/${id}/submissions${qs(params)}`),
   },

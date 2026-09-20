@@ -5,8 +5,8 @@ import { auditFromReq } from '../utils/audit.js';
 import { assertName, assertEmail, assertPhone, pick } from '../utils/validators.js';
 import { parsePagination, paginationMeta } from '../utils/pagination.js';
 import * as subjectSvc from '../services/subjectService.js';
-import announcementSvc from '../services/announcementService.js';
-import noteSvc from '../services/noteService.js';
+import announcementSvc, { broadcastAnnouncementToGroup as broadcastAnnouncement } from '../services/announcementService.js';
+import noteSvc, { broadcastNoteToGroup as broadcastNote } from '../services/noteService.js';
 import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
 import * as attendanceSvc from '../services/attendanceService.js';
@@ -74,6 +74,10 @@ export const archiveNote = wrapDoc(noteSvc.archiveCr);
 export const deleteNote = wrapDoc(noteSvc.deleteCr);
 
 /* ---- Assignments — ALWAYS scoped to req.user.section ---- */
+export const broadcastAnnouncementToGroup = wrapDoc(broadcastAnnouncement);
+export const broadcastNoteToGroup = wrapDoc(broadcastNote);
+export const broadcastAssignmentToGroup = wrapDoc(assignmentSvc.broadcastAssignmentToGroup);
+
 export const listAssignments = wrapList(assignmentSvc.listAssignmentsCr);
 export const createAssignment = wrapDoc(assignmentSvc.createAssignmentCr);
 export const getAssignment = wrapDoc(assignmentSvc.getAssignmentCr);

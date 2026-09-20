@@ -18,6 +18,7 @@ const noteSchema = new Schema(
     section: { type: ObjectId, ref: 'Section', required: true },
     author: { type: ObjectId, ref: 'User', required: true },
     status: { type: String, enum: ['published', 'archived'], default: 'published' },
+    groupBroadcastAt: { type: Date, default: null }, // set once the combined group broadcast (text+media) has gone out
   },
   { timestamps: true }
 );

@@ -2,7 +2,7 @@ import { Note } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { makeSectionContentService, validateSectionSubject } from './sectionContent.js';
 import { notifySection } from './notificationService.js';
-import { broadcastToSectionGroup, noteMessage } from './whatsappGroupService.js';
+import { broadcastToSectionGroup, broadcastContentToGroup, noteMessage } from './whatsappGroupService.js';
 import * as v from '../utils/validators.js';
 
 const assertText = v.assertText;
@@ -66,7 +66,9 @@ export default makeSectionContentService({
         refId: doc._id,
         dedupePrefix: 'note',
       });
-      // WhatsApp class-group broadcast (best-effort)
+      // WhatsApp class-group broadcast (best-effort). suppressGroupBroadcast:
+      // CR portal uploads files after create, then broadcasts once (text+media together).
+      if (req.body?.suppressGroupBroadcast === true) return;
       await broadcastToSectionGroup(doc.section, await noteMessage(doc), doc.attachments);
     },
     applyUpdate: (doc, fields) => {
@@ -81,3 +83,8 @@ export default makeSectionContentService({
     },
   },
 });
+
+/** POST /api/cr/notes/:id/broadcast — combined text+media group send. */
+export function broadcastNoteToGroup(req) {
+  return broadcastContentToGroup(req, { Model: Note, kind: 'note', buildMessage: (doc) => noteMessage(doc) });
+}

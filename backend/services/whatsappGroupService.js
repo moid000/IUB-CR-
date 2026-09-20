@@ -235,6 +235,32 @@ export async function broadcastAttachmentToSectionGroup(sectionId, attachment) {
   }
 }
 
+/**
+ * Explicit "send the whole post to the group NOW" — the CR portal creates a
+ * post, uploads its files, then fires this once so the group receives the
+ * text AND all attachments together in a single burst (owner request
+ * 2026-09-20: no premature text-then-file double sends). Idempotent-ish:
+ * marks groupBroadcastAt on success so later attach-confirmed files know the
+ * initial broadcast already went out.
+ */
+export async function broadcastContentToGroup(req, { Model, kind, buildMessage }) {
+  if (!req.user.section) throw new ApiError(400, 'You are not assigned to a section');
+  const id = v.assertObjectId(req.params.id, 'id');
+  const doc = await Model.findOne({ _id: id, section: req.user.section, status: 'published' });
+  if (!doc) throw new ApiError(404, `${kind} not found`);
+  const message = await buildMessage(doc);
+  const out = await broadcastToSectionGroup(doc.section, message, doc.attachments);
+  if (out.sent) {
+    doc.groupBroadcastAt = new Date();
+    await doc.save();
+  }
+  await auditFromReq(req, {
+    action: `${kind}.groupBroadcast`, entityType: kind, entityId: doc._id, section: doc.section,
+    after: { sent: out.sent, reason: out.reason ?? null, mediaSent: out.mediaSent ?? 0 },
+  });
+  return out;
+}
+
 /* ---------------------------- message builders -------------------------- */
 
 function contentPreview(content, max = 200) {

@@ -2,7 +2,7 @@ import { Announcement } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { makeSectionContentService } from './sectionContent.js';
 import { notifySection } from './notificationService.js';
-import { broadcastToSectionGroup, announcementMessage } from './whatsappGroupService.js';
+import { broadcastToSectionGroup, broadcastContentToGroup, announcementMessage } from './whatsappGroupService.js';
 import * as v from '../utils/validators.js';
 
 const assertText = v.assertText;
@@ -67,7 +67,11 @@ export default makeSectionContentService({
         refId: doc._id,
         dedupePrefix: 'announcement',
       });
-      // WhatsApp class-group broadcast (best-effort; marks are never broadcast)
+      // WhatsApp class-group broadcast (best-effort; marks are never broadcast).
+      // suppressGroupBroadcast: the CR portal attaches files right after
+      // creating, then fires the combined broadcast ONCE so the group gets
+      // text + media together (no double sends).
+      if (req.body?.suppressGroupBroadcast === true) return;
       await broadcastToSectionGroup(doc.section, announcementMessage(doc), doc.attachments);
     },
     applyUpdate: (doc, fields) => {
@@ -77,3 +81,8 @@ export default makeSectionContentService({
     },
   },
 });
+
+/** POST /api/cr/announcements/:id/broadcast — combined text+media group send. */
+export function broadcastAnnouncementToGroup(req) {
+  return broadcastContentToGroup(req, { Model: Announcement, kind: 'announcement', buildMessage: announcementMessage });
+}

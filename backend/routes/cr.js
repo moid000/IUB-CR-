@@ -1,15 +1,49 @@
 import { Router } from 'express';
 import { protect, crOnly, sectionScope } from '../middleware/auth.js';
 import {
-  listStudents, precreateStudent,
-  listSubjects, createSubject, getSubject, updateSubject, archiveSubject, deleteSubject,
-  listAnnouncements, createAnnouncement, getAnnouncement, updateAnnouncement, archiveAnnouncement, deleteAnnouncement,
-  listNotes, createNote, getNote, updateNote, archiveNote, deleteNote,
-  listAssignments, createAssignment, getAssignment, updateAssignment, archiveAssignment, deleteAssignment,
-  listSubmissions, getSubmission,
-  listTimetable, createTimetable, copyTimetable, getTimetable, updateTimetable, archiveTimetable, deleteTimetable,
-  createAttendanceSession, listAttendanceSessions, getAttendanceSession,
-  cancelAttendanceSession, listAttendanceRecords,
+  archiveAnnouncement,
+  archiveAssignment,
+  archiveNote,
+  archiveSubject,
+  archiveTimetable,
+  broadcastAnnouncementToGroup,
+  broadcastAssignmentToGroup,
+  broadcastNoteToGroup,
+  cancelAttendanceSession,
+  copyTimetable,
+  createAnnouncement,
+  createAssignment,
+  createAttendanceSession,
+  createNote,
+  createSubject,
+  createTimetable,
+  deleteAnnouncement,
+  deleteAssignment,
+  deleteNote,
+  deleteSubject,
+  deleteTimetable,
+  getAnnouncement,
+  getAssignment,
+  getAttendanceSession,
+  getNote,
+  getSubject,
+  getSubmission,
+  getTimetable,
+  listAnnouncements,
+  listAssignments,
+  listAttendanceRecords,
+  listAttendanceSessions,
+  listNotes,
+  listStudents,
+  listSubjects,
+  listSubmissions,
+  listTimetable,
+  precreateStudent,
+  updateAnnouncement,
+  updateAssignment,
+  updateNote,
+  updateSubject,
+  updateTimetable,
 } from '../controllers/crController.js';
 import {
   listMyNotifications, getUnreadCount, getUnreadCountByType, markNotificationRead,
@@ -88,6 +122,7 @@ router.delete('/teachers/:id', deleteTeacher);
 // Announcements — section is ALWAYS derived from the authenticated CR
 router.get('/announcements', listAnnouncements);
 router.post('/announcements', createAnnouncement);
+router.post('/announcements/:id/broadcast', broadcastAnnouncementToGroup);
 router.get('/announcements/:id', getAnnouncement);
 router.patch('/announcements/:id', updateAnnouncement);
 router.post('/announcements/:id/archive', archiveAnnouncement);
@@ -96,6 +131,7 @@ router.delete('/announcements/:id', deleteAnnouncement);
 // Assignments — section ALWAYS req.user.section; subject must be own+active
 router.get('/assignments', listAssignments);
 router.post('/assignments', createAssignment);
+router.post('/assignments/:id/broadcast', broadcastAssignmentToGroup);
 router.get('/assignments/:id', getAssignment);
 router.patch('/assignments/:id', updateAssignment);
 router.post('/assignments/:id/archive', archiveAssignment);
@@ -124,6 +160,7 @@ router.get('/attendance/sessions/:id/records', listAttendanceRecords);
 // Notes — same section isolation; optional subject must belong to own section
 router.get('/notes', listNotes);
 router.post('/notes', createNote);
+router.post('/notes/:id/broadcast', broadcastNoteToGroup);
 router.get('/notes/:id', getNote);
 router.patch('/notes/:id', updateNote);
 router.post('/notes/:id/archive', archiveNote);

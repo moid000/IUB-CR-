@@ -16,6 +16,8 @@ import { IconPlus, IconPencil, IconArchive, IconTrash, IconMegaphone, IconPaperc
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
+import { StagedFiles } from '../../components/files/StagedFiles.jsx';
+import { createPostAndBroadcast } from '../../api/postFlow.js';
 
 /**
  * CR announcements — always created in the CR's OWN section (server-derived).
@@ -26,6 +28,7 @@ function AnnouncementForm({ open, onClose, initial, onSaved }) {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [content, setContent] = useState(initial?.content ?? '');
   const [pinned, setPinned] = useState(initial?.pinned ?? false);
+  const [files, setFiles] = useState([]);
   const [errors, setErrors] = useState({});
 
   const submit = async () => {
@@ -38,7 +41,16 @@ function AnnouncementForm({ open, onClose, initial, onSaved }) {
     const body = { title: title.trim(), content: content.trim(), pinned };
     let created = null;
     if (isEdit) await crApi.announcements.update(initial._id, body);
-    else created = (await crApi.announcements.create(body))?.data;
+    else ({
+      doc: created,
+    } = await createPostAndBroadcast({
+      create: (b) => crApi.announcements.create(b),
+      files,
+      parentType: 'announcement',
+      api: crApi.files,
+      broadcast: (id) => crApi.announcements.broadcast(id),
+    }));
+    setFiles([]);
     onSaved(isEdit ? 'Announcement updated.' : 'Announcement published — your section has been notified.', created);
   };
 
@@ -60,6 +72,13 @@ function AnnouncementForm({ open, onClose, initial, onSaved }) {
             checked={pinned}
             onChange={(e) => setPinned(e.target.checked)}
           />
+          {!isEdit && (
+            <StagedFiles
+              files={files}
+              onAdd={(fs) => setFiles((prev) => [...prev, ...fs])}
+              onRemove={(i) => setFiles((prev) => prev.filter((_, j) => j !== i))}
+            />
+          )}
         </>
       )}
     </FormModal>

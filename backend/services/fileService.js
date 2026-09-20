@@ -345,11 +345,12 @@ export async function confirmUpload(req) {
     after: { parentType, format, size: bytes, publicId }, // publicId is metadata, never a secret
   });
 
-  // WhatsApp class-group broadcast (best-effort, NEVER blocks the confirm):
-  // CR posts content FIRST and attaches files afterwards, so each confirmed
-  // pic/PDF/voice/... is delivered to the section's group as real WhatsApp
-  // media. Student submissions are NEVER broadcast.
-  if (parentType !== 'submission') {
+  // WhatsApp class-group broadcast (best-effort, NEVER blocks the confirm).
+  // Only for parents whose combined broadcast (text+media) already went out
+  // (groupBroadcastAt set) — files added LATER are delivered to the group so
+  // members never miss them. During the create→upload→broadcast-once flow the
+  // flag is still null, so nothing double-sends. Student submissions NEVER broadcast.
+  if (parentType !== 'submission' && parent.groupBroadcastAt) {
     await broadcastAttachmentToSectionGroup(parent.section, fileMeta);
   }
 
