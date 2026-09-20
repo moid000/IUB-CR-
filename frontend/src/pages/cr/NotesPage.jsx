@@ -13,14 +13,12 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { EmptyState } from '../../components/ui/EmptyState.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconPlus, IconPencil, IconArchive, IconTrash, IconFileText, IconPaperclip } from '../../components/icons.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash, IconFileText, IconPaperclip, IconBook, IconChevronRight } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 
-/**
- * CR notes — section-scoped, optionally linked to an ACTIVE subject of the
- * SAME section (validated server-side; archived subjects are rejected).
- */
+/** CR notes — section-scoped, linked to an ACTIVE subject of the SAME section
+ *  (validated server-side; archived subjects are rejected). */
 function NoteForm({ open, onClose, initial, subjects, onSaved }) {
   const isEdit = Boolean(initial?._id);
   const [title, setTitle] = useState(initial?.title ?? '');
@@ -29,10 +27,14 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
   const [errors, setErrors] = useState({});
 
   const activeSubjects = useMemo(() => subjects.filter((s) => s.status === 'active'), [subjects]);
+  // Categorised notes: a note MUST land in a subject category whenever the
+  // section has subjects — that's what keeps the student side organized.
+  const subjectRequired = activeSubjects.length > 0;
 
   const submit = async () => {
     const next = {};
     if (title.trim().length < 2) next.title = 'Give the note a title.';
+    if (subjectRequired && !subject) next.subject = 'Pick the subject this note belongs to.';
     setErrors(next);
     if (Object.keys(next).length) throw new Error('Please fix the highlighted fields.');
 
@@ -50,12 +52,19 @@ function NoteForm({ open, onClose, initial, subjects, onSaved }) {
     <FormModal open={open} onClose={onClose} title={isEdit ? 'Edit note' : 'New note'} submitLabel={isEdit ? 'Save changes' : 'Create note'} onSubmit={submit} size="lg">
       {(fieldErrors) => (
         <>
-          <Input label="Title" required id="note-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Chapter 4 — lecture summary" error={errors.title ?? fieldErrors?.title ?? null} />
-          <Select label="Subject (optional)" id="note-subject" value={subject} onChange={(e) => setSubject(e.target.value)} error={fieldErrors?.subject ?? null}>
-            <option value="">No subject</option>
+          <Select
+            label={subjectRequired ? 'Subject' : 'Subject (optional)'}
+            required={subjectRequired}
+            id="note-subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            error={errors.subject ?? fieldErrors?.subject ?? null}
+          >
+            {!subjectRequired && <option value="">No subject</option>}
             {activeSubjects.map((s) => <option key={s._id} value={s._id}>{s.code} — {s.name}</option>)}
             {activeSubjects.length === 0 && <option value="" disabled>No active subjects — create a subject first.</option>}
           </Select>
+          <Input label="Title" required id="note-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Chapter 4 — lecture summary" error={errors.title ?? fieldErrors?.title ?? null} />
           <Textarea id="note-content" rows={6} label="Content (optional)" value={content} onChange={(e) => setContent(e.target.value)} error={fieldErrors?.content} placeholder="Write the note… files can be attached after saving." />
         </>
       )}
@@ -104,6 +113,7 @@ export default function NotesPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
+  const [closedGroups, setClosedGroups] = useState(() => new Set());
 
   const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), []);
 
@@ -112,7 +122,7 @@ export default function NotesPage() {
       search: debouncedSearch || undefined,
       subjectId: subjectFilter !== 'all' ? subjectFilter : undefined,
       status: status !== 'all' ? status : undefined,
-      page, limit: 10,
+      page, limit: 24,
     }),
     [debouncedSearch, subjectFilter, status, page]
   );
@@ -120,6 +130,34 @@ export default function NotesPage() {
   const [lastKey, setLastKey] = useState('');
   const key = `${debouncedSearch}|${subjectFilter}|${status}`;
   if (key !== lastKey) { setLastKey(key); setPage(1); }
+
+  /** Notes grouped into per-subject categories, newest-first inside each.
+   *  Group order follows the subject list; un-categorised notes fall into a
+   *  trailing "General" category (legacy notes only — new ones require a
+   *  subject whenever the section has any). */
+  const groups = useMemo(() => {
+    const order = new Map(subjects.map((s, i) => [s._id, i]));
+    const keyOf = (n) => (n.subject?._id ?? n.subject ?? 'general');
+    const map = new Map();
+    for (const n of items) {
+      const k = keyOf(n);
+      if (!map.has(k)) {
+        map.set(k, { key: k, label: n.subject?.name ?? 'General', code: n.subject?.code ?? null, notes: [] });
+      }
+      map.get(k).notes.push(n);
+    }
+    return [...map.values()].sort((a, b) => {
+      const rank = (g) => (g.key === 'general' ? 999 : order.get(g.key) ?? 998);
+      return rank(a) - rank(b);
+    });
+  }, [items, subjects]);
+
+  const toggleGroup = (k) =>
+    setClosedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
 
   if (!section) return <NoSection />;
 
@@ -153,9 +191,34 @@ export default function NotesPage() {
     }
   };
 
+  const renderCard = (n) => (
+    <li key={n._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <button type="button" onClick={() => setViewTarget(n)} className="min-w-0 flex-1 text-left">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-slate-900">{n.title}</p>
+            <StatusBadge status={n.status} />
+          </div>
+          {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
+          <p className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+            {timeAgo(n.createdAt)} <FileChips files={n.attachments} />
+          </p>
+        </button>
+        {n.status === 'published' && (
+          <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:flex-wrap sm:gap-1">
+            <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPaperclip} onClick={() => setAttachItem(n)}>Files</Button>
+            <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: n })}>Edit</Button>
+            <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600 sm:w-auto" icon={IconArchive} onClick={() => { setArchiveTarget(n); setArchiveError(null); }}>Archive</Button>
+            <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700 sm:w-auto" icon={IconTrash} onClick={() => { setDeleteTarget(n); setDeleteError(null); }}>Delete</Button>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Notes" description="Study material and shared knowledge for your section.">
+      <PageHeader title="Notes" description="Organized by subject — study material for your section.">
         <Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>New note</Button>
       </PageHeader>
 
@@ -191,33 +254,35 @@ export default function NotesPage() {
           action={<Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>New note</Button>}
         />
       ) : (
-        <ul className="space-y-3">
-          {items.map((n) => (
-            <li key={n._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <button type="button" onClick={() => setViewTarget(n)} className="min-w-0 flex-1 text-left">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-slate-900">{n.title}</p>
-                    {n.subject?.name && <Badge variant="neutral">{n.subject.name}</Badge>}
-                    <StatusBadge status={n.status} />
-                  </div>
-                  {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
-                  <p className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-                    {timeAgo(n.createdAt)} <FileChips files={n.attachments} />
-                  </p>
+        <div className="space-y-5">
+          {groups.map((g) => {
+            const open = !closedGroups.has(g.key);
+            return (
+              <section key={g.key} aria-label={`${g.label} notes`}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(g.key)}
+                  aria-expanded={open}
+                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-left shadow-soft transition-colors hover:bg-slate-50"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                      <IconBook className="size-3.5" />
+                    </span>
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-900">
+                      {g.code ? <>{g.code}<span className="mx-1.5 font-normal text-slate-300">·</span></> : null}{g.label}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <Badge variant="neutral">{g.notes.length}</Badge>
+                    <IconChevronRight className={`size-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
+                  </span>
                 </button>
-                {n.status === 'published' && (
-                  <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:flex-wrap sm:gap-1">
-                    <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPaperclip} onClick={() => setAttachItem(n)}>Files</Button>
-                    <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPencil} onClick={() => setModal({ mode: 'edit', item: n })}>Edit</Button>
-                    <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600 sm:w-auto" icon={IconArchive} onClick={() => { setArchiveTarget(n); setArchiveError(null); }}>Archive</Button>
-                    <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700 sm:w-auto" icon={IconTrash} onClick={() => { setDeleteTarget(n); setDeleteError(null); }}>Delete</Button>
-                  </div>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+                {open && <ul className="mt-2.5 space-y-3">{g.notes.map(renderCard)}</ul>}
+              </section>
+            );
+          })}
+        </div>
       )}
 
       {pagination && pagination.totalPages > 1 && (
