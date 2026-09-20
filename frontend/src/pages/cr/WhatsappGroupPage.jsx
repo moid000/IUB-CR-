@@ -32,7 +32,8 @@ function StepCard({ n, title, children }) {
 }
 
 export default function WhatsappGroupPage() {
-  const { section } = useAuth();
+  const { user } = useAuth();
+  const section = user?.section;
   const { flash, show } = useFlash();
 
   const [cfg, setCfg] = useState(null); // { group, instanceNumber, appUrl }
