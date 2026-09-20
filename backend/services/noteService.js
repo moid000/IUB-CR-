@@ -69,7 +69,8 @@ export default makeSectionContentService({
       // WhatsApp class-group broadcast (best-effort). suppressGroupBroadcast:
       // CR portal uploads files after create, then broadcasts once (text+media together).
       if (req.body?.suppressGroupBroadcast === true) return;
-      await broadcastToSectionGroup(doc.section, await noteMessage(doc), doc.attachments);
+      const out = await broadcastToSectionGroup(doc.section, await noteMessage(doc), doc.attachments);
+      if (out.sent) { doc.groupBroadcastAt = new Date(); await doc.save(); }
     },
     applyUpdate: (doc, fields) => {
       if (fields.title !== undefined) doc.title = fields.title;

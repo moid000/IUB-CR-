@@ -72,7 +72,11 @@ export default makeSectionContentService({
       // creating, then fires the combined broadcast ONCE so the group gets
       // text + media together (no double sends).
       if (req.body?.suppressGroupBroadcast === true) return;
-      await broadcastToSectionGroup(doc.section, announcementMessage(doc), doc.attachments);
+      // Legacy create-path send (no suppress flag): mark the post as broadcast
+      // so (a) later-attached files auto-send via the confirm hook, and
+      // (b) the explicit broadcast endpoint stays idempotent.
+      const out = await broadcastToSectionGroup(doc.section, announcementMessage(doc), doc.attachments);
+      if (out.sent) { doc.groupBroadcastAt = new Date(); await doc.save(); }
     },
     applyUpdate: (doc, fields) => {
       if (fields.title !== undefined) doc.title = fields.title;

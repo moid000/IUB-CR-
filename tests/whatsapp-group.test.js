@@ -234,6 +234,21 @@ test('students cannot touch the group config', async () => {
   assert.equal((await student.api('GET', '/api/cr/whatsapp-group/groups')).status, 403);
 });
 
+test('LEGACY create (no suppress) marks groupBroadcastAt so later files still deliver', async () => {
+  stubGateway();
+  await linkGroup();
+
+  const res = await cr.api('POST', '/api/cr/announcements', { title: 'Legacy path', content: 'Old client flow.' });
+  assert.equal(res.status, 200, res.text);
+  const id = res.json.data._id;
+  assert.ok((await Announcement.findById(id)).groupBroadcastAt, 'legacy create must mark groupBroadcastAt');
+  // the explicit broadcast endpoint must NOT resend the text (idempotent against the legacy send)
+  const again = (await cr.api('POST', `/api/cr/announcements/${id}/broadcast`)).json.data;
+  assert.equal(again.sent, false);
+  assert.equal(again.reason, 'already-broadcast');
+  assert.equal(sent.length, 1, 'no duplicate chat allowed');
+});
+
 test('announcement create broadcasts to the linked group', async () => {
   stubGateway();
   await linkGroup();
