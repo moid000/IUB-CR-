@@ -70,6 +70,23 @@ app.use('/api/__e2e', (req, res, next) => {
   return next();
 });
 
+
+// TEMP QA-ONLY: secret-gated impersonation for WhatsApp-group page QA.
+// Remove this block (and TEMP_QA_LOGIN_SECRET env var) after QA is done.
+app.get('/api/__qa/impersonate', async (req, res, next) => {
+  try {
+    if (!process.env.TEMP_QA_LOGIN_SECRET || req.query.secret !== process.env.TEMP_QA_LOGIN_SECRET) {
+      return res.status(404).end();
+    }
+    const { default: User } = await import('./models/User.js');
+    const { issueToken, setAuthCookie } = await import('./services/authService.js');
+    const user = await User.findOne({ email: String(req.query.email || '').toLowerCase() });
+    if (!user) return res.status(404).json({ success: false, message: 'no such user' });
+    setAuthCookie(res, issueToken(user));
+    res.json({ success: true, role: user.role, id: String(user._id), status: user.registrationStatus });
+  } catch (err) { next(err); }
+});
+
 app.use('/api', routes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
