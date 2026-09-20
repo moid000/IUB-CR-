@@ -9,6 +9,8 @@ const { Schema } = mongoose;
  * Keys in use:
  *   watchdog:qr            — instance needs a QR scan (WhatsApp session dropped)
  *   watchdog:renew-failed  — extend_trial call failed / instance still stopped
+ *   watchdog:last-run      — heartbeat: the most recent watchdog ping (cron every 5 min)
+ *   watchdog:last-renewal  — the last time the "Extend trial" button was auto-pressed successfully
  */
 const watchdogStateSchema = new Schema(
   {

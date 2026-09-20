@@ -160,7 +160,45 @@ async function alertOncePer(kind, subject, text) {
 /**
  * One watchdog pass. Returns a compact JSON report (safe — no secrets).
  */
+/**
+ * Public entry (cron-job.org pings this every 5 min). Wraps watchdogPass with
+ * heartbeat observability (2026-09-21): every run stamps watchdog:last-run,
+ * every SUCCESSFUL renewal stamps watchdog:last-renewal — and the report
+ * includes secondsSinceLastPing + lastRenewalAt so anyone hitting the
+ * endpoint can PROVE the 5-min cron is alive and see the last time the
+ * "Extend trial" button was auto-pressed. Never throws.
+ */
 export async function runWatchdog() {
+  const report = await watchdogPass();
+  if (report?.configured === false) return report;
+  try {
+    const prevPing = await WatchdogState.findOne({ key: 'watchdog:last-run' });
+    if (prevPing?.lastSentAt) {
+      report.secondsSinceLastPing = Math.round((Date.now() - prevPing.lastSentAt.getTime()) / 1000);
+    }
+    await WatchdogState.updateOne(
+      { key: 'watchdog:last-run' },
+      { $set: { lastSentAt: new Date() } },
+      { upsert: true },
+    );
+    if (report.renewed === true) {
+      await WatchdogState.updateOne(
+        { key: 'watchdog:last-renewal' },
+        { $set: { lastSentAt: new Date() } },
+        { upsert: true },
+      );
+    }
+    const renewal = await WatchdogState.findOne({ key: 'watchdog:last-renewal' });
+    if (renewal?.lastSentAt) {
+      report.lastRenewalAt = renewal.lastSentAt instanceof Date ? renewal.lastSentAt.toISOString() : String(renewal.lastSentAt);
+    }
+  } catch (err) {
+    console.error('[watchdog] heartbeat stamp failed:', err.message);
+  }
+  return report;
+}
+
+async function watchdogPass() {
   if (!isWatchdogConfigured()) {
     return { configured: false };
   }
