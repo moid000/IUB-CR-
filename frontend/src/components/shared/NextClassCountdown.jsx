@@ -117,7 +117,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
             <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
           </span>
           <p className="text-sm font-semibold text-slate-900">
-            {name(state.slot)} chal rahi hai{state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}
+            {name(state.slot)} is in progress{state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}
           </p>
         </div>
         <p className="mt-1 text-xs text-slate-500">Ends at {fmtTime(state.slot.endTime)} · {fmtCountdown(state.end - live)} left</p>
@@ -126,14 +126,18 @@ export default function NextClassCountdown({ slots, loading = false }) {
   } else if (state.mode === 'upcoming' && state.start - live <= ALERT_WINDOW_MS) {
     body = (
       <>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
-            <IconBell className="size-4 animate-pulse" />
-            {name(state.slot)} — <span className="font-mono">{fmtCountdown(state.start - live)}</span> mein start
+        <div className="flex items-start justify-between gap-2">
+          <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+            <IconBell className="size-4 shrink-0 animate-pulse" />
+            {name(state.slot)}
           </p>
-          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">30-min alert</span>
+          <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">30-min alert</span>
         </div>
-        <p className="mt-1 text-xs text-amber-800/80">
+        <div className="mt-2 flex items-baseline gap-1.5">
+          <span className="font-mono text-2xl font-bold leading-none text-amber-900">{fmtCountdown(state.start - live)}</span>
+          <span className="text-xs font-medium text-amber-700">until start</span>
+        </div>
+        <p className="mt-2 text-xs text-amber-800/80">
           Starts {fmtTime(state.slot.startTime)} · ends {fmtTime(state.slot.endTime)}{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}
         </p>
       </>
