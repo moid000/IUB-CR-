@@ -37,18 +37,17 @@ export function RedirectIfAuthenticated({ children }) {
 export function FullPageLoader({ label }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-50 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-50 px-6"
       role="status"
       aria-live="polite"
     >
-      <FadeIn className="w-full max-w-sm text-center">
-        <div className="mb-6 flex justify-center"><Brand /></div>
-        <p className="text-sm text-slate-500">{label}</p>
-        <div className="mt-6 space-y-2.5" aria-hidden="true">
-          <div className="skeleton-shimmer mx-auto h-3 rounded" style={{ width: '85%' }} />
-          <div className="skeleton-shimmer mx-auto h-3 rounded" style={{ width: '65%' }} />
-          <div className="skeleton-shimmer mx-auto h-3 rounded" style={{ width: '75%' }} />
-        </div>
+      <FadeIn className="flex flex-col items-center text-center">
+        <Brand />
+        <div
+          className="mt-9 size-6 animate-spin rounded-full border-[2.5px] border-slate-200 border-t-blue-600"
+          aria-hidden="true"
+        />
+        <p className="mt-3 text-sm text-slate-500">{label}</p>
       </FadeIn>
     </div>
   );
