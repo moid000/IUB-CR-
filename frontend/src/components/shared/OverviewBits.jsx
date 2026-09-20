@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card } from '../ui/Card.jsx';
 import { Badge } from '../ui/Badge.jsx';
@@ -5,6 +6,7 @@ import { MiniEmpty } from '../ui/MiniEmpty.jsx';
 import { IconCalendar, IconArrowRight, IconBell, IconClipboard, IconMegaphone } from '../icons.jsx';
 import { usePkNow } from './TimetableDay.jsx';
 import { fmtRoom, fmtTime } from '../../admin/format.js';
+import { api } from '../../api/client.js';
 
 /**
  * Shared mobile-first dashboard building blocks (Student + CR Overview):
@@ -16,6 +18,26 @@ import { fmtRoom, fmtTime } from '../../admin/format.js';
  */
 
 const TZ = 'Asia/Karachi';
+
+/**
+ * SWR-style dashboard data: paint the last known snapshot INSTANTLY (any
+ * age), then silently revalidate in the background. Cold first visit keeps
+ * skeletons until the network answers. Revisits/back-nav feel 0ms.
+ */
+export function useOverviewData(path, fetchOverview) {
+  const [snap, setSnap] = useState(() => api.peek(path)?.data ?? null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetchOverview()
+      .then((res) => { if (!cancelled && res?.data) { setSnap(res.data); setFailed(false); } })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+    // fetchOverview is a stable module function (studentApi.overview / crApi.overview)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+  return { snap, loaded: snap !== null, failed };
+}
 
 function greetingFor(hour) {
   if (hour < 12) return 'Good morning';
@@ -44,7 +66,8 @@ export function DashboardHero({ roleLabel, name, section, status, extraChips = [
   const firstName = (name ?? '').split(' ')[0];
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-primary-50/60 p-5 shadow-soft sm:p-7">
+    <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-primary-50/60 p-5 shadow-soft sm:p-7">
+      <span aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 animate-aurora-a rounded-full bg-primary-200/40 blur-3xl" />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-primary-600">{pkDateLine()}</p>
@@ -208,6 +231,6 @@ export function AnnouncementFeedRow({ title, content, meta, pinned, to }) {
       </div>
     </>
   );
-  const surface = 'flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-colors hover:bg-slate-100/70';
+  const surface = 'flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-soft active:scale-[0.99]';
   return to ? <Link to={to} className={surface}>{inner}</Link> : <div className={surface}>{inner}</div>;
 }

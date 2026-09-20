@@ -16,6 +16,7 @@ const qs = (params = {}) => {
 export const crApi = {
   /* ---- ONE-request dashboard aggregate ---- */
   overview: () => api.get('/api/cr/overview'), // { counts, announcements, assignments, todayClasses }
+  overviewCached: () => api.peek('/api/cr/overview'), // last known snapshot (SWR instant paint)
 
   /* ---- Students (list + precreate — section ALWAYS server-derived) ---- */
   students: {

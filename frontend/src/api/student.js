@@ -16,6 +16,7 @@ const qs = (params = {}) => {
 export const studentApi = {
   /* ---- ONE-request dashboard aggregate ---- */
   overview: () => api.get('/api/student/overview'), // { counts, announcements, assignments, todayClasses }
+  overviewCached: () => api.peek('/api/student/overview'), // last known snapshot (SWR instant paint)
 
   /* ---- Subjects (own section, active only — server-derived) ---- */
   subjects: {

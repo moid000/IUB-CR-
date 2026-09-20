@@ -32,10 +32,16 @@
 html {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Fluid, "water-like" scrolling: smooth programmatic scrolls, momentum
+     on touch, no tap flashes, and the page never rubber-bands past its
+     own edges when an inner scroll (modals/drawers) hits its end. */
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   @apply bg-slate-50 text-slate-900 font-sans;
+  overscroll-behavior-y: contain;
 }
 
 /* Visible, consistent focus states (accessibility) */
@@ -273,4 +279,9 @@ body {
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   box-sizing: border-box;
+}
+
+/* Smooth scroll is a motion too — honor the OS setting (CSS side) */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }

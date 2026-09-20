@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { studentApi } from '../../api/student.js';
@@ -11,9 +11,9 @@ import { Stagger } from '../../components/motion/primitives.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
-import { DashboardHero, TodayClassesCard, DueChip, Chip, AssignmentFeedRow, AnnouncementFeedRow } from '../../components/shared/OverviewBits.jsx';
+import { DashboardHero, TodayClassesCard, DueChip, Chip, AssignmentFeedRow, AnnouncementFeedRow, useOverviewData } from '../../components/shared/OverviewBits.jsx';
 import {
-  IconBook, IconClipboard, IconCalendar, IconBell, IconQr, IconArrowRight, IconCheckCircle,
+  IconBook, IconClipboard, IconCalendar, IconBell, IconQr, IconArrowRight, IconCheckCircle, IconMegaphone,
 } from '../../components/icons.jsx';
 
 const TZ = 'Asia/Karachi';
@@ -28,38 +28,21 @@ export default function StudentOverview() {
   const { user } = useAuth();
   const section = user?.section;
 
-  // Today's date in Pakistan time (daily timetable — any calendar date)
-  const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
   const todayLabel = useMemo(() => todayLabelFmt.format(new Date()), []);
 
-  const [counts, setCounts] = useState({ subjects: null, assignments: null, attendance: null, unread: null });
-  const [recent, setRecent] = useState({ announcements: [], assignments: [], todayClasses: [] });
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!section) return undefined;
-    let cancelled = false;
-    const safe = (p) => p.catch(() => null);
-    (async () => {
-      // ONE aggregate request (was 7 parallel GETs — dashboard felt slow on phones)
-      const ov = await safe(studentApi.overview());
-      if (cancelled) return;
-      const d = ov?.data ?? {};
-      setCounts(d.counts ?? {});
-      // upcoming = soonest-deadline published assignments (server sorts by createdAt,
-      // so order client-side by deadline — never by fabricated data)
-      const upcomingItems = (d.assignments ?? [])
-        .filter((a) => !a.deadlinePassed)
-        .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
-      setRecent({
-        announcements: d.announcements ?? [],
-        assignments: upcomingItems,
-        todayClasses: d.todayClasses ?? [],
-      });
-      setLoaded(true);
-    })();
-    return () => { cancelled = true; };
-  }, [section, today]);
+  // ONE aggregate request + SWR: last snapshot paints instantly, network
+  // revalidates silently in the background (revisits feel 0ms)
+  const { snap, loaded } = useOverviewData('/api/student/overview', studentApi.overview);
+  const counts = snap?.counts ?? {};
+  const recent = useMemo(() => {
+    const d = snap ?? {};
+    // upcoming = soonest-deadline published assignments (server sorts by createdAt,
+    // so order client-side by deadline — never by fabricated data)
+    const upcoming = (d.assignments ?? [])
+      .filter((a) => !a.deadlinePassed)
+      .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+    return { announcements: d.announcements ?? [], assignments: upcoming, todayClasses: d.todayClasses ?? [] };
+  }, [snap]);
 
   if (!section) return <NoSection />;
 

@@ -54,10 +54,12 @@ const sanitize = (message) =>
 const GET_FRESH_MS = 8000;
 const getCache = new Map(); // path -> { data, ts }
 const inflight = new Map(); // path -> Promise<data>
+const lastData = new Map(); // path -> last successful GET data (ANY age — SWR snapshot)
 
 function cacheClear() {
   getCache.clear();
   inflight.clear();
+  lastData.clear();
 }
 
 function cachedGet(path) {
@@ -65,7 +67,9 @@ function cachedGet(path) {
   if (hit && Date.now() - hit.ts < GET_FRESH_MS) return hit.data;
   const existing = inflight.get(path);
   if (existing) return existing;
-  const p = request(path).finally(() => inflight.delete(path));
+  const p = request(path)
+    .then((data) => { lastData.set(path, data); return data; })
+    .finally(() => inflight.delete(path));
   inflight.set(path, p);
   return p;
 }
@@ -104,6 +108,9 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 }
 
 export const api = {
+  /** SWR snapshot: the last successful GET response for this path, any age.
+   *  Lets pages paint instantly on revisit, then revalidate in background. */
+  peek: (path) => lastData.get(path) ?? null,
   get: (path, opts) =>
     // aborted or auth-session requests always hit the network
     (opts?.signal || path.startsWith('/api/auth'))

@@ -1,0 +1,13 @@
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url ?? process.cwd() + '/package.json');
+const WebSocket = require('ws');
+const wss = process.argv[2];
+const expr = process.argv[3];
+const ws = new WebSocket(wss);
+let id = 0; const pending = {};
+const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending[i] = r; ws.send(JSON.stringify({ id: i, method, params })); });
+ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending[d.id]) { pending[d.id](d.result); delete pending[d.id]; } };
+await new Promise((r) => ws.onopen = r);
+const out = await send('Runtime.evaluate', { returnByValue: true, awaitPromise: true, expression: expr });
+console.log(JSON.stringify(out.result ?? out.exceptionDetails));
+ws.close();

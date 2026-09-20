@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
@@ -12,7 +12,7 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
-import { DashboardHero, TodayClassesCard, DueChip, Chip, AssignmentFeedRow, AnnouncementFeedRow } from '../../components/shared/OverviewBits.jsx';
+import { DashboardHero, TodayClassesCard, DueChip, Chip, AssignmentFeedRow, AnnouncementFeedRow, useOverviewData } from '../../components/shared/OverviewBits.jsx';
 import {
   IconUsers, IconBook, IconClipboard, IconCalendar, IconBell, IconMegaphone,
   IconArrowRight,
@@ -27,39 +27,21 @@ export default function CrOverview() {
   const { user } = useAuth();
   const section = user?.section;
 
-  // Today's date in Pakistan time (daily timetable — any calendar date)
-  const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
   const todayLabel = useMemo(() => todayLabelFmt.format(new Date()), []);
 
-  const [counts, setCounts] = useState({ students: null, subjects: null, assignments: null, unread: null });
-  const [recent, setRecent] = useState({ announcements: [], assignments: [], todayClasses: [] });
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (!section) return undefined;
-    let cancelled = false;
-    const safe = (p) => p.catch(() => null);
-    (async () => {
-      // ONE aggregate request (was 7 parallel GETs — dashboard felt slow on phones)
-      const ov = await safe(crApi.overview());
-      if (cancelled) return;
-      const d = ov?.data ?? {};
-      setCounts(d.counts ?? {});
-      setRecent({
-        announcements: d.announcements ?? [],
-        assignments: d.assignments ?? [],
-        todayClasses: d.todayClasses ?? [],
-      });
-      setLoaded(true);
-    })();
-    return () => { cancelled = true; };
-  }, [section, today]);
+  // ONE aggregate request + SWR: last snapshot paints instantly, network
+  // revalidates silently in the background (revisits feel 0ms)
+  const { snap, loaded, failed } = useOverviewData('/api/cr/overview', crApi.overview);
+  const counts = snap?.counts ?? {};
+  const recent = useMemo(() => {
+    const d = snap ?? {};
+    return { announcements: d.announcements ?? [], assignments: d.assignments ?? [], todayClasses: d.todayClasses ?? [] };
+  }, [snap]);
 
   if (!section) return <NoSection />;
 
-  if (error) {
-    return <Alert variant="danger">{error.message}</Alert>;
+  if (failed && !snap) {
+    return <Alert variant="danger">Couldn't load your dashboard. Check your connection and try again.</Alert>;
   }
 
   const firstName = (user?.name ?? '').split(' ')[0];
