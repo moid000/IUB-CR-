@@ -37,12 +37,16 @@ export function RedirectIfAuthenticated({ children }) {
 export function FullPageLoader({ label }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-50 px-6"
+      className="full-page-loader fixed inset-x-0 top-0 z-50 flex flex-col items-center justify-center bg-slate-50 px-6"
       role="status"
       aria-live="polite"
     >
       {/* Two even groups (brand, spinner+label) with the SAME gap between
-          and within them — one balanced, truly centered composition. */}
+          and within them — one balanced, truly centered composition. The
+          `.full-page-loader` class (index.css) sizes this box to the REAL
+          visible viewport (100dvh, safe-area aware) instead of `inset-0`,
+          so the group centers on what the user actually sees, not the
+          taller "toolbar collapsed" box mobile browsers report. */}
       <FadeIn className="flex flex-col items-center gap-8 text-center">
         <Brand />
         <div className="flex flex-col items-center gap-3">

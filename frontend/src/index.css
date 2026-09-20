@@ -259,3 +259,18 @@ body {
   50% { transform: translate(calc(var(--fx, 0) * -1), calc(var(--fy, 0) * -1)); }
 }
 .animate-orbit-float { animation: orbit-float 5.5s ease-in-out infinite; }
+
+/* ---------- Full-page splash/loader — true one-unit vertical center ----------
+   Mobile browsers (esp. iOS Safari) render `position: fixed` against the
+   LARGE viewport (toolbar collapsed) even while the toolbar is still shown,
+   so a plain `inset-0` box can be taller than what's actually visible —
+   flex-centered content then sits above the true visual center until the
+   user scrolls once. `100dvh` tracks the CURRENT visible viewport instead.
+   `100vh` stays first as the safe fallback for browsers without dvh. */
+.full-page-loader {
+  height: 100vh;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-sizing: border-box;
+}
