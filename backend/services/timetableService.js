@@ -4,6 +4,7 @@ import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
 import { parsePagination, paginationMeta } from '../utils/pagination.js';
+import { broadcastToSectionGroup, timetableMessage, timetableCopyMessage } from './whatsappGroupService.js';
 
 /**
  * Timetable (Step 7) — DAILY class slots (one specific calendar date each).
@@ -129,6 +130,10 @@ async function createEntry(req, sectionId) {
     entityId: doc._id, section: doc.section,
     after: { date, startTime, endTime, subject: String(subject) },
   });
+  await broadcastToSectionGroup(doc.section, await timetableMessage({
+    verb: 'added', sectionId: doc.section, subjectId: subject,
+    date, startTime, endTime, room,
+  }));
   return doc;
 }
 
@@ -182,6 +187,9 @@ export async function copyTimetableCr(req) {
     action: 'timetable.copy', entityType: 'timetable', section: req.user.section,
     before: null, after: { fromDate, toDate, copied, skipped: skipped.length },
   });
+  if (copied > 0) {
+    await broadcastToSectionGroup(req.user.section, timetableCopyMessage({ copied, fromDate, toDate }));
+  }
   return { copied, skipped, fromDate, toDate };
 }
 
@@ -351,6 +359,10 @@ async function applyUpdate(req, doc, { scoped }) {
     entityId: doc._id, section: doc.section, before,
     after: { date, startTime, endTime },
   });
+  await broadcastToSectionGroup(updated.section, await timetableMessage({
+    verb: 'rescheduled', sectionId: updated.section, subjectId: updated.subject,
+    date: updated.date, startTime: updated.startTime, endTime: updated.endTime, room: updated.room,
+  }));
   return updated;
 }
 
@@ -376,17 +388,24 @@ async function archiveEntry(req, doc) {
     entityId: doc._id, section: doc.section,
     before: { status: 'active' }, after: { status: 'archived' },
   });
+  await broadcastToSectionGroup(doc.section, await timetableMessage({
+    verb: 'cancelled', sectionId: doc.section, subjectId: doc.subject,
+    date: doc.date, startTime: doc.startTime, endTime: doc.endTime, room: doc.room,
+  }));
   return doc;
 }
 
 /** Hard delete — attendance sessions reference the section, not the slot, so removal is safe. */
 async function deleteEntry(req, doc) {
   await Notification.deleteMany({ refType: 'Timetable', refId: doc._id });
+  const slotInfo = { verb: 'cancelled', sectionId: doc.section, subjectId: doc.subject,
+    date: doc.date, startTime: doc.startTime, endTime: doc.endTime, room: doc.room };
   await doc.deleteOne();
   await auditFromReq(req, {
     action: 'timetable.delete', entityType: 'timetable', entityId: doc._id, section: doc.section,
     before: { subject: doc.subject, date: doc.date, startTime: doc.startTime }, after: { deleted: true },
   });
+  await broadcastToSectionGroup(slotInfo.sectionId, await timetableMessage(slotInfo));
   return { deleted: true, id: doc._id };
 }
 

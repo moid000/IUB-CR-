@@ -22,6 +22,7 @@ import {
 } from '../controllers/gradingController.js';
 import { signFileUpload, confirmFileUpload, removeFileUpload } from '../controllers/fileController.js';
 import { listTeachers, createTeacher, updateTeacher, deleteTeacher } from '../controllers/teacherController.js';
+import { getWhatsappGroup, refreshWhatsappGroups, linkWhatsappGroup, unlinkWhatsappGroup } from '../controllers/whatsappGroupController.js';
 import { crOverview } from '../controllers/overviewController.js';
 
 const router = Router();
@@ -73,6 +74,13 @@ router.delete('/subjects/:id', deleteSubject);
 
 // Teachers — one teacher per subject; section ALWAYS req.user.section
 router.get('/teachers', listTeachers);
+
+// WhatsApp class-group broadcasts — CR/GR link their section's group (the
+// paired Tri3M number must already be a member of it). Marks are never broadcast.
+router.get('/whatsapp-group', getWhatsappGroup);
+router.get('/whatsapp-group/groups', refreshWhatsappGroups);
+router.put('/whatsapp-group', linkWhatsappGroup);
+router.delete('/whatsapp-group', unlinkWhatsappGroup);
 router.post('/teachers', createTeacher);
 router.patch('/teachers/:id', updateTeacher);
 router.delete('/teachers/:id', deleteTeacher);

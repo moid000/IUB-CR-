@@ -43,6 +43,7 @@ const SectionPage = lazy(() => import('./pages/cr/SectionPage.jsx'));
 const CrStudentsPage = lazy(() => import('./pages/cr/StudentsPage.jsx'));
 const CrSubjectsPage = lazy(() => import('./pages/cr/SubjectsPage.jsx'));
 const CrTeachersPage = lazy(() => import('./pages/cr/TeachersPage.jsx'));
+const CrWhatsappGroupPage = lazy(() => import('./pages/cr/WhatsappGroupPage.jsx'));
 const AnnouncementsPage = lazy(() => import('./pages/cr/AnnouncementsPage.jsx'));
 const NotesPage = lazy(() => import('./pages/cr/NotesPage.jsx'));
 const AssignmentsPage = lazy(() => import('./pages/cr/AssignmentsPage.jsx'));
@@ -154,6 +155,7 @@ export default function App() {
               <Route path="students" element={<CrStudentsPage />} />
               <Route path="subjects" element={<CrSubjectsPage />} />
               <Route path="teachers" element={<CrTeachersPage />} />
+              <Route path="whatsapp-group" element={<CrWhatsappGroupPage />} />
               <Route path="announcements" element={<AnnouncementsPage />} />
               <Route path="notes" element={<NotesPage />} />
               <Route path="assignments" element={<AssignmentsPage />} />

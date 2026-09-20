@@ -2,6 +2,7 @@ import { Announcement } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { makeSectionContentService } from './sectionContent.js';
 import { notifySection } from './notificationService.js';
+import { broadcastToSectionGroup, announcementMessage } from './whatsappGroupService.js';
 import * as v from '../utils/validators.js';
 
 const assertText = v.assertText;
@@ -54,17 +55,21 @@ export default makeSectionContentService({
     // New announcement → in-app notification for CURRENT active section
     // members. Recipients/dedupe keys are fully server-derived; retries are
     // idempotent via the notification unique index. No email is ever sent.
-    afterCreate: (doc, req) => notifySection({
-      req,
-      section: doc.section,
-      actorId: req.user._id,
-      type: 'announcement',
-      title: 'New announcement',
-      message: doc.title,
-      refType: 'Announcement',
-      refId: doc._id,
-      dedupePrefix: 'announcement',
-    }),
+    afterCreate: async (doc, req) => {
+      await notifySection({
+        req,
+        section: doc.section,
+        actorId: req.user._id,
+        type: 'announcement',
+        title: 'New announcement',
+        message: doc.title,
+        refType: 'Announcement',
+        refId: doc._id,
+        dedupePrefix: 'announcement',
+      });
+      // WhatsApp class-group broadcast (best-effort; marks are never broadcast)
+      await broadcastToSectionGroup(doc.section, announcementMessage(doc));
+    },
     applyUpdate: (doc, fields) => {
       if (fields.title !== undefined) doc.title = fields.title;
       if (fields.content !== undefined) doc.content = fields.content;

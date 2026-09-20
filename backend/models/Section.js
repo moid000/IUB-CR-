@@ -21,6 +21,20 @@ const sectionSchema = new Schema(
     name: { type: String, required: true, uppercase: true, trim: true },
     cr: { type: ObjectId, ref: 'User', default: null },
     gr: { type: ObjectId, ref: 'User', default: null },
+    // Class WhatsApp group for section broadcasts (set by the section's CR/GR).
+    // id is the WhatsApp group JID ("1234-5678@g.us"); null when not linked.
+    whatsappGroup: {
+      type: new Schema(
+        {
+          id: { type: String, required: true, trim: true },
+          name: { type: String, required: true, trim: true },
+          linkedBy: { type: ObjectId, ref: 'User' },
+          linkedAt: { type: Date, default: Date.now },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     pastMembers: [{ type: ObjectId, ref: 'User' }],
     status: { type: String, enum: ['active', 'archived'], default: 'active' },
   },

@@ -69,4 +69,34 @@ export async function sendText(to, body) {
   return json;
 }
 
+/**
+ * Lists every WhatsApp group the paired number currently belongs to.
+ * Returns a normalized [{ id, name }] — the caller (CR group picker) never
+ * sees raw vendor payloads. Empty array simply means the number has not
+ * been added to any group yet.
+ */
+export async function listGroups() {
+  if (!isConfigured()) {
+    throw new ApiError(503, 'WhatsApp gateway is not configured');
+  }
+  const url = `${endpoint('/groups')}?token=${encodeURIComponent(env.whatsapp.token)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* non-JSON gateway response */ }
+  if (!res.ok || json?.error) {
+    throw new ApiError(502, `WhatsApp groups fetch failed: ${json?.error || `HTTP ${res.status}`}`);
+  }
+  if (!Array.isArray(json)) {
+    throw new ApiError(502, 'Unexpected WhatsApp groups response');
+  }
+  return json
+    .map((g) => {
+      if (typeof g === 'string') return { id: g, name: g };
+      const id = String(g?.id ?? '');
+      return { id, name: String(g?.name ?? (id || 'Group')) };
+    })
+    .filter((g) => g.id); // skip malformed entries
+}
+
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

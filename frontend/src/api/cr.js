@@ -34,6 +34,14 @@ export const crApi = {
     delete: (id) => api.del(`/api/cr/subjects/${id}`), // hard delete; blocked while notes/assignments/etc. exist
   },
 
+  /* ---- WhatsApp class group (section broadcasts; marks never broadcast) ---- */
+  whatsappGroup: {
+    config: () => api.get('/api/cr/whatsapp-group'), // { group, instanceNumber, appUrl }
+    refreshGroups: () => api.get('/api/cr/whatsapp-group/groups'), // { groups: [{id,name}] }
+    link: (body) => api.put('/api/cr/whatsapp-group', body), // { groupId, groupName }
+    unlink: () => api.del('/api/cr/whatsapp-group'),
+  },
+
   /* ---- Teachers (one teacher per subject — WhatsApp deadline alerts) ---- */
   teachers: {
     list: (params) => api.get(`/api/cr/teachers${qs(params)}`), // search | page | limit

@@ -12,7 +12,7 @@ import { AccountMenu } from '../components/layout/AccountMenu.jsx';
 import {
   IconGrid, IconLayers, IconUsers, IconBook, IconMegaphone, IconFileText,
   IconClipboard, IconCalendar, IconQr, IconCheckCircle, IconBell, IconMenu,
-  IconGraduation, IconUserSquare, IconLogout,
+  IconGraduation, IconUserSquare, IconLogout, IconChatBubble,
 } from '../components/icons.jsx';
 
 /**
@@ -45,6 +45,7 @@ const NAV_GROUPS = [
       { to: '/cr/students', label: 'Students', icon: IconUsers },
       { to: '/cr/subjects', label: 'Subjects', icon: IconBook },
       { to: '/cr/teachers', label: 'Teachers', icon: IconGraduation },
+      { to: '/cr/whatsapp-group', label: 'WhatsApp Group', icon: IconChatBubble },
     ],
   },
   {
