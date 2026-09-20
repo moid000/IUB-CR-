@@ -11,6 +11,8 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconClipboard } from '../../components/icons.jsx';
+import { Stagger, StaggerItem, PillFilters } from '../../components/motion/primitives.jsx';
+import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import { FileUploader } from '../../components/files/FileUploader.jsx';
 import { FileList } from '../../components/files/FileList.jsx';
 import {
@@ -32,7 +34,8 @@ export default function StudentAssignmentsPage() {
   const [filter, setFilter] = useState('All');
   const { items, loading, error, reload } = useAdminQuery(
     () => studentApi.assignments.list({ status: 'published', page: 1, limit: 30 }),
-    []
+    [],
+    () => studentApi.assignments.cachedList({ status: 'published', page: 1, limit: 30 })
   );
   const [openId, setOpenId] = useState(null);
   const [flash, showFlash] = useFlash();
@@ -54,20 +57,7 @@ export default function StudentAssignmentsPage() {
       <SuccessFlash message={flash} />
 
       <FilterBar>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Assignment filters">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              aria-pressed={filter === f}
-              onClick={() => setFilter(f)}
-              className={`h-8 rounded-lg px-3 text-xs font-medium transition-colors
-                ${filter === f ? 'bg-primary-600 text-white shadow-sm' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
+        <PillFilters options={FILTERS} value={filter} onChange={setFilter} groupId="student-assignments" label="Assignment filters" />
       </FilterBar>
 
       {error ? (
@@ -92,35 +82,51 @@ export default function StudentAssignmentsPage() {
           </p>
         </div>
       ) : (
-        <ul className="space-y-3">
+        <Stagger className="space-y-3" role="list" aria-label="Assignments">
           {filtered.map((a) => {
             const state = submissionState(a);
             return (
-              <li key={a._id}>
+              <StaggerItem key={a._id} role="listitem">
                 <button
                   type="button"
                   onClick={() => { setOpenId(a._id); showFlash(null); }}
-                  className="w-full rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-soft transition-shadow hover:shadow-lift"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-semibold text-slate-900">{a.title}</h3>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {a.subject?.name ?? ''}{a.subject?.name ? ' · ' : ''}Due {formatDateTime(a.deadline)}
-                      </p>
-                    </div>
-                    {state === 'submitted'
-                      ? <Badge variant="success">Submitted{a.mySubmission?.isLate ? ' (late)' : ''}</Badge>
+                  className={`group block w-full rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
+                    hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]
+                    ${state === 'submitted'
+                      ? 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/50 via-white to-white'
                       : state === 'overdue'
-                        ? <Badge variant="danger">Overdue</Badge>
-                        : <Badge variant="warning">Pending</Badge>}
+                        ? 'border-red-200/80 bg-gradient-to-br from-red-50/50 via-white to-white'
+                        : 'border-slate-200/80 bg-white'}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className={`grid size-10 shrink-0 place-items-center rounded-xl ring-1
+                      ${state === 'submitted'
+                        ? 'bg-emerald-100 text-emerald-700 ring-emerald-200'
+                        : state === 'overdue'
+                          ? 'bg-red-100 text-red-700 ring-red-200'
+                          : 'bg-primary-50 text-primary-600 ring-primary-100'}`}>
+                      <IconClipboard className="size-5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="min-w-0 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
+                        {state === 'submitted'
+                          ? <Badge variant="success">Submitted{a.mySubmission?.isLate ? ' (late)' : ''}</Badge>
+                          : state === 'overdue'
+                            ? <Badge variant="danger">Overdue</Badge>
+                            : <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
+                      </div>
+                      <p className="mt-1 truncate text-xs font-medium text-slate-500">
+                        {a.subject?.name ?? 'General'} · Due {formatDateTime(a.deadline)}
+                      </p>
+                      {a.instructions && <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-slate-500">{a.instructions}</p>}
+                    </div>
                   </div>
-                  {a.instructions && <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{a.instructions}</p>}
                 </button>
-              </li>
+              </StaggerItem>
             );
           })}
-        </ul>
+        </Stagger>
       )}
 
       {openId && (

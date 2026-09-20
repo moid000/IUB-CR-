@@ -26,7 +26,8 @@ export const crApi = {
 
   /* ---- Subjects ---- */
   subjects: {
-    list: (params) => api.get(`/api/cr/subjects${qs(params)}`), // search | status | page | limit
+    list: (params) => api.get(`/api/cr/subjects${qs(params)}`),
+    cachedList: (params) => api.peek(`/api/cr/subjects${qs(params)}`), // SWR snapshot // search | status | page | limit
     create: (body) => api.post('/api/cr/subjects', body), // { name, code, teacherName?, creditHours?, description? }
     update: (id, body) => api.patch(`/api/cr/subjects/${id}`, body),
     archive: (id) => api.post(`/api/cr/subjects/${id}/archive`),
@@ -43,7 +44,8 @@ export const crApi = {
 
   /* ---- Announcements ---- */
   announcements: {
-    list: (params) => api.get(`/api/cr/announcements${qs(params)}`), // search | status | page | limit
+    list: (params) => api.get(`/api/cr/announcements${qs(params)}`),
+    cachedList: (params) => api.peek(`/api/cr/announcements${qs(params)}`), // SWR snapshot // search | status | page | limit
     get: (id) => api.get(`/api/cr/announcements/${id}`),
     create: (body) => api.post('/api/cr/announcements', body), // { title, content, pinned? }
     update: (id, body) => api.patch(`/api/cr/announcements/${id}`, body), // { title?, content?, pinned? }
@@ -63,7 +65,8 @@ export const crApi = {
 
   /* ---- Assignments ---- */
   assignments: {
-    list: (params) => api.get(`/api/cr/assignments${qs(params)}`), // search | status | subjectId | page | limit
+    list: (params) => api.get(`/api/cr/assignments${qs(params)}`),
+    cachedList: (params) => api.peek(`/api/cr/assignments${qs(params)}`), // SWR snapshot // search | status | subjectId | page | limit
     get: (id) => api.get(`/api/cr/assignments/${id}`),
     create: (body) => api.post('/api/cr/assignments', body), // { subject, title, instructions?, deadline }
     update: (id, body) => api.patch(`/api/cr/assignments/${id}`, body), // { subject?, title?, instructions?, deadline? }

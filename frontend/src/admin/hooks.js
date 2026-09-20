@@ -4,11 +4,18 @@ import { ApiError } from '../api/client.js';
 /**
  * Shared list-page state: fetch + loading + error + reload.
  * `fetcher` must return the parsed JSON body ({ success, data, pagination? }).
+ *
+ * SWR mode (optional `peeker`): when the page passes a peeker (api.peek of the
+ * same path), the LAST known response paints instantly on mount and the
+ * network silently revalidates in the background. Skeletons only ever show
+ * when there is NOTHING to display (first ever visit) — revisits, filter
+ * changes and reloads keep the current list visible until fresh data swaps in.
  */
-export function useAdminQuery(fetcher, deps = []) {
-  const [items, setItems] = useState([]);
-  const [pagination, setPagination] = useState(null);
-  const [loading, setLoading] = useState(true);
+export function useAdminQuery(fetcher, deps = [], peeker = null) {
+  const [snapshot] = useState(() => peeker?.() ?? null); // mount-time only
+  const [items, setItems] = useState(snapshot?.data ?? []);
+  const [pagination, setPagination] = useState(snapshot?.pagination ?? null);
+  const [loading, setLoading] = useState(!snapshot);
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
   const fetcherRef = useRef(fetcher);
@@ -16,7 +23,8 @@ export function useAdminQuery(fetcher, deps = []) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    const hasContent = items.length > 0 || pagination; // keep old list visible
+    if (!hasContent) setLoading(true);
     setError(null);
     fetcherRef.current()
       .then((res) => {
@@ -26,6 +34,9 @@ export function useAdminQuery(fetcher, deps = []) {
       })
       .catch((err) => {
         if (cancelled) return;
+        // silent when content is already on screen — a failed revalidate
+        // should never blank out a working page
+        if (hasContent) return;
         setItems([]);
         setPagination(null);
         setError(err instanceof ApiError ? err : new ApiError(500, 'Something went wrong. Please try again.'));

@@ -104,3 +104,41 @@ export const cardHover = {
   whileHover: { y: -2 },
   transition: { duration: MICRO, ease: EASE },
 };
+
+/**
+ * PillFilters — segmented filter chips with a sliding active pill.
+ * The active indicator glides between chips (layout animation), giving
+ * filter switches a fluid, physical feel. Reduced-motion: MotionConfig
+ * globally disables layout animations where requested.
+ */
+export function PillFilters({ options, value, onChange, groupId = 'pills', label = 'Filters', className = '' }) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className={`flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-soft ${className}`}
+    >
+      {options.map((opt) => {
+        const active = opt === value;
+        return (
+          <button
+            key={opt}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(opt)}
+            className="relative shrink-0 rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors"
+          >
+            {active && (
+              <motion.span
+                layoutId={`pill-${groupId}`}
+                className="absolute inset-0 rounded-lg bg-primary-600 shadow-sm"
+                transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+              />
+            )}
+            <span className={`relative z-10 transition-colors ${active ? 'text-white' : 'text-slate-600'}`}>{opt}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}

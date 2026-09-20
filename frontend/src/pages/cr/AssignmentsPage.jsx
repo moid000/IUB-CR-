@@ -16,6 +16,8 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconClipboard, IconArrowRight, IconPaperclip } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
+import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
+import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 
 /** datetime-local default: tomorrow 23:59 in Pakistan time, value for <input> */
@@ -155,7 +157,8 @@ export default function AssignmentsPage() {
   const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
-  const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), []);
+  const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), [],
+    () => crApi.subjects.cachedList({ status: 'active', limit: 100 }));
   const { items, pagination, loading, error, reload } = useAdminQuery(
     () => crApi.assignments.list({
       search: debouncedSearch || undefined,
@@ -163,7 +166,13 @@ export default function AssignmentsPage() {
       status: status !== 'all' ? status : undefined,
       page, limit: 10,
     }),
-    [debouncedSearch, subjectFilter, status, page]
+    [debouncedSearch, subjectFilter, status, page],
+    () => crApi.assignments.cachedList({
+      search: debouncedSearch || undefined,
+      subjectId: subjectFilter !== 'all' ? subjectFilter : undefined,
+      status: status !== 'all' ? status : undefined,
+      page, limit: 10,
+    })
   );
 
   const [lastKey, setLastKey] = useState('');
@@ -242,9 +251,9 @@ export default function AssignmentsPage() {
           </div>
         </div>
       ) : (
-        <ul className="space-y-3">
+        <Stagger className="space-y-3">
           {items.map((a) => (
-            <li key={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift">
+            <StaggerItem key={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -252,8 +261,9 @@ export default function AssignmentsPage() {
                     <StatusBadge status={a.status} />
                   </div>
                   <p className="mt-1 text-sm text-slate-500">{a.subject?.name ?? '—'}{a.subject?.code ? ` (${a.subject.code})` : ''}</p>
-                  <p className={`mt-2 text-xs font-medium ${a.deadlinePassed ? 'text-red-600' : 'text-slate-600'}`}>
-                    {a.deadlinePassed ? 'Deadline passed' : 'Due'} · {formatDateTime(a.deadline)} PKT
+                  <p className={`mt-2 flex flex-wrap items-center gap-1.5 text-xs font-medium ${a.deadlinePassed ? 'text-red-600' : 'text-slate-600'}`}>
+                    <span>{a.deadlinePassed ? 'Deadline passed' : 'Due'} · {formatDateTime(a.deadline)} PKT</span>
+                    {!a.deadlinePassed && <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
                   </p>
                   {a.instructions && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{a.instructions}</p>}
                   <p className="mt-2 flex items-center gap-2 text-xs text-slate-400"><FileChips files={a.attachments} /></p>
@@ -270,9 +280,9 @@ export default function AssignmentsPage() {
                   )}
                 </div>
               </div>
-            </li>
+            </StaggerItem>
           ))}
-        </ul>
+        </Stagger>
       )}
 
       {pagination && pagination.totalPages > 1 && (

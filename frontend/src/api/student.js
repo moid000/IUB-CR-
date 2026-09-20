@@ -26,6 +26,7 @@ export const studentApi = {
   /* ---- Announcements (read-only) ---- */
   announcements: {
     list: (params) => api.get(`/api/student/announcements${qs(params)}`),
+    cachedList: (params) => api.peek(`/api/student/announcements${qs(params)}`), // SWR snapshot
     get: (id) => api.get(`/api/student/announcements/${id}`),
   },
 
@@ -38,6 +39,7 @@ export const studentApi = {
   /* ---- Assignments + own single submission ---- */
   assignments: {
     list: (params) => api.get(`/api/student/assignments${qs(params)}`), // items include mySubmission
+    cachedList: (params) => api.peek(`/api/student/assignments${qs(params)}`), // SWR snapshot
     get: (id) => api.get(`/api/student/assignments/${id}`),
     submission: (assignmentId) => api.get(`/api/student/assignments/${assignmentId}/submission`),
     submit: (assignmentId, body) => api.post(`/api/student/assignments/${assignmentId}/submission`, body), // { textAnswer }
