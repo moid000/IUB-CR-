@@ -9,27 +9,9 @@ import { Select } from '../../components/ui/Select.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
-import { IconPlus, IconPencil, IconArchive, IconTrash, IconClock, IconCopy, IconChevronLeft, IconChevronRight } from '../../components/icons.jsx';
-import { fmtRoom, fmtTime } from '../../admin/format.js';
-
-const TZ = 'Asia/Karachi';
-
-function pktToday() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .format(new Date());
-}
-
-function shiftDate(date, days) {
-  const [y, m, d] = date.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d + days));
-  return dt.toISOString().slice(0, 10);
-}
-
-function prettyDate(date) {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-    .format(new Date(Date.UTC(y, m - 1, d)));
-}
+import { DayNav, SlotTimeline, TimelineSkeleton, usePkNow, pktToday, prettyDate } from '../../components/shared/TimetableDay.jsx';
+import { IconPlus, IconPencil, IconArchive, IconTrash, IconClock, IconCopy } from '../../components/icons.jsx';
+import { fmtTime } from '../../admin/format.js';
 
 /**
  * CR timetable — DAILY wall-clock slots in Pakistan time. The CR picks a
@@ -106,7 +88,7 @@ function CopyForm({ open, onClose, toDate, onDone }) {
     <FormModal open={open} onClose={onClose} title={`Copy classes to ${prettyDate(toDate)}`} submitLabel="Copy classes" onSubmit={submit} size="md">
       {(fieldErrors) => (
         <>
-          <p className="text-sm text-slate-500">Kisi pehle din ka poora schedule isi din copy kar lein. Jo slots is din pehle se hain, woh skip ho jayenge.</p>
+          <p className="text-sm text-slate-500">Bring a previous day's full schedule over to this day. Slots that already exist on this day are skipped.</p>
           <Input label="Copy from date" required id="copy-from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} error={fieldErrors?.fromDate ?? error?.message ?? null} />
         </>
       )}
@@ -129,18 +111,24 @@ export default function TimetablePage() {
   const [deleteError, setDeleteError] = useState(null);
   const [flash, showFlash] = useFlash();
 
+  const today = pktToday();
+  const isToday = date === today;
+  const now = usePkNow(isToday);
+
   const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), []);
   const { items, loading, error, reload } = useAdminQuery(
     () => crApi.timetable.list({ date, status: 'active', limit: 100 }), [date]
   );
   const { items: todaySlots, loading: todayLoading } = useAdminQuery(
-    () => crApi.timetable.list({ date: pktToday(), status: 'active', limit: 100 }), []
+    () => crApi.timetable.list({ date: today, status: 'active', limit: 100 }), []
+  );
+
+  const slots = useMemo(
+    () => [...(items ?? [])].sort((a, b) => a.startTime.localeCompare(b.startTime)),
+    [items]
   );
 
   if (!section) return <NoSection />;
-
-  const today = pktToday();
-  const isToday = date === today;
 
   const confirmDelete = async () => {
     setDeleteBusy(true);
@@ -172,22 +160,12 @@ export default function TimetablePage() {
     }
   };
 
-  const SlotCard = (t) => (
-    <li key={t._id} className="group flex flex-col gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3 sm:flex-row sm:items-center sm:gap-3">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <IconClock className="size-4 shrink-0 text-primary-500" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-slate-800">{t.subject?.name ?? '—'}</p>
-          <p className="text-xs text-slate-500">{t.subject?.code}{t.room ? ` · Room ${fmtRoom(t.room)}` : ''}</p>
-        </div>
-        <span className="shrink-0 font-mono text-xs font-semibold text-slate-700">{fmtTime(t.startTime)} – {fmtTime(t.endTime)}</span>
-      </div>
-      <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:gap-1 sm:opacity-0 sm:transition-opacity sm:focus-within:opacity-100 sm:group-hover:opacity-100">
-        <Button variant="ghost" size="sm" className="w-full sm:w-auto" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
-        <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600 sm:w-auto" icon={IconArchive} aria-label={`Archive ${t.subject?.name} slot`} onClick={() => { setArchiveTarget(t); setArchiveError(null); }}>Archive</Button>
-        <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700 sm:w-auto" icon={IconTrash} onClick={() => { setDeleteTarget(t); setDeleteError(null); }}>Delete</Button>
-      </div>
-    </li>
+  const renderActions = (t) => (
+    <div className="grid grid-cols-3 gap-1.5">
+      <Button variant="ghost" size="sm" className="w-full" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
+      <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600" icon={IconArchive} aria-label={`Archive ${t.subject?.name} slot`} onClick={() => { setArchiveTarget(t); setArchiveError(null); }}>Archive</Button>
+      <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700" icon={IconTrash} onClick={() => { setDeleteTarget(t); setDeleteError(null); }}>Delete</Button>
+    </div>
   );
 
   return (
@@ -200,17 +178,8 @@ export default function TimetablePage() {
 
       {isToday && <div className="mb-4"><NextClassCountdown slots={todaySlots} loading={todayLoading} /></div>}
 
-      {/* ---- Date navigation ---- */}
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-soft">
-        <Button variant="secondary" size="sm" icon={IconChevronLeft} aria-label="Previous day" onClick={() => setDate((d) => shiftDate(d, -1))}>Prev</Button>
-        <Input id="tt-date" type="date" value={date} onChange={(e) => { if (e.target.value) setDate(e.target.value); }} className="max-w-44" aria-label="Timetable date" />
-        <Button variant="secondary" size="sm" icon={IconChevronRight} aria-label="Next day" onClick={() => setDate((d) => shiftDate(d, 1))}>Next</Button>
-        {!isToday && <Button variant="secondary" size="sm" onClick={() => setDate(pktToday())}>Today</Button>}
-        <span className="ml-auto flex items-center gap-2">
-          {isToday && <Badge variant="primary">Today</Badge>}
-          <span className="text-sm font-medium text-slate-600">{prettyDate(date)}</span>
-          <Button variant="secondary" size="sm" icon={IconCopy} onClick={() => setCopyOpen(true)}>Copy from another day</Button>
-        </span>
+      <div className="mb-4">
+        <DayNav date={date} onChange={setDate} today={today} />
       </div>
 
       {error ? (
@@ -219,25 +188,29 @@ export default function TimetablePage() {
           <div className="mt-3"><Button variant="secondary" size="sm" onClick={reload}>Try again</Button></div>
         </div>
       ) : loading ? (
-        <div className="h-44 skeleton-shimmer rounded-2xl" />
-      ) : items.length === 0 ? (
+        <TimelineSkeleton rows={4} />
+      ) : slots.length === 0 ? (
         <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft">
           <div className="flex flex-col items-center py-10 text-center">
             <IconClock className="size-10 text-slate-300" />
             <h3 className="mt-3 text-sm font-semibold text-slate-700">No classes scheduled for {prettyDate(date)}.</h3>
             <p className="mt-1 max-w-sm text-sm text-slate-500">Add this day's classes yourself, or bring a previous day's schedule over with "Copy from another day".</p>
-            <div className="mt-5 flex gap-2">
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
               <Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>Add class</Button>
               <Button variant="secondary" icon={IconCopy} onClick={() => setCopyOpen(true)}>Copy from another day</Button>
             </div>
           </div>
         </div>
       ) : (
-        <section aria-label={`Classes on ${prettyDate(date)}`} className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-soft">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">{prettyDate(date)} — {items.length} {items.length === 1 ? 'class' : 'classes'}</h3>
+        <section aria-label={`Classes on ${prettyDate(date)}`}>
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-1">
+            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {prettyDate(date)}
+              <Badge variant="neutral">{slots.length} {slots.length === 1 ? 'class' : 'classes'}</Badge>
+            </h3>
+            <Button variant="ghost" size="sm" icon={IconCopy} onClick={() => setCopyOpen(true)}>Copy from another day</Button>
           </div>
-          <ul className="space-y-2">{items.map(SlotCard)}</ul>
+          <SlotTimeline slots={slots} isToday={isToday} now={now} renderActions={renderActions} />
         </section>
       )}
 
