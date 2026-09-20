@@ -29,7 +29,7 @@ export function BottomTabBar({ items, onMore, moreLabel = 'More', moreBadge = nu
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `relative flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-medium transition-colors ${
+                `relative flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[10px] font-medium transition-colors ${
                   isActive ? 'text-primary-600' : 'text-slate-500 hover:text-slate-700'
                 }`
               }
@@ -51,7 +51,7 @@ export function BottomTabBar({ items, onMore, moreLabel = 'More', moreBadge = nu
           type="button"
           onClick={onMore}
           aria-label={`Open full navigation menu (${moreLabel})`}
-          className="relative flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-medium text-slate-500 transition-colors hover:text-slate-700"
+          className="relative flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[10px] font-medium text-slate-500 transition-colors hover:text-slate-700"
         >
           <span className="relative">
             <IconMenu className="size-5" />
