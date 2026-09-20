@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
-import { useAdminQuery } from '../../admin/hooks.js';
 import { formatDateTime, timeAgo } from '../../admin/format.js';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
@@ -13,7 +12,7 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
-import { DashboardHero, TodayClassesCard, DueChip } from '../../components/shared/OverviewBits.jsx';
+import { DashboardHero, TodayClassesCard, DueChip, Chip, AssignmentFeedRow, AnnouncementFeedRow } from '../../components/shared/OverviewBits.jsx';
 import {
   IconUsers, IconBook, IconClipboard, IconCalendar, IconBell, IconMegaphone,
   IconArrowRight,
@@ -84,6 +83,7 @@ export default function CrOverview() {
         name={user?.name}
         section={section}
         status={section.status}
+        extraChips={user?.rollNo ? [<Chip key="roll">Roll no. {user.rollNo}</Chip>] : []}
       />
 
       {/* ---- Live countdown to next class (30-min alert) ---- */}
@@ -93,7 +93,7 @@ export default function CrOverview() {
       {!loaded ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-24 skeleton-shimmer rounded-2xl border border-slate-200/60" />
+            <div key={i} className="h-[88px] skeleton-shimmer rounded-2xl border border-slate-200/60" />
           ))}
         </div>
       ) : (
@@ -129,18 +129,17 @@ export default function CrOverview() {
         ) : recent.announcements.length === 0 ? (
           <MiniEmpty icon={IconMegaphone} text="No announcements yet — everything you publish here reaches your section." />
         ) : (
-          <ul className="space-y-2">
+          <div className="space-y-2">
             {recent.announcements.map((a) => (
-              <li key={a._id} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3">
-                <IconMegaphone className="mt-0.5 size-4 shrink-0 text-primary-500" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-800">{a.title}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)}</p>
-                </div>
-                {a.pinned && <Badge variant="primary">Pinned</Badge>}
-              </li>
+              <AnnouncementFeedRow
+                key={a._id}
+                to="/cr/announcements"
+                title={a.title}
+                pinned={a.pinned}
+                meta={`${a.author?.name ?? 'CR'} · ${timeAgo(a.createdAt)}`}
+              />
             ))}
-          </ul>
+          </div>
         )}
       </Card>
 
@@ -157,17 +156,18 @@ export default function CrOverview() {
         ) : recent.assignments.length === 0 ? (
           <MiniEmpty icon={IconClipboard} text="No assignments yet — publish one and your section is notified automatically." />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <div className="space-y-2">
             {recent.assignments.map((a) => (
-              <li key={a._id} className="flex flex-wrap items-center gap-2 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-800">{a.title}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{a.subject?.name ?? '—'} · Due {formatDateTime(a.deadline)}</p>
-                </div>
-                <DueChip deadline={a.deadline} passed={a.deadlinePassed} />
-              </li>
+              <AssignmentFeedRow
+                key={a._id}
+                to="/cr/assignments"
+                title={a.title}
+                subject={a.subject?.name}
+                dueLine={`Due ${formatDateTime(a.deadline)}`}
+                chip={<DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
+              />
             ))}
-          </ul>
+          </div>
         )}
       </Card>
 

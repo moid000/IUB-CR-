@@ -11,10 +11,9 @@ import { Stagger } from '../../components/motion/primitives.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
-import { DashboardHero, TodayClassesCard, DueChip, Chip } from '../../components/shared/OverviewBits.jsx';
+import { DashboardHero, TodayClassesCard, DueChip, Chip, AssignmentFeedRow, AnnouncementFeedRow } from '../../components/shared/OverviewBits.jsx';
 import {
-  IconBook, IconClipboard, IconCalendar, IconBell, IconQr,
-  IconArrowRight, IconCheckCircle, IconMegaphone,
+  IconBook, IconClipboard, IconCalendar, IconBell, IconQr, IconArrowRight, IconCheckCircle,
 } from '../../components/icons.jsx';
 
 const TZ = 'Asia/Karachi';
@@ -83,7 +82,7 @@ export default function StudentOverview() {
         name={user?.name}
         section={section}
         status={section.status}
-        extraChips={user?.rollNo ? [<Chip key="roll" text={`Roll no. ${user.rollNo}`} />] : []}
+        extraChips={user?.rollNo ? [<Chip key="roll">Roll no. {user.rollNo}</Chip>] : []}
       />
 
       {/* ---- Live countdown to next class (30-min alert) ---- */}
@@ -93,7 +92,7 @@ export default function StudentOverview() {
       {!loaded ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-24 skeleton-shimmer rounded-2xl border border-slate-200/60" />
+            <div key={i} className="h-[88px] skeleton-shimmer rounded-2xl border border-slate-200/60" />
           ))}
         </div>
       ) : (
@@ -131,17 +130,16 @@ export default function StudentOverview() {
           ) : recent.assignments.length === 0 ? (
             <MiniEmpty icon={IconCheckCircle} text="No upcoming deadlines — you're all caught up." />
           ) : recent.assignments.map((a) => (
-            <Link key={a._id} to="/student/assignments" className="block rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 transition-colors hover:bg-slate-100/70">
-              <div className="flex items-start justify-between gap-2">
-                <p className="min-w-0 truncate text-sm font-medium text-slate-800">{a.title}</p>
-                {a.mySubmission
-                  ? <Badge variant="success">Submitted</Badge>
-                  : <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
-              </div>
-              <p className="mt-1 text-xs text-slate-500">
-                {a.subject?.name ? `${a.subject.name} · ` : ''}Due {formatDateTime(a.deadline)}
-              </p>
-            </Link>
+            <AssignmentFeedRow
+              key={a._id}
+              to="/student/assignments"
+              title={a.title}
+              subject={a.subject?.name}
+              dueLine={`Due ${formatDateTime(a.deadline)}`}
+              chip={a.mySubmission
+                ? <Badge variant="success">Submitted</Badge>
+                : <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
+            />
           ))}
         </div>
       </Card>
@@ -162,16 +160,14 @@ export default function StudentOverview() {
           ) : recent.announcements.length === 0 ? (
             <MiniEmpty icon={IconMegaphone} text="No announcements yet — your CR / GR posts will appear here." />
           ) : recent.announcements.map((a) => (
-            <Link key={a._id} to="/student/announcements" className="block rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 transition-colors hover:bg-slate-100/70">
-              <div className="flex items-start justify-between gap-2">
-                <p className="min-w-0 text-sm font-medium text-slate-800">{a.title}</p>
-                {a.pinned && <Badge variant="primary">Pinned</Badge>}
-              </div>
-              <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{a.content}</p>
-              <p className="mt-1.5 text-[11px] text-slate-400">
-                {a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)}
-              </p>
-            </Link>
+            <AnnouncementFeedRow
+              key={a._id}
+              to="/student/announcements"
+              title={a.title}
+              content={a.content}
+              pinned={a.pinned}
+              meta={`${a.author?.name ?? 'CR'} · ${timeAgo(a.createdAt)}`}
+            />
           ))}
         </div>
       </Card>

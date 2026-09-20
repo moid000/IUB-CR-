@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Card } from '../ui/Card.jsx';
 import { Badge } from '../ui/Badge.jsx';
 import { MiniEmpty } from '../ui/MiniEmpty.jsx';
-import { IconCalendar, IconArrowRight, IconBell } from '../icons.jsx';
+import { IconCalendar, IconArrowRight, IconBell, IconClipboard, IconMegaphone } from '../icons.jsx';
 import { usePkNow } from './TimetableDay.jsx';
 import { fmtRoom, fmtTime } from '../../admin/format.js';
 
@@ -164,4 +164,50 @@ export function DueChip({ deadline, passed }) {
       {text}
     </span>
   );
+}
+
+/** White icon chip used by feed rows — subtle ring gives depth on tinted rows. */
+function FeedIcon({ Icon }) {
+  return (
+    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-primary-600 ring-1 ring-slate-200/80">
+      <Icon className="size-4" />
+    </span>
+  );
+}
+
+/** Premium assignment row — icon chip, semibold title, status chip, meta line. */
+export function AssignmentFeedRow({ title, subject, dueLine, chip, to }) {
+  return (
+    <Link to={to} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-colors hover:bg-slate-100/70">
+      <FeedIcon Icon={IconClipboard} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 truncate text-sm font-semibold text-slate-800">{title}</p>
+          {chip}
+        </div>
+        <p className="mt-0.5 truncate text-[11px] text-slate-500">
+          {subject ? `${subject} · ` : ''}{dueLine}
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+/** Premium announcement row — icon chip, title + pinned badge, content, meta. */
+export function AnnouncementFeedRow({ title, content, meta, pinned, to }) {
+  const inner = (
+    <>
+      <FeedIcon Icon={IconMegaphone} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 text-sm font-semibold text-slate-800">{title}</p>
+          {pinned && <Badge variant="primary">Pinned</Badge>}
+        </div>
+        {content && <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">{content}</p>}
+        <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">{meta}</p>
+      </div>
+    </>
+  );
+  const surface = 'flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-colors hover:bg-slate-100/70';
+  return to ? <Link to={to} className={surface}>{inner}</Link> : <div className={surface}>{inner}</div>;
 }
