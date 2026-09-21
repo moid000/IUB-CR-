@@ -78,7 +78,7 @@ export default function StudentNotificationsPage() {
       ) : items.length === 0 ? (
         <InboxEmpty unreadOnly={filter === 'unread'} />
       ) : (
-        <NotificationsList items={items} onMarkRead={markRead} />
+        <NotificationsList items={items} onMarkRead={markRead} basePath="/student" />
       )}
     </div>
   );

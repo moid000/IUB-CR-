@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { IconBell, IconMegaphone, IconClipboard, IconCalendar, IconClock, IconCheck } from '../icons.jsx';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { timeAgo } from '../../admin/format.js';
@@ -10,6 +11,21 @@ export const TYPE_META = {
   timetable: { label: 'Timetable', Icon: IconCalendar },
   reminder: { label: 'Reminder', Icon: IconClock },
 };
+
+/** Where a notification should take you when tapped, per portal base path. */
+export function notifRoute(n, basePath) {
+  const byType = {
+    announcement: 'announcements',
+    assignment: 'assignments',
+    note: 'notes',
+    timetable: 'timetable',
+    reminder: 'timetable', // class-starting reminders point at the day's slot
+    attendance: 'attendance',
+    system: null,
+  };
+  const seg = byType[n.type];
+  return seg ? `${basePath}/${seg}` : null;
+}
 
 /** Friendly day bucket for grouping: Today / Yesterday / "Sun 20 Sept". */
 function dayLabel(value) {
@@ -81,9 +97,60 @@ export function NotificationsSkeleton({ rows = 6 }) {
 }
 
 /** One premium notification row — icon chip, day-aware accent, compact mark-read. */
-export function NotificationRow({ n, onMarkRead }) {
+export function NotificationRow({ n, onMarkRead, basePath }) {
   const meta = TYPE_META[n.type] ?? { label: n.type ?? 'Notice', Icon: IconBell };
   const unread = !n.read;
+  const route = basePath ? notifRoute(n, basePath) : null;
+
+  const markRead = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onMarkRead?.(n._id);
+  };
+
+  const body = (
+    <div className="flex items-start gap-3 p-3.5 pl-4">
+      <span
+        className={`grid size-9 shrink-0 place-items-center rounded-lg ring-1
+          ${unread ? 'bg-white text-primary-600 ring-primary-100' : 'bg-slate-50 text-slate-400 ring-slate-200/70'}`}
+      >
+        <meta.Icon className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className={`min-w-0 text-sm ${unread ? 'font-semibold text-slate-800' : 'font-medium text-slate-600'}`}>
+            {n.title}
+          </p>
+          {unread && (
+            <span className="mt-0.5 shrink-0 rounded-full bg-primary-600 px-1.5 py-px text-[9px] font-bold uppercase tracking-widest text-white">
+              New
+            </span>
+          )}
+        </div>
+        {n.message && (
+          <p className={`mt-0.5 line-clamp-2 text-[13px] leading-snug ${unread ? 'text-slate-600' : 'text-slate-400'}`}>
+            {n.message}
+          </p>
+        )}
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <span className={unread ? 'text-primary-500' : undefined}>{meta.label}</span>
+          <span aria-hidden="true" className="text-slate-300">·</span>
+          <span className="normal-case tracking-normal">{timeAgo(n.createdAt)}</span>
+        </p>
+      </div>
+      {unread && onMarkRead && (
+        <button
+          type="button"
+          aria-label={`Mark as read: ${n.title}`}
+          title="Mark as read"
+          onClick={markRead}
+          className="grid size-8 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 transition-all duration-200 hover:border-primary-200 hover:bg-primary-50 hover:text-primary-600 active:scale-95"
+        >
+          <IconCheck className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <li
@@ -93,55 +160,24 @@ export function NotificationRow({ n, onMarkRead }) {
           : 'border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50/60'}`}
     >
       {unread && (
-        <span className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary-400 to-primary-600" aria-hidden="true" />
+        <span className="absolute inset-y-0 left-0 z-10 w-1 bg-gradient-to-b from-primary-400 to-primary-600" aria-hidden="true" />
       )}
-      <div className="flex items-start gap-3 p-3.5 pl-4">
-        <span
-          className={`grid size-9 shrink-0 place-items-center rounded-lg ring-1
-            ${unread ? 'bg-white text-primary-600 ring-primary-100' : 'bg-slate-50 text-slate-400 ring-slate-200/70'}`}
+      {route ? (
+        <Link
+          to={route}
+          onClick={() => { if (unread) onMarkRead?.(n._id); }}
+          aria-label={`Open ${meta.label.toLowerCase()}: ${n.title}`}
+          className="block cursor-pointer focus-visible:outline-none"
         >
-          <meta.Icon className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className={`min-w-0 text-sm ${unread ? 'font-semibold text-slate-800' : 'font-medium text-slate-600'}`}>
-              {n.title}
-            </p>
-            {unread && (
-              <span className="mt-0.5 shrink-0 rounded-full bg-primary-600 px-1.5 py-px text-[9px] font-bold uppercase tracking-widest text-white">
-                New
-              </span>
-            )}
-          </div>
-          {n.message && (
-            <p className={`mt-0.5 line-clamp-2 text-[13px] leading-snug ${unread ? 'text-slate-600' : 'text-slate-400'}`}>
-              {n.message}
-            </p>
-          )}
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            <span className={unread ? 'text-primary-500' : undefined}>{meta.label}</span>
-            <span aria-hidden="true" className="text-slate-300">·</span>
-            <span className="normal-case tracking-normal">{timeAgo(n.createdAt)}</span>
-          </p>
-        </div>
-        {unread && onMarkRead && (
-          <button
-            type="button"
-            aria-label={`Mark as read: ${n.title}`}
-            title="Mark as read"
-            onClick={() => onMarkRead(n._id)}
-            className="grid size-8 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 transition-all duration-200 hover:border-primary-200 hover:bg-primary-50 hover:text-primary-600 active:scale-95"
-          >
-            <IconCheck className="size-3.5" />
-          </button>
-        )}
-      </div>
+          {body}
+        </Link>
+      ) : body}
     </li>
   );
 }
 
 /** Day-grouped list: Today / Yesterday / dates as soft section dividers. */
-export function NotificationsList({ items, onMarkRead }) {
+export function NotificationsList({ items, onMarkRead, basePath }) {
   const groups = [];
   for (const n of items) {
     const label = dayLabel(n.createdAt);
@@ -160,7 +196,7 @@ export function NotificationsList({ items, onMarkRead }) {
           </div>
           <ul className="space-y-2">
             {g.items.map((n) => (
-              <NotificationRow key={n._id} n={n} onMarkRead={onMarkRead} />
+              <NotificationRow key={n._id} n={n} onMarkRead={onMarkRead} basePath={basePath} />
             ))}
           </ul>
         </li>
