@@ -4,7 +4,6 @@ import { useAuth } from '../../auth/AuthContext.jsx';
 import { adminApi } from '../../api/admin.js';
 import { useAdminQuery } from '../../admin/hooks.js';
 import { timeAgo } from '../../admin/format.js';
-import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 import { CountUp } from '../../components/ui/CountUp.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
@@ -131,18 +130,18 @@ export default function AdminOverview() {
         </Alert>
       )}
 
-      <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
         {cards.map((c) => (
-          <StaggerItem><MetricCard
+          <div><MetricCard
             key={c.label}
             icon={c.icon}
             label={c.label}
             to={c.to}
             value={c.value === null || c.value === undefined || c.value === null ? '' : c.value}
             sub={c.sub}
-          /></StaggerItem>
+          /></div>
         ))}
-      </Stagger>
+      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-5">
         {/* Recent sections — real data, newest first (backend sort) */}

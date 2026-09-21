@@ -10,7 +10,6 @@ import { Textarea } from '../../components/ui/Textarea.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconBook } from '../../components/icons.jsx';
-import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 
 const CODE_RE = /^[A-Z0-9-]{2,12}$/;
 
@@ -177,9 +176,9 @@ export default function SubjectsPage() {
           <div className="mt-5"><Button icon={IconPlus} onClick={() => setModal({ mode: 'create' })}>New subject</Button></div>
         </div>
       ) : (
-        <Stagger className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="list" aria-label="Subjects">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="list" aria-label="Subjects">
           {items.map((s) => (
-            <StaggerItem key={s._id} role="listitem" className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
+            <div key={s._id} role="listitem" className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
               <div className="flex items-start gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary-50 text-sm font-bold text-primary-700 ring-1 ring-primary-100">
                   {(s.name ?? '?').trim().slice(0, 2).toUpperCase()}
@@ -204,9 +203,9 @@ export default function SubjectsPage() {
                   <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700" icon={IconTrash} onClick={() => { setDeleteTarget(s); setDeleteError(null); }}>Delete</Button>
                 </div>
               )}
-            </StaggerItem>
+            </div>
           ))}
-        </Stagger>
+        </div>
       )}
 
       {pagination && pagination.totalPages > 1 && (

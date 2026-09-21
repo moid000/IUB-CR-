@@ -13,7 +13,6 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconMegaphone, IconFileText } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
-import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 import { thumbUrl } from '../../api/upload.js';
 
 /** Read-only announcements — the CR authors these; students never modify. */
@@ -76,13 +75,13 @@ export default function StudentAnnouncementsPage() {
           <p className="mt-1 text-sm text-slate-500">When your CR or GR posts an update it will appear here.</p>
         </div>
       ) : (
-        <Stagger className="space-y-3" role="list" aria-label="Announcements">
+        <div className="space-y-3" role="list" aria-label="Announcements">
           {sorted.map((a) => {
             const image = (a.attachments ?? []).find(
               (f) => f?.resourceType === 'image' || ['png', 'jpg', 'jpeg', 'webp'].includes(f?.format)
             );
             return (
-              <StaggerItem key={a._id} role="listitem">
+              <div key={a._id} role="listitem">
                 <button
                   type="button"
                   data-item-id={a._id}
@@ -119,10 +118,10 @@ export default function StudentAnnouncementsPage() {
                     )}
                   </div>
                 </button>
-              </StaggerItem>
+              </div>
             );
           })}
-        </Stagger>
+        </div>
       )}
 
       <Modal open={openId != null} onClose={() => setOpenId(null)} title="Announcement">

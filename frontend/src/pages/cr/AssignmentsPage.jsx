@@ -16,7 +16,6 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconClipboard, IconArrowRight, IconPaperclip } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
-import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 import { StagedFiles } from '../../components/files/StagedFiles.jsx';
@@ -271,9 +270,9 @@ export default function AssignmentsPage() {
           </div>
         </div>
       ) : (
-        <Stagger className="space-y-3">
+        <div className="space-y-3">
           {items.map((a) => (
-            <StaggerItem key={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
+            <div key={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -300,9 +299,9 @@ export default function AssignmentsPage() {
                   )}
                 </div>
               </div>
-            </StaggerItem>
+            </div>
           ))}
-        </Stagger>
+        </div>
       )}
 
       {pagination && pagination.totalPages > 1 && (

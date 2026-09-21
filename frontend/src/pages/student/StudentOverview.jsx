@@ -7,7 +7,6 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
 import { MiniEmpty } from '../../components/ui/MiniEmpty.jsx';
-import { Stagger } from '../../components/motion/primitives.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { PushSetupCard } from '../../components/shared/PushSetupCard.jsx';
@@ -68,13 +67,13 @@ export default function StudentOverview() {
           ))}
         </div>
       ) : (
-        <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           <StatCard to="/student/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
           <StatCard to="/student/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} hint="published for your section" />
           <StatCard to="/student/timetable" icon={IconCalendar} label="Classes today" value={recent.todayClasses.length} hint={`on ${todayLabel}`} />
           <StatCard to="/student/attendance" icon={IconQr} label="Attendance" value={counts.attendance ?? '—'} hint="sessions attended" />
           <StatCard to="/student/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" className="col-span-2 lg:col-span-1" />
-        </Stagger>
+        </div>
       )}
 
       {/* ---- Today's classes (live states) ---- */}

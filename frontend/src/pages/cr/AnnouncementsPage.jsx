@@ -14,7 +14,6 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconMegaphone, IconPaperclip } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
-import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 import { StagedFiles } from '../../components/files/StagedFiles.jsx';
 import { createPostAndBroadcast } from '../../api/postFlow.js';
@@ -213,9 +212,9 @@ export default function AnnouncementsPage() {
           </div>
         </div>
       ) : (
-        <Stagger className="space-y-3">
+        <div className="space-y-3">
           {items.map((a) => (
-            <StaggerItem key={a._id} className={`rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${a.pinned ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white' : 'border-slate-200/80 bg-white'}`}>
+            <div key={a._id} className={`rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${a.pinned ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white' : 'border-slate-200/80 bg-white'}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <button
                   type="button"
@@ -241,9 +240,9 @@ export default function AnnouncementsPage() {
                   </div>
                 )}
               </div>
-            </StaggerItem>
+            </div>
           ))}
-        </Stagger>
+        </div>
       )}
 
       {pagination && pagination.totalPages > 1 && (

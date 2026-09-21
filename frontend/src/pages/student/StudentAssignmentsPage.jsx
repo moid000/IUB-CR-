@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconClipboard } from '../../components/icons.jsx';
-import { Stagger, StaggerItem, PillFilters } from '../../components/motion/primitives.jsx';
+import { PillFilters } from '../../components/motion/primitives.jsx';
 import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import { FileUploader } from '../../components/files/FileUploader.jsx';
 import { FileList } from '../../components/files/FileList.jsx';
@@ -86,11 +86,11 @@ export default function StudentAssignmentsPage() {
           </p>
         </div>
       ) : (
-        <Stagger className="space-y-3" role="list" aria-label="Assignments">
+        <div className="space-y-3" role="list" aria-label="Assignments">
           {filtered.map((a) => {
             const state = submissionState(a);
             return (
-              <StaggerItem key={a._id} role="listitem">
+              <div key={a._id} role="listitem">
                 <button
                   type="button"
                   data-item-id={a._id}
@@ -128,10 +128,10 @@ export default function StudentAssignmentsPage() {
                     </div>
                   </div>
                 </button>
-              </StaggerItem>
+              </div>
             );
           })}
-        </Stagger>
+        </div>
       )}
 
       {openId && (

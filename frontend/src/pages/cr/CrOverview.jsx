@@ -7,7 +7,6 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { Card } from '../../components/ui/Card.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
 import { MiniEmpty } from '../../components/ui/MiniEmpty.jsx';
-import { Stagger } from '../../components/motion/primitives.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
@@ -68,13 +67,13 @@ export default function CrOverview() {
           ))}
         </div>
       ) : (
-        <Stagger className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           <StatCard to="/cr/students" icon={IconUsers} label="Students" value={counts.students ?? '—'} />
           <StatCard to="/cr/subjects" icon={IconBook} label="Subjects" value={counts.subjects ?? '—'} />
           <StatCard to="/cr/assignments" icon={IconClipboard} label="Assignments" value={counts.assignments ?? '—'} />
           <StatCard to="/cr/timetable" icon={IconCalendar} label="Classes today" value={recent.todayClasses.length} hint={`on ${todayLabel}`} />
           <StatCard to="/cr/notifications" icon={IconBell} label="Unread" value={counts.unread ?? 0} hint="notifications" className="col-span-2 lg:col-span-1" />
-        </Stagger>
+        </div>
       )}
 
 

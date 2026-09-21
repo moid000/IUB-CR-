@@ -5,7 +5,6 @@ import { PageHeader } from '../../components/admin/controls.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
-import { Stagger, StaggerItem } from '../../components/motion/primitives.jsx';
 import { IconBook } from '../../components/icons.jsx';
 
 /** One subject card — compact, scannable, calendar-app feel. */
@@ -71,13 +70,13 @@ export default function StudentSubjectsPage() {
           <p className="mt-1 text-sm text-slate-500">Your CR is still setting up the subject list — check back soon.</p>
         </div>
       ) : (
-        <Stagger className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="list" aria-label="My subjects">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="list" aria-label="My subjects">
           {items.map((s) => (
-            <StaggerItem key={s._id} role="listitem">
+            <div key={s._id} role="listitem">
               <SubjectCard s={s} />
-            </StaggerItem>
+            </div>
           ))}
-        </Stagger>
+        </div>
       )}
 
       {items.length > 0 && (
