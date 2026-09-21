@@ -41,6 +41,9 @@ export default function StudentAssignmentsPage() {
   const [openId, setOpenId] = useState(null);
   const [flash, showFlash] = useFlash();
 
+  // notification deep-link: ?focus=<id> scrolls to + rings that assignment
+  useFocusHighlight(items);
+
   if (!section) return <NoSection />;
 
   const filtered = filter === 'All'
@@ -174,8 +177,6 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
       setLoading(false);
     }
   };
-
-  useFocusHighlight(filtered);
 
   useEffect(() => { load(); }, [assignmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
