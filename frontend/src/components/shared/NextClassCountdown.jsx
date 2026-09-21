@@ -61,14 +61,6 @@ export default function NextClassCountdown({ slots, loading = false }) {
   const todayLabel = useMemo(() => todayLabelFmt.format(new Date()), []);
   const live = useMemo(() => pktNow(), [tick]);
 
-  useEffect(() => {
-    // 1s ticking only pays off while a class is upcoming/ongoing;
-    // once the day's schedule is done, idle at 30s (no per-second repaint churn on mobile).
-    const ms = state.mode === 'done' ? 30000 : 1000;
-    const id = setInterval(() => setTick(Date.now()), ms);
-    return () => clearInterval(id);
-  }, [state.mode]);
-
   const todaySlots = useMemo(
     () => (slots ?? []).filter((s) => s.date === today)
       .sort((a, b) => a.startTime.localeCompare(b.startTime)),
@@ -83,6 +75,14 @@ export default function NextClassCountdown({ slots, loading = false }) {
     }
     return { mode: 'done' };
   }, [todaySlots, live]);
+
+  // 1s ticking only pays off while a class is upcoming/ongoing;
+  // once the day's schedule is done, idle at 30s (no per-second repaint churn on mobile).
+  useEffect(() => {
+    const ms = state.mode === 'done' ? 30000 : 1000;
+    const id = setInterval(() => setTick(Date.now()), ms);
+    return () => clearInterval(id);
+  }, [state.mode]);
 
   // exactly one browser notification + vibration when a slot enters the 30-min window
   useEffect(() => {
