@@ -14,16 +14,23 @@ export const TYPE_META = {
 
 /** Where a notification should take you when tapped, per portal base path. */
 export function notifRoute(n, basePath) {
+  // refType is authoritative (reminders carry it: Assignment deadline vs Timetable slot);
+  // type is the fallback for rows created without a refType.
+  const byRefType = {
+    Announcement: 'announcements',
+    Assignment: 'assignments',
+    Note: 'notes',
+    Timetable: 'timetable',
+  };
   const byType = {
     announcement: 'announcements',
     assignment: 'assignments',
     note: 'notes',
     timetable: 'timetable',
-    reminder: 'timetable', // class-starting reminders point at the day's slot
     attendance: 'attendance',
     system: null,
   };
-  const seg = byType[n.type];
+  const seg = byRefType[n.refType] ?? byType[n.type];
   if (!seg) return null;
   const base = `${basePath}/${seg}`;
   const ref = n.refId ? String(n.refId) : null;
