@@ -62,9 +62,12 @@ export default function NextClassCountdown({ slots, loading = false }) {
   const live = useMemo(() => pktNow(), [tick]);
 
   useEffect(() => {
-    const id = setInterval(() => setTick(Date.now()), 1000);
+    // 1s ticking only pays off while a class is upcoming/ongoing;
+    // once the day's schedule is done, idle at 30s (no per-second repaint churn on mobile).
+    const ms = state.mode === 'done' ? 30000 : 1000;
+    const id = setInterval(() => setTick(Date.now()), ms);
     return () => clearInterval(id);
-  }, []);
+  }, [state.mode]);
 
   const todaySlots = useMemo(
     () => (slots ?? []).filter((s) => s.date === today)
@@ -113,7 +116,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
       <>
         <div className="flex items-center gap-2">
           <span className="relative flex size-2.5">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="absolute inline-flex size-full rounded-full bg-emerald-400 opacity-75 lg:animate-ping" />
             <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
           </span>
           <p className="text-sm font-semibold text-slate-900">

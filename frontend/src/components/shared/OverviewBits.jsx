@@ -103,23 +103,23 @@ function ClassRow({ c }) {
         ongoing
           ? 'border-emerald-200 bg-emerald-50/50 ring-1 ring-emerald-400/50'
           : 'border-slate-100 bg-slate-50/60'
-      } ${past ? 'opacity-55' : ''}`}
+      }`}
     >
       <div className="shrink-0 text-right">
-        <p className={`font-mono text-[13px] font-semibold leading-tight ${ongoing ? 'text-emerald-700' : 'text-slate-800'}`}>
+        <p className={`font-mono text-[13px] font-semibold leading-tight ${ongoing ? 'text-emerald-700' : past ? 'text-slate-400' : 'text-slate-800'}`}>
           {fmtTime(c.startTime)}
         </p>
-        <p className="mt-0.5 font-mono text-[10px] leading-tight text-slate-400">{fmtTime(c.endTime)}</p>
+        <p className={`mt-0.5 font-mono text-[10px] leading-tight ${past ? 'text-slate-300' : 'text-slate-400'}`}>{fmtTime(c.endTime)}</p>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-800">{c.subject?.name ?? 'Class'}</p>
-        <p className="mt-0.5 truncate text-xs text-slate-500">
+        <p className={`truncate text-sm font-medium ${past ? 'text-slate-400' : 'text-slate-800'}`}>{c.subject?.name ?? 'Class'}</p>
+        <p className={`mt-0.5 truncate text-xs ${past ? 'text-slate-400' : 'text-slate-500'}`}>
           {c.subject?.code}{c.room ? ` · Room ${fmtRoom(c.room)}` : ''}
         </p>
       </div>
       {ongoing && (
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-          <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+          <span className="size-1.5 rounded-full bg-emerald-500 lg:animate-pulse" />
           Now
         </span>
       )}
