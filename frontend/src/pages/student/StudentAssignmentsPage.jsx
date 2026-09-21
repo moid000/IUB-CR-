@@ -93,7 +93,7 @@ export default function StudentAssignmentsPage() {
                   data-item-id={a._id}
                   onClick={() => { setOpenId(a._id); showFlash(null); }}
                   className={`group block w-full rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
-                    hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]
+                    hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]
                     ${state === 'submitted'
                       ? 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/50 via-white to-white'
                       : state === 'overdue'

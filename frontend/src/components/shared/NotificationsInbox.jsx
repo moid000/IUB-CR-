@@ -147,7 +147,7 @@ export function NotificationRow({ n, onMarkRead, basePath }) {
           aria-label={`Mark as read: ${n.title}`}
           title="Mark as read"
           onClick={markRead}
-          className="grid size-8 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 transition-all duration-200 hover:border-primary-200 hover:bg-primary-50 hover:text-primary-600 active:scale-95"
+          className="grid size-8 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 transition-all duration-200 hover:border-primary-200 hover:bg-primary-50 hover:text-primary-600 [@media(hover:hover)]:active:scale-95"
         >
           <IconCheck className="size-3.5" />
         </button>

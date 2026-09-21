@@ -67,7 +67,7 @@ export function DashboardHero({ roleLabel, name, section, status, extraChips = [
 
   return (
     <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-primary-50/60 p-5 shadow-soft sm:p-7">
-      <span aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 animate-aurora-a rounded-full" style={{ background: 'radial-gradient(circle, rgba(191,219,254,0.45) 0%, rgba(191,219,254,0) 70%)' }} />
+      <span aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 lg:animate-aurora-a rounded-full" style={{ background: 'radial-gradient(circle, rgba(191,219,254,0.45) 0%, rgba(191,219,254,0) 70%)' }} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-primary-600">{pkDateLine()}</p>
@@ -231,6 +231,6 @@ export function AnnouncementFeedRow({ title, content, meta, pinned, to }) {
       </div>
     </>
   );
-  const surface = 'flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-soft active:scale-[0.99]';
+  const surface = 'flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-soft [@media(hover:hover)]:active:scale-[0.99]';
   return to ? <Link to={to} className={surface}>{inner}</Link> : <div className={surface}>{inner}</div>;
 }

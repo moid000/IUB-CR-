@@ -179,7 +179,7 @@ export default function SubjectsPage() {
       ) : (
         <Stagger className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="list" aria-label="Subjects">
           {items.map((s) => (
-            <StaggerItem key={s._id} role="listitem" className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]">
+            <StaggerItem key={s._id} role="listitem" className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
               <div className="flex items-start gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary-50 text-sm font-bold text-primary-700 ring-1 ring-primary-100">
                   {(s.name ?? '?').trim().slice(0, 2).toUpperCase()}

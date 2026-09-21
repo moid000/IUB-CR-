@@ -273,7 +273,7 @@ export default function AssignmentsPage() {
       ) : (
         <Stagger className="space-y-3">
           {items.map((a) => (
-            <StaggerItem key={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]">
+            <StaggerItem key={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">

@@ -137,7 +137,7 @@ export default function AdminLayout() {
 
       {/* ---- Main column ---- */}
       <div className={`flex min-h-dvh flex-col transition-[padding] duration-200 ${collapsed ? 'lg:pl-[76px]' : 'lg:pl-64'}`}>
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200/70 bg-white/95 px-4 lg:bg-white/80 lg:backdrop-blur-md sm:px-6">
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200/70 bg-white px-4 lg:bg-white/80 lg:backdrop-blur-md sm:px-6">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}

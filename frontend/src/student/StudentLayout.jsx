@@ -192,7 +192,7 @@ export default function StudentLayout() {
 
       {/* ---- Main column ---- */}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 lg:bg-white/85 lg:backdrop-blur-md">
+        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white lg:bg-white/85 lg:backdrop-blur-md">
           <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
             <button
               type="button" onClick={() => setDrawerOpen(true)} aria-label="Open navigation menu"

@@ -215,7 +215,7 @@ export default function AnnouncementsPage() {
       ) : (
         <Stagger className="space-y-3">
           {items.map((a) => (
-            <StaggerItem key={a._id} className={`rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99] ${a.pinned ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white' : 'border-slate-200/80 bg-white'}`}>
+            <StaggerItem key={a._id} className={`rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${a.pinned ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white' : 'border-slate-200/80 bg-white'}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <button
                   type="button"

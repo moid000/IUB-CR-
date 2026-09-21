@@ -88,7 +88,7 @@ export default function StudentAnnouncementsPage() {
                   data-item-id={a._id}
                   onClick={() => openDetail(a._id)}
                   className={`group block w-full rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
-                    hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]
+                    hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]
                     ${a.pinned
                       ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white'
                       : 'border-slate-200/80 bg-white'}`}

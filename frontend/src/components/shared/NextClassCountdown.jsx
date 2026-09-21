@@ -128,7 +128,7 @@ export default function NextClassCountdown({ slots, loading = false }) {
       <>
         <div className="flex items-start justify-between gap-2">
           <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-900">
-            <IconBell className="size-4 shrink-0 animate-pulse" />
+            <IconBell className="size-4 shrink-0 [@media(hover:hover)]:animate-pulse" />
             {name(state.slot)}
           </p>
           <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">30-min alert</span>
