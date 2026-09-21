@@ -9,7 +9,7 @@ const ROUTER_BASENAME =
   window.location.pathname === BASE || window.location.pathname.startsWith(`${BASE}/`) ? BASE : '';
 import { AuthProvider } from './auth/AuthContext.jsx';
 import { RequireRole, RedirectIfAuthenticated, FullPageLoader } from './auth/RequireRole.jsx';
-import { ErrorBoundary } from './pages/ErrorBoundary.jsx';
+import { ErrorBoundary, RouteErrorBoundary } from './pages/ErrorBoundary.jsx';
 import RootRedirect from './pages/RootRedirect.jsx';
 import NotFound from './pages/NotFound.jsx';
 
@@ -123,68 +123,68 @@ export default function App() {
           <Suspense fallback={<FullPageLoader label="Loading…" />}>
           <Routes>
             {/* Public */}
-            <Route path="/" element={<RootRedirect />} />
-            <Route path="/login" element={<RedirectIfAuthenticated><Login /></RedirectIfAuthenticated>} />
-            <Route path="/cr/activate" element={<CrActivate />} />
-            <Route path="/gr/activate" element={<GrActivate />} />
-            <Route path="/student/activate" element={<StudentActivate />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/forbidden" element={<Forbidden />} />
-            <Route path="/terms" element={<Terms />} />
-            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/" element={<RouteErrorBoundary><RootRedirect /></RouteErrorBoundary>} />
+            <Route path="/login" element={<RouteErrorBoundary><RedirectIfAuthenticated><Login /></RedirectIfAuthenticated></RouteErrorBoundary>} />
+            <Route path="/cr/activate" element={<RouteErrorBoundary><CrActivate /></RouteErrorBoundary>} />
+            <Route path="/gr/activate" element={<RouteErrorBoundary><GrActivate /></RouteErrorBoundary>} />
+            <Route path="/student/activate" element={<RouteErrorBoundary><StudentActivate /></RouteErrorBoundary>} />
+            <Route path="/forgot-password" element={<RouteErrorBoundary><ForgotPassword /></RouteErrorBoundary>} />
+            <Route path="/reset-password" element={<RouteErrorBoundary><ResetPassword /></RouteErrorBoundary>} />
+            <Route path="/forbidden" element={<RouteErrorBoundary><Forbidden /></RouteErrorBoundary>} />
+            <Route path="/terms" element={<RouteErrorBoundary><Terms /></RouteErrorBoundary>} />
+            <Route path="/privacy" element={<RouteErrorBoundary><Privacy /></RouteErrorBoundary>} />
 
             {/* Admin — nested layout with sidebar shell (UX protection only;
                 the backend remains the authorization boundary) */}
             <Route path="/admin" element={<RequireRole roles={['ADMIN']}><AdminLayout /></RequireRole>}>
-              <Route index element={<AdminOverview />} />
-              <Route path="departments" element={<DepartmentsPage />} />
-              <Route path="sessions" element={<SessionsPage />} />
-              <Route path="sections" element={<SectionsPage />} />
-              <Route path="crs" element={<CrsPage />} />
-              <Route path="students" element={<AdminStudentsPage />} />
-              <Route path="subjects" element={<AdminSubjectsPage />} />
-              <Route path="*" element={<AdminNotFound />} />
+              <Route index element={<RouteErrorBoundary><AdminOverview /></RouteErrorBoundary>} />
+              <Route path="departments" element={<RouteErrorBoundary><DepartmentsPage /></RouteErrorBoundary>} />
+              <Route path="sessions" element={<RouteErrorBoundary><SessionsPage /></RouteErrorBoundary>} />
+              <Route path="sections" element={<RouteErrorBoundary><SectionsPage /></RouteErrorBoundary>} />
+              <Route path="crs" element={<RouteErrorBoundary><CrsPage /></RouteErrorBoundary>} />
+              <Route path="students" element={<RouteErrorBoundary><AdminStudentsPage /></RouteErrorBoundary>} />
+              <Route path="subjects" element={<RouteErrorBoundary><AdminSubjectsPage /></RouteErrorBoundary>} />
+              <Route path="*" element={<RouteErrorBoundary><AdminNotFound /></RouteErrorBoundary>} />
             </Route>
 
             {/* CR portal — mobile-first shell; section scoping is always
                 server-derived (UX protection only, backend is authoritative) */}
             <Route path="/cr" element={<RequireRole roles={['CR', 'GR']}><CrLayout /></RequireRole>}>
-              <Route index element={<CrOverview />} />
-              <Route path="section" element={<SectionPage />} />
-              <Route path="students" element={<CrStudentsPage />} />
-              <Route path="subjects" element={<CrSubjectsPage />} />
-              <Route path="teachers" element={<CrTeachersPage />} />
-              <Route path="whatsapp-group" element={<CrWhatsappGroupPage />} />
-              <Route path="announcements" element={<AnnouncementsPage />} />
-              <Route path="notes" element={<NotesPage />} />
-              <Route path="assignments" element={<AssignmentsPage />} />
-              <Route path="timetable" element={<TimetablePage />} />
-              <Route path="attendance" element={<AttendancePage />} />
-              <Route path="marks" element={<MarksPage />} />
-              <Route path="notifications" element={<NotificationsPage />} />
-              <Route path="profile" element={<CrProfilePage />} />
-              <Route path="*" element={<CrNotFound />} />
+              <Route index element={<RouteErrorBoundary><CrOverview /></RouteErrorBoundary>} />
+              <Route path="section" element={<RouteErrorBoundary><SectionPage /></RouteErrorBoundary>} />
+              <Route path="students" element={<RouteErrorBoundary><CrStudentsPage /></RouteErrorBoundary>} />
+              <Route path="subjects" element={<RouteErrorBoundary><CrSubjectsPage /></RouteErrorBoundary>} />
+              <Route path="teachers" element={<RouteErrorBoundary><CrTeachersPage /></RouteErrorBoundary>} />
+              <Route path="whatsapp-group" element={<RouteErrorBoundary><CrWhatsappGroupPage /></RouteErrorBoundary>} />
+              <Route path="announcements" element={<RouteErrorBoundary><AnnouncementsPage /></RouteErrorBoundary>} />
+              <Route path="notes" element={<RouteErrorBoundary><NotesPage /></RouteErrorBoundary>} />
+              <Route path="assignments" element={<RouteErrorBoundary><AssignmentsPage /></RouteErrorBoundary>} />
+              <Route path="timetable" element={<RouteErrorBoundary><TimetablePage /></RouteErrorBoundary>} />
+              <Route path="attendance" element={<RouteErrorBoundary><AttendancePage /></RouteErrorBoundary>} />
+              <Route path="marks" element={<RouteErrorBoundary><MarksPage /></RouteErrorBoundary>} />
+              <Route path="notifications" element={<RouteErrorBoundary><NotificationsPage /></RouteErrorBoundary>} />
+              <Route path="profile" element={<RouteErrorBoundary><CrProfilePage /></RouteErrorBoundary>} />
+              <Route path="*" element={<RouteErrorBoundary><CrNotFound /></RouteErrorBoundary>} />
             </Route>
 
             {/* Student portal — mobile-first shell; section scoping is always
                 server-derived (UX protection only, backend is authoritative) */}
             <Route path="/student" element={<RequireRole roles={['STUDENT']}><StudentLayout /></RequireRole>}>
-              <Route index element={<StudentOverview />} />
-              <Route path="subjects" element={<StudentSubjectsPage />} />
-              <Route path="announcements" element={<StudentAnnouncementsPage />} />
-              <Route path="notes" element={<StudentNotesPage />} />
-              <Route path="assignments" element={<StudentAssignmentsPage />} />
-              <Route path="timetable" element={<StudentTimetablePage />} />
-              <Route path="attendance" element={<StudentAttendancePage />} />
-              <Route path="marks" element={<StudentMarksPage />} />
-              <Route path="notifications" element={<StudentNotificationsPage />} />
-              <Route path="profile" element={<StudentProfilePage />} />
-              <Route path="*" element={<StudentNotFound />} />
+              <Route index element={<RouteErrorBoundary><StudentOverview /></RouteErrorBoundary>} />
+              <Route path="subjects" element={<RouteErrorBoundary><StudentSubjectsPage /></RouteErrorBoundary>} />
+              <Route path="announcements" element={<RouteErrorBoundary><StudentAnnouncementsPage /></RouteErrorBoundary>} />
+              <Route path="notes" element={<RouteErrorBoundary><StudentNotesPage /></RouteErrorBoundary>} />
+              <Route path="assignments" element={<RouteErrorBoundary><StudentAssignmentsPage /></RouteErrorBoundary>} />
+              <Route path="timetable" element={<RouteErrorBoundary><StudentTimetablePage /></RouteErrorBoundary>} />
+              <Route path="attendance" element={<RouteErrorBoundary><StudentAttendancePage /></RouteErrorBoundary>} />
+              <Route path="marks" element={<RouteErrorBoundary><StudentMarksPage /></RouteErrorBoundary>} />
+              <Route path="notifications" element={<RouteErrorBoundary><StudentNotificationsPage /></RouteErrorBoundary>} />
+              <Route path="profile" element={<RouteErrorBoundary><StudentProfilePage /></RouteErrorBoundary>} />
+              <Route path="*" element={<RouteErrorBoundary><StudentNotFound /></RouteErrorBoundary>} />
             </Route>
 
             {/* Fallback */}
-            <Route path="*" element={<NotFound />} />
+            <Route path="*" element={<RouteErrorBoundary><NotFound /></RouteErrorBoundary>} />
           </Routes>
           </Suspense>
         </BrowserRouter>

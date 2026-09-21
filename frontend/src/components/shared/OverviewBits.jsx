@@ -83,9 +83,9 @@ export function DashboardHero({ roleLabel, name, section, status, extraChips = [
         </span>
       </div>
       <div className="mt-4 flex flex-wrap gap-1.5">
-        <Chip>Section <span className="font-semibold text-slate-800">{section.name}</span></Chip>
-        {section.department?.name && <Chip>{section.department.name}</Chip>}
-        {section.semester != null && <Chip>Semester {section.semester}</Chip>}
+        {section?.name && <Chip>Section <span className="font-semibold text-slate-800">{section.name}</span></Chip>}
+        {section?.department?.name && <Chip>{section.department.name}</Chip>}
+        {section?.semester != null && <Chip>Semester {section.semester}</Chip>}
         {extraChips}
       </div>
     </section>
