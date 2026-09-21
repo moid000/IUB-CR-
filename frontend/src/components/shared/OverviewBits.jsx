@@ -92,19 +92,18 @@ export function DashboardHero({ roleLabel, name, section, status, extraChips = [
   );
 }
 
-/** Live-state class row — mirrors the timetable page's timeline states. */
-function ClassRow({ c }) {
+/**
+ * Live-state class row — mirrors the timetable page's timeline states.
+ * With `focusTo`, the whole row is a deep-link: tapping it opens the
+ * timetable page scrolled to THAT slot with the blue focus ring (same
+ * interaction language as notification taps).
+ */
+function ClassRow({ c, focusTo }) {
   const now = usePkNow(true);
   const ongoing = c.startTime <= now.hm && now.hm < c.endTime;
   const past = now.hm >= c.endTime;
-  return (
-    <li
-      className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 ${
-        ongoing
-          ? 'border-emerald-200 bg-emerald-50/50 ring-1 ring-emerald-400/50'
-          : 'border-slate-100 bg-slate-50/60'
-      }`}
-    >
+  const inner = (
+    <>
       <div className="shrink-0 text-right">
         <p className={`font-mono text-[13px] font-semibold leading-tight ${ongoing ? 'text-emerald-700' : past ? 'text-slate-400' : 'text-slate-800'}`}>
           {fmtTime(c.startTime)}
@@ -117,17 +116,29 @@ function ClassRow({ c }) {
           {c.subject?.code}{c.room ? ` · Room ${fmtRoom(c.room)}` : ''}
         </p>
       </div>
-      {ongoing && (
+      {ongoing ? (
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
           <span className="size-1.5 rounded-full bg-emerald-500 lg:animate-pulse" />
           Now
         </span>
-      )}
+      ) : focusTo && <IconArrowRight className="size-3.5 shrink-0 text-slate-300" />}
+    </>
+  );
+  const surface = `flex items-center gap-3 rounded-xl border px-3.5 py-3 transition-colors ${
+    ongoing
+      ? 'border-emerald-200 bg-emerald-50/50 ring-1 ring-emerald-400/50'
+      : 'border-slate-100 bg-slate-50/60'
+  } ${focusTo ? 'cursor-pointer hover:border-slate-200 hover:bg-white' : ''}`;
+  return (
+    <li>
+      {focusTo
+        ? <Link to={`${focusTo}?focus=${c._id ?? ''}`} className={surface}>{inner}</Link>
+        : <div className={surface}>{inner}</div>}
     </li>
   );
 }
 
-export function TodayClassesCard({ slots, loading, to, linkLabel, emptyText }) {
+export function TodayClassesCard({ slots, loading, to, linkLabel, emptyText, focusTo }) {
   const sorted = [...(slots ?? [])].sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   let content;
@@ -142,7 +153,7 @@ export function TodayClassesCard({ slots, loading, to, linkLabel, emptyText }) {
   } else {
     content = (
       <ul className="space-y-2">
-        {sorted.map((c) => <ClassRow key={c._id} c={c} />)}
+        {sorted.map((c) => <ClassRow key={c._id} c={c} focusTo={focusTo} />)}
       </ul>
     );
   }
@@ -201,7 +212,7 @@ function FeedIcon({ Icon }) {
 /** Premium assignment row — icon chip, semibold title, status chip, meta line. */
 export function AssignmentFeedRow({ title, subject, dueLine, chip, to }) {
   return (
-    <Link to={to} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-colors hover:bg-slate-100/70">
+    <Link to={to} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-soft [@media(hover:hover)]:active:scale-[0.99]">
       <FeedIcon Icon={IconClipboard} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
@@ -212,6 +223,7 @@ export function AssignmentFeedRow({ title, subject, dueLine, chip, to }) {
           {subject ? `${subject} · ` : ''}{dueLine}
         </p>
       </div>
+      <IconArrowRight className="mt-1 size-3.5 shrink-0 text-slate-300" aria-hidden="true" />
     </Link>
   );
 }
@@ -232,5 +244,11 @@ export function AnnouncementFeedRow({ title, content, meta, pinned, to }) {
     </>
   );
   const surface = 'flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-soft [@media(hover:hover)]:active:scale-[0.99]';
-  return to ? <Link to={to} className={surface}>{inner}</Link> : <div className={surface}>{inner}</div>;
+  const withChevron = (
+    <>
+      {inner}
+      <IconArrowRight className="mt-1 size-3.5 shrink-0 text-slate-300" aria-hidden="true" />
+    </>
+  );
+  return to ? <Link to={to} className={surface}>{withChevron}</Link> : <div className={surface}>{inner}</div>;
 }

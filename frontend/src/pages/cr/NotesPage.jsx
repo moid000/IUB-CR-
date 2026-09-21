@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
+import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -146,6 +147,7 @@ export default function NotesPage() {
     }),
     [debouncedSearch, subjectFilter, status, page]
   );
+  useFocusHighlight(items);
 
   const [lastKey, setLastKey] = useState('');
   const key = `${debouncedSearch}|${subjectFilter}|${status}`;
@@ -212,7 +214,7 @@ export default function NotesPage() {
   };
 
   const renderCard = (n) => (
-    <li key={n._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift">
+    <li key={n._id} data-item-id={n._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <button type="button" onClick={() => setViewTarget(n)} className="min-w-0 flex-1 text-left">
           <div className="flex flex-wrap items-center gap-2">

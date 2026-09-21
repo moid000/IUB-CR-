@@ -10,6 +10,7 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { DayNav, SlotTimeline, TimelineSkeleton, usePkNow, pktToday, prettyDate } from '../../components/shared/TimetableDay.jsx';
+import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { IconPlus, IconPencil, IconArchive, IconTrash, IconClock, IconCopy } from '../../components/icons.jsx';
 import { fmtTime } from '../../admin/format.js';
 
@@ -129,6 +130,7 @@ export default function TimetablePage() {
     () => [...(items ?? [])].sort((a, b) => a.startTime.localeCompare(b.startTime)),
     [items]
   );
+  useFocusHighlight(slots);
 
   if (!section) return <NoSection />;
 

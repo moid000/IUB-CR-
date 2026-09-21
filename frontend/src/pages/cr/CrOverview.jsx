@@ -82,6 +82,7 @@ export default function CrOverview() {
         slots={recent.todayClasses}
         loading={!loaded}
         to="/cr/timetable"
+        focusTo="/cr/timetable"
         linkLabel="Manage"
         emptyText="No classes scheduled for today — add your first slot from the timetable."
       />
@@ -103,7 +104,7 @@ export default function CrOverview() {
             {recent.announcements.map((a) => (
               <AnnouncementFeedRow
                 key={a._id}
-                to="/cr/announcements"
+                to={`/cr/announcements?focus=${a._id}`}
                 title={a.title}
                 pinned={a.pinned}
                 meta={`${a.author?.name ?? 'CR'} · ${timeAgo(a.createdAt)}`}
@@ -130,7 +131,7 @@ export default function CrOverview() {
             {recent.assignments.map((a) => (
               <AssignmentFeedRow
                 key={a._id}
-                to="/cr/assignments"
+                to={`/cr/assignments?focus=${a._id}`}
                 title={a.title}
                 subject={a.subject?.name}
                 dueLine={`Due ${formatDateTime(a.deadline)}`}

@@ -3,6 +3,7 @@ import { SkeletonRows } from '../../components/ui/Skeleton.jsx';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
+import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { formatDateTime, timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -193,6 +194,7 @@ export default function AssignmentsPage() {
       page, limit: 10,
     })
   );
+  useFocusHighlight(items);
 
   const [lastKey, setLastKey] = useState('');
   const key = `${debouncedSearch}|${subjectFilter}|${status}`;
@@ -272,7 +274,7 @@ export default function AssignmentsPage() {
       ) : (
         <div className="space-y-3">
           {items.map((a) => (
-            <div key={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
+            <div key={a._id} data-item-id={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">

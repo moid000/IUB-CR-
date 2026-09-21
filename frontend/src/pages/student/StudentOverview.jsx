@@ -81,6 +81,7 @@ export default function StudentOverview() {
         slots={recent.todayClasses}
         loading={!loaded}
         to="/student/timetable"
+        focusTo="/student/timetable"
         linkLabel="Full timetable"
         emptyText="No classes scheduled for today — your CR / GR publishes the daily schedule."
       />
@@ -103,7 +104,7 @@ export default function StudentOverview() {
           ) : recent.assignments.map((a) => (
             <AssignmentFeedRow
               key={a._id}
-              to="/student/assignments"
+              to={`/student/assignments?focus=${a._id}`}
               title={a.title}
               subject={a.subject?.name}
               dueLine={`Due ${formatDateTime(a.deadline)}`}
@@ -133,7 +134,7 @@ export default function StudentOverview() {
           ) : recent.announcements.map((a) => (
             <AnnouncementFeedRow
               key={a._id}
-              to="/student/announcements"
+              to={`/student/announcements?focus=${a._id}`}
               title={a.title}
               content={a.content}
               pinned={a.pinned}

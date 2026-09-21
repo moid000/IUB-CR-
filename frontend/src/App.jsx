@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
 import { MotionConfig } from 'motion/react';
 
 // The SPA is namespaced under /frontend/ (vite base), but root-level URLs
@@ -95,6 +95,24 @@ const PORTAL_PREFETCH = {
 };
 const prefetchedPortals = new Set();
 
+/**
+ * Every tab/page navigation starts at the TOP of the page. Without this the
+ * window keeps its old scroll offset across client-side route changes, so
+ * e.g. scrolling a long dashboard and tapping Assignments opens the list
+ * "from the middle" — the classic complaint. POP (back/forward) keeps the
+ * browser's restored position. ?focus deep-links are unaffected: they scroll
+ * to their target item AFTER the page data renders (useFocusHighlight),
+ * which runs later and wins.
+ */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  const navType = useNavigationType();
+  useEffect(() => {
+    if (navType !== 'POP') window.scrollTo(0, 0);
+  }, [pathname, navType]);
+  return null;
+}
+
 function PortalPrefetcher() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -121,6 +139,7 @@ export default function App() {
         <MotionConfig reducedMotion="user">
         <BrowserRouter basename={ROUTER_BASENAME}>
           <PortalPrefetcher />
+          <ScrollToTop />
           <DataPrefetcher />
           <Suspense fallback={<FullPageLoader label="Loading…" />}>
           <Routes>
