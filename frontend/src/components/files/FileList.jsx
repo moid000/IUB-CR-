@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal } from '../ui/Modal.jsx';
 import { Button } from '../ui/Button.jsx';
-import { IconDownload, IconFileText, IconX } from '../icons.jsx';
+import { IconDownload, IconFileText, IconPaperclip, IconX } from '../icons.jsx';
 import { formatBytes, thumbUrl, typeLabel } from '../../api/upload.js';
 
 /**
@@ -100,13 +100,20 @@ export function FileList({ files = [], emptyText = null, className = '', onRemov
   );
 }
 
-/** Compact inline attachment chips (list rows, cards). */
-export function FileChips({ files = [] }) {
+/**
+ * Attachment count pill — a small, self-contained badge (own background,
+ * normal case) so it never inherits a parent row's uppercase/caption
+ * styling and never runs into surrounding text. Used on list cards across
+ * Announcements/Assignments/Notes/Submissions, student + CR portals.
+ */
+export function FileChips({ files = [], className = '' }) {
   const list = files.filter(Boolean);
   if (list.length === 0) return null;
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-      <IconFileText className="size-3.5" aria-hidden="true" />
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-slate-500 ${className}`}
+    >
+      <IconPaperclip className="size-3" aria-hidden="true" />
       {list.length} {list.length === 1 ? 'file' : 'files'}
     </span>
   );

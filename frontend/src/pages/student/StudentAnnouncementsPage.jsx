@@ -103,10 +103,12 @@ export default function StudentAnnouncementsPage() {
                         {a.pinned && <Badge variant="primary">Pinned</Badge>}
                       </div>
                       <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-slate-500">{a.content}</p>
-                      <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                        {a.author?.name ? `${a.author.name} · ` : ''}{timeAgo(a.createdAt)}
+                      <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                        <p className="min-w-0 truncate text-xs text-slate-500">
+                          {a.author?.name ? `${a.author.name} · ` : ''}{timeAgo(a.createdAt)}
+                        </p>
                         <FileChips files={a.attachments} />
-                      </p>
+                      </div>
                     </div>
                     {image?.url && (
                       <img

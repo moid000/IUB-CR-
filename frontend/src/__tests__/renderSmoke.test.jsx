@@ -9,7 +9,7 @@
  *
  * Rule: if a shared component used by any portal can render it, it renders here.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import NextClassCountdown from '../components/shared/NextClassCountdown.jsx';
@@ -22,21 +22,31 @@ import { fmtTime, fmtDuration } from '../admin/format.js';
 
 const R = (ui) => renderToString(<MemoryRouter>{ui}</MemoryRouter>);
 
-// PKT clock is frozen at a fixed moment via a controllable slot set instead:
-// slots are crafted relative to "now" so at least one is past / ongoing / upcoming.
-const nowMinutes = () => {
-  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
-  const h = Number(p.find((x) => x.type === 'hour').value) % 24;
-  const m = Number(p.find((x) => x.type === 'minute').value);
-  return h * 60 + m;
+// The shared components compare slot times against the REAL wall clock
+// (Date.now()/usePkNow), so the clock is pinned to a fixed PKT noon for this
+// whole file — offsets of -120..+90min then always land the same calendar
+// day, which the components' plain "HH:MM <= now < HH:MM" string comparison
+// requires (a slot spanning midnight isn't a state they support, and never
+// happens with real timetable data). Without this pin, the suite flaked for
+// ~1h every night whenever it happened to run within ~55min of midnight PKT.
+const pktParts = (d) => {
+  const p = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const get = (t) => p.find((x) => x.type === t).value;
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${get('hour') === '24' ? '00' : get('hour')}:${get('minute')}` };
 };
-const hm = (mins) => `${String(Math.floor((mins / 60 + 24) % 24)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-const n = nowMinutes();
-const slot = (id, startMin, durMin, name = 'Digital Logic Design') => ({
-  _id: id, date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date()),
-  startTime: hm(n + startMin), endTime: hm(n + startMin + durMin),
-  subject: { name, code: 'DLD-101' }, room: 'CS-204', status: 'active',
-});
+const slot = (id, startMin, durMin, name = 'Digital Logic Design') => {
+  const start = pktParts(new Date(Date.now() + startMin * 60000));
+  const end = pktParts(new Date(Date.now() + (startMin + durMin) * 60000));
+  return {
+    _id: id, date: start.date, startTime: start.time, endTime: end.time,
+    subject: { name, code: 'DLD-101' }, room: 'CS-204', status: 'active',
+  };
+};
+
+beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-01-15T07:00:00Z')); }); // 12:00 PKT (UTC+5)
+afterAll(() => { vi.useRealTimers(); });
 
 describe('NextClassCountdown renders in every mode', () => {
   it('done mode (all classes past)', () => {
@@ -103,7 +113,7 @@ describe('DashboardHero + feed rows render', () => {
 
 describe('TimetableDay renders timeline + navigator', () => {
   it('SlotTimeline with all states + actions', () => {
-    const nowHm = hm(n);
+    const nowHm = pktParts(new Date()).time;
     const html = R(<SlotTimeline
       slots={[slot('p', -120, 60), slot('o', -5, 60), slot('u', 30, 60)]}
       isToday
@@ -141,7 +151,6 @@ describe('time utils', () => {
  * Ye test drift pakarta hai: agar kisi page ne params badle aur prefetch nahi,
  * tab pe phir skeleton aayega — yahan fail hoga deploy se pehle.
  * ------------------------------------------------------------------------- */
-import { vi } from 'vitest';
 import { studentApi } from '../api/student.js';
 import { crApi } from '../api/cr.js';
 import { studentPrefetch, crPrefetch } from '../components/DataPrefetcher.jsx';

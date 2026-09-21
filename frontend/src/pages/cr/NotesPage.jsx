@@ -220,9 +220,10 @@ export default function NotesPage() {
             <StatusBadge status={n.status} />
           </div>
           {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
-          <p className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-            {timeAgo(n.createdAt)} <FileChips files={n.attachments} />
-          </p>
+          <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+            <p className="text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
+            <FileChips files={n.attachments} />
+          </div>
         </button>
         {n.status === 'published' && (
           <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:flex-wrap sm:gap-1">

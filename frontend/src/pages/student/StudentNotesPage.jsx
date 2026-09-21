@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconFileText, IconBook, IconChevronRight } from '../../components/icons.jsx';
-import { FileList } from '../../components/files/FileList.jsx';
+import { FileList, FileChips } from '../../components/files/FileList.jsx';
 
 /** Read-only notes — grouped into per-subject categories, newest-first inside
  *  each. Archived notes follow backend visibility. */
@@ -180,7 +180,10 @@ export default function StudentNotesPage() {
                           >
                             <h3 className="text-sm font-semibold text-slate-900">{n.title}</h3>
                             {n.content && <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{n.content}</p>}
-                            <p className="mt-2.5 text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
+                            <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                              <p className="text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
+                              <FileChips files={n.attachments} />
+                            </div>
                           </button>
                         </li>
                       ))}

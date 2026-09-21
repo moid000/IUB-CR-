@@ -15,7 +15,7 @@ import { IconClipboard } from '../../components/icons.jsx';
 import { PillFilters } from '../../components/motion/primitives.jsx';
 import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import { FileUploader } from '../../components/files/FileUploader.jsx';
-import { FileList } from '../../components/files/FileList.jsx';
+import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import {
   ACCEPT_ATTR, MAX_FILE_BYTES, formatBytes, matchType, uploadToCloudinary,
 } from '../../api/upload.js';
@@ -125,6 +125,11 @@ export default function StudentAssignmentsPage() {
                         {a.subject?.name ?? 'General'} · Due {formatDateTime(a.deadline)}
                       </p>
                       {a.instructions && <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-slate-500">{a.instructions}</p>}
+                      {(a.attachments?.length ?? 0) > 0 && (
+                        <div className="mt-2.5 flex items-center justify-end border-t border-slate-100 pt-2">
+                          <FileChips files={a.attachments} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </button>

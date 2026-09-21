@@ -285,7 +285,11 @@ export default function AssignmentsPage() {
                     {!a.deadlinePassed && <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
                   </p>
                   {a.instructions && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{a.instructions}</p>}
-                  <p className="mt-2 flex items-center gap-2 text-xs text-slate-400"><FileChips files={a.attachments} /></p>
+                  {(a.attachments?.length ?? 0) > 0 && (
+                    <div className="mt-2.5 flex items-center justify-end border-t border-slate-100 pt-2">
+                      <FileChips files={a.attachments} />
+                    </div>
+                  )}
                 </div>
                 <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:flex-wrap sm:gap-1">
                   <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={() => setSubmissionsFor(a)}>Submissions</Button>
