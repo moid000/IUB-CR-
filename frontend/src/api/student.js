@@ -49,6 +49,7 @@ export const studentApi = {
   /* ---- Timetable (monday–saturday, PKT wall-clock) ---- */
   timetable: {
     list: (params) => api.get(`/api/student/timetable${qs(params)}`), // date | status | page | limit
+    cachedList: (params) => api.peek(`/api/student/timetable${qs(params)}`), // SWR snapshot
   },
 
   /* ---- Attendance: active own-section sessions + code entry + own history ---- */

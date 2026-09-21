@@ -26,10 +26,12 @@ export default function StudentTimetablePage() {
   const now = usePkNow(isToday);
 
   const { items, loading, error, reload } = useAdminQuery(
-    () => studentApi.timetable.list({ date, status: 'active', page: 1, limit: 100 }), [date]
+    () => studentApi.timetable.list({ date, status: 'active', page: 1, limit: 100 }), [date],
+    () => studentApi.timetable.cachedList({ date, status: 'active', page: 1, limit: 100 })
   );
   const { items: todaySlots, loading: todayLoading } = useAdminQuery(
-    () => studentApi.timetable.list({ date: today, status: 'active', page: 1, limit: 100 }), []
+    () => studentApi.timetable.list({ date: today, status: 'active', page: 1, limit: 100 }), [],
+    () => studentApi.timetable.cachedList({ date: today, status: 'active', page: 1, limit: 100 })
   );
 
   const slots = useMemo(

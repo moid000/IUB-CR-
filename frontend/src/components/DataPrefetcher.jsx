@@ -21,7 +21,7 @@ import { pktToday } from './shared/TimetableDay.jsx';
 
 const prefetchedPortals = new Set();
 
-const studentPrefetch = () => {
+export const studentPrefetch = () => {
   const today = pktToday();
   return [
     studentApi.announcements.list({ page: 1, limit: 30 }),
@@ -31,7 +31,7 @@ const studentPrefetch = () => {
   ];
 };
 
-const crPrefetch = () => {
+export const crPrefetch = () => {
   const today = pktToday();
   return [
     crApi.announcements.list({ page: 1, limit: 10 }),

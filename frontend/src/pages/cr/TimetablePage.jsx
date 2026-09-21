@@ -117,10 +117,12 @@ export default function TimetablePage() {
 
   const { items: subjects } = useAdminQuery(() => crApi.subjects.list({ status: 'active', limit: 100 }), []);
   const { items, loading, error, reload } = useAdminQuery(
-    () => crApi.timetable.list({ date, status: 'active', limit: 100 }), [date]
+    () => crApi.timetable.list({ date, status: 'active', limit: 100 }), [date],
+    () => crApi.timetable.cachedList({ date, status: 'active', limit: 100 })
   );
   const { items: todaySlots, loading: todayLoading } = useAdminQuery(
-    () => crApi.timetable.list({ date: today, status: 'active', limit: 100 }), []
+    () => crApi.timetable.list({ date: today, status: 'active', limit: 100 }), [],
+    () => crApi.timetable.cachedList({ date: today, status: 'active', limit: 100 })
   );
 
   const slots = useMemo(

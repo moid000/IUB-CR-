@@ -134,3 +134,46 @@ describe('time utils', () => {
     expect(fmtDuration(0)).toBeTruthy();
   });
 });
+
+/* ---------------------------------------------------------------------------
+ * TAB-SPEED CONTRACT — DataPrefetcher ke prefetch paths EXACTLY wahi hone
+ * chahiyen jo pages fetch karte hain (key order tak, qs insertion-order hai).
+ * Ye test drift pakarta hai: agar kisi page ne params badle aur prefetch nahi,
+ * tab pe phir skeleton aayega — yahan fail hoga deploy se pehle.
+ * ------------------------------------------------------------------------- */
+import { vi } from 'vitest';
+import { studentApi } from '../api/student.js';
+import { crApi } from '../api/cr.js';
+import { studentPrefetch, crPrefetch } from '../components/DataPrefetcher.jsx';
+import { pktToday } from '../components/shared/TimetableDay.jsx';
+
+describe('DataPrefetcher path contract', () => {
+  it('student prefetch populates exactly the page cache keys', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ success: true, data: [{ _id: 'x' }] }) })));
+    const stub = globalThis.fetch;
+    try {
+      await Promise.all(studentPrefetch());
+      const today = pktToday();
+      expect(studentApi.announcements.cachedList({ page: 1, limit: 30 })).toBeTruthy();
+      expect(studentApi.assignments.cachedList({ status: 'published', page: 1, limit: 30 })).toBeTruthy();
+      expect(studentApi.timetable.cachedList({ date: today, status: 'active', page: 1, limit: 100 })).toBeTruthy();
+      expect(studentApi.subjects.cachedList({ status: 'active', page: 1, limit: 50 })).toBeTruthy();
+      expect(stub).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  it('CR prefetch populates exactly the page cache keys', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ success: true, data: [{ _id: 'x' }] }) })));
+    try {
+      await Promise.all(crPrefetch());
+      const today = pktToday();
+      expect(crApi.announcements.cachedList({ page: 1, limit: 10 })).toBeTruthy();
+      expect(crApi.assignments.cachedList({ page: 1, limit: 10 })).toBeTruthy();
+      expect(crApi.timetable.cachedList({ date: today, status: 'active', limit: 100 })).toBeTruthy();
+      expect(crApi.subjects.cachedList({ status: 'active', limit: 100 })).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
