@@ -24,7 +24,10 @@ export function notifRoute(n, basePath) {
     system: null,
   };
   const seg = byType[n.type];
-  return seg ? `${basePath}/${seg}` : null;
+  if (!seg) return null;
+  const base = `${basePath}/${seg}`;
+  const ref = n.refId ? String(n.refId) : null;
+  return ref ? `${base}?focus=${ref}` : base;
 }
 
 /** Friendly day bucket for grouping: Today / Yesterday / "Sun 20 Sept". */

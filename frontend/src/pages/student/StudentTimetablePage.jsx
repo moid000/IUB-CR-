@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery } from '../../admin/hooks.js';
@@ -35,6 +36,8 @@ export default function StudentTimetablePage() {
     () => [...(items ?? [])].sort((a, b) => a.startTime.localeCompare(b.startTime)),
     [items]
   );
+
+  useFocusHighlight(slots);
 
   if (!section) return <NoSection />;
 

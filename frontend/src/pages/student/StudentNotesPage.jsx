@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery } from '../../admin/hooks.js';
@@ -72,6 +73,7 @@ export default function StudentNotesPage() {
     }
   };
 
+  useFocusHighlight(visibleGroups);
   const chipClass = (active) =>
     `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
       active
@@ -172,6 +174,7 @@ export default function StudentNotesPage() {
                         <li key={n._id}>
                           <button
                             type="button"
+                            data-item-id={n._id}
                             onClick={() => openDetail(n._id)}
                             className="w-full rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-soft transition-shadow hover:shadow-lift"
                           >

@@ -285,3 +285,17 @@ body {
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
+
+/* Notification deep-link: soft blue pulse ring on the focused item, fades away */
+@keyframes focus-ring-pulse {
+  0%   { box-shadow: 0 0 0 4px rgb(59 102 245 / 0.45); background-color: rgb(59 102 245 / 0.10); }
+  15%  { box-shadow: 0 0 0 4px rgb(59 102 245 / 0.42); background-color: rgb(59 102 245 / 0.09); }
+  75%  { box-shadow: 0 0 0 4px rgb(59 102 245 / 0.18); background-color: rgb(59 102 245 / 0.04); }
+  100% { box-shadow: 0 0 0 4px rgb(59 102 245 / 0);   background-color: transparent; }
+}
+.focus-highlight {
+  animation: focus-ring-pulse 4.5s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-highlight { animation-duration: 8s; }
+}

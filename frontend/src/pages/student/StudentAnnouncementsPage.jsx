@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery } from '../../admin/hooks.js';
@@ -49,6 +50,7 @@ export default function StudentAnnouncementsPage() {
     }
   };
 
+  useFocusHighlight(sorted);
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <PageHeader
@@ -83,6 +85,7 @@ export default function StudentAnnouncementsPage() {
               <StaggerItem key={a._id} role="listitem">
                 <button
                   type="button"
+                  data-item-id={a._id}
                   onClick={() => openDetail(a._id)}
                   className={`group block w-full rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
                     hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]

@@ -188,6 +188,7 @@ export function SlotTimeline({ slots, isToday, now, renderActions }) {
         return (
           <li
             key={s._id}
+            data-item-id={s._id}
             className={`relative grid grid-cols-[64px_minmax(0,1fr)] gap-3 ${st === 'past' ? 'opacity-55' : ''}`}
           >
             {/* Time rail */}

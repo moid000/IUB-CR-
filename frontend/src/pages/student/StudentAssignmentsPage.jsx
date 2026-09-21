@@ -1,3 +1,4 @@
+import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { useEffect, useState } from 'react';
 import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
@@ -89,6 +90,7 @@ export default function StudentAssignmentsPage() {
               <StaggerItem key={a._id} role="listitem">
                 <button
                   type="button"
+                  data-item-id={a._id}
                   onClick={() => { setOpenId(a._id); showFlash(null); }}
                   className={`group block w-full rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
                     hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.99]
@@ -172,6 +174,9 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
       setLoading(false);
     }
   };
+
+  useFocusHighlight(filtered);
+
   useEffect(() => { load(); }, [assignmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const locked = !assignment || assignment.status === 'archived' || assignment.deadlinePassed;
