@@ -12,6 +12,7 @@ import { RequireRole, RedirectIfAuthenticated, FullPageLoader } from './auth/Req
 import { ErrorBoundary, RouteErrorBoundary } from './pages/ErrorBoundary.jsx';
 import RootRedirect from './pages/RootRedirect.jsx';
 import NotFound from './pages/NotFound.jsx';
+import DataPrefetcher from './components/DataPrefetcher.jsx';
 
 // Route-level code splitting: a visitor only ever uses ONE portal (admin,
 // CR, or student), so each portal's pages — and its layout shell — load
@@ -120,6 +121,7 @@ export default function App() {
         <MotionConfig reducedMotion="user">
         <BrowserRouter basename={ROUTER_BASENAME}>
           <PortalPrefetcher />
+          <DataPrefetcher />
           <Suspense fallback={<FullPageLoader label="Loading…" />}>
           <Routes>
             {/* Public */}

@@ -56,10 +56,44 @@ const getCache = new Map(); // path -> { data, ts }
 const inflight = new Map(); // path -> Promise<data>
 const lastData = new Map(); // path -> last successful GET data (ANY age — SWR snapshot)
 
+/* ---- localStorage persistence of SWR snapshots ------------------------------
+ * lastData ko disk pe mirror karte hain taake FULL PAGE RELOAD ke baad bhi
+ * pehla visit instant paint ho (stale data dikhta hai, network background mein
+ * revalidate karta hai — classic SWR). Koi bhi mutation (incl. login/logout)
+ * pura cache + localStorage wipe karta hai, is liye same-device dusre-user
+ * leak ya stale-after-edit impossible hai. Quota/blocked-storage non-fatal.
+ * --------------------------------------------------------------------------- */
+const LS_KEY = 'tri3m.getCache.v1';
+const LS_MAX_ENTRIES = 40;
+const hasLS = typeof localStorage !== 'undefined';
+
+const lsHydrate = () => {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS_KEY));
+    if (Array.isArray(arr)) arr.slice(0, LS_MAX_ENTRIES).forEach(([path, data]) => lastData.set(path, data));
+  } catch { /* corrupt/blocked — start empty */ }
+};
+
+let saveTimer = null;
+const lsScheduleSave = () => {
+  if (saveTimer || !hasLS) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      // keep the most recent N entries (Map preserves insertion order)
+      const arr = [...lastData.entries()].slice(-LS_MAX_ENTRIES);
+      localStorage.setItem(LS_KEY, JSON.stringify(arr));
+    } catch { /* quota exceeded / private mode — in-memory cache still works */ }
+  }, 600);
+};
+
+if (hasLS) lsHydrate();
+
 function cacheClear() {
   getCache.clear();
   inflight.clear();
   lastData.clear();
+  if (hasLS) { try { localStorage.removeItem(LS_KEY); } catch { /* non-fatal */ } }
 }
 
 function cachedGet(path) {
@@ -68,7 +102,7 @@ function cachedGet(path) {
   const existing = inflight.get(path);
   if (existing) return existing;
   const p = request(path)
-    .then((data) => { lastData.set(path, data); return data; })
+    .then((data) => { lastData.set(path, data); lsScheduleSave(); return data; })
     .finally(() => inflight.delete(path));
   inflight.set(path, p);
   return p;
