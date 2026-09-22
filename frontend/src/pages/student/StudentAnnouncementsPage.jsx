@@ -1,6 +1,5 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
-import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery } from '../../admin/hooks.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
@@ -16,6 +15,7 @@ import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { thumbUrl } from '../../api/upload.js';
 import useUnreadContent from '../../hooks/useUnreadContent.js';
 import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
+import useAttachmentPrefetch, { warmAttachmentImages } from '../../hooks/useAttachmentPrefetch.js';
 
 /** Read-only announcements — the CR authors these; students never modify. */
 export default function StudentAnnouncementsPage() {
@@ -34,24 +34,25 @@ export default function StudentAnnouncementsPage() {
   const pageNewCount = sorted.filter((a) => unread.isNew(a._id)).length;
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState(null);
+  const detailRequest = useRef(0);
+  useAttachmentPrefetch(items);
 
   if (!section) return <NoSection />;
 
-  const openDetail = async (id) => {
-    setOpenId(id);
-    setDetail(null);
-    setDetailError(null);
-    setDetailLoading(true);
-    try {
-      const res = await studentApi.announcements.get(id);
-      setDetail(res?.data ?? null);
-    } catch (err) {
-      setDetailError(err);
-    } finally {
-      setDetailLoading(false);
-    }
+  const openDetail = (item) => {
+    const request = ++detailRequest.current;
+    // The list response already contains the complete readable document.
+    // Paint it in this click's render; refresh silently in the background.
+    setOpenId(item._id);
+    setDetail(item);
+    warmAttachmentImages(item.attachments);
+    studentApi.announcements.get(item._id)
+      .then((res) => { if (detailRequest.current === request && res?.data) setDetail(res.data); })
+      .catch(() => {}); // stale list data remains fully usable offline/on weak data
+  };
+  const closeDetail = () => {
+    detailRequest.current += 1;
+    setOpenId(null);
   };
 
   useFocusHighlight(sorted);
@@ -93,7 +94,8 @@ export default function StudentAnnouncementsPage() {
                 <button
                   type="button"
                   data-item-id={a._id}
-                  onClick={() => { unread.markSeen(a._id); openDetail(a._id); }}
+                  onPointerDown={() => warmAttachmentImages(a.attachments)}
+                  onClick={() => { unread.markSeen(a._id); openDetail(a); }}
                   className={`group relative block w-full overflow-hidden rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
                     hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]
                     ${unread.isNew(a._id)
@@ -147,12 +149,8 @@ export default function StudentAnnouncementsPage() {
         </div>
       )}
 
-      <Modal open={openId != null} onClose={() => setOpenId(null)} title="Announcement">
-        {detailLoading ? (
-          <div className="space-y-3" role="status"><Skeleton className="h-5 w-2/3 rounded" /><SkeletonText lines={4} /></div>
-        ) : detailError ? (
-          <Alert variant="danger"><p className="font-medium">{detailError.message}</p></Alert>
-        ) : detail ? (
+      <Modal open={openId != null} onClose={closeDetail} title="Announcement">
+        {detail ? (
           <div className="space-y-3">
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-base font-semibold text-slate-900">{detail.title}</h3>

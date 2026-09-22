@@ -1,6 +1,5 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
-import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery } from '../../admin/hooks.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
@@ -15,6 +14,7 @@ import { IconFileText, IconBook, IconChevronRight } from '../../components/icons
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import useUnreadContent from '../../hooks/useUnreadContent.js';
 import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
+import useAttachmentPrefetch, { warmAttachmentImages } from '../../hooks/useAttachmentPrefetch.js';
 
 /** Read-only notes — grouped into per-subject categories, newest-first inside
  *  each. Archived notes follow backend visibility. */
@@ -29,8 +29,7 @@ export default function StudentNotesPage() {
   const [closedGroups, setClosedGroups] = useState(() => new Set());
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState(null);
+  const detailRequest = useRef(0);
   const unread = useUnreadContent(studentApi.notifications, 'note', items);
 
   /** Subject categories built from the notes themselves (API returns them
@@ -57,6 +56,7 @@ export default function StudentNotesPage() {
     () => (subjectFilter === 'all' ? groups : groups.filter((g) => g.key === subjectFilter)),
     [groups, subjectFilter]
   );
+  useAttachmentPrefetch(items);
 
   const toggleGroup = (k) =>
     setClosedGroups((prev) => {
@@ -67,19 +67,18 @@ export default function StudentNotesPage() {
 
   if (!section) return <NoSection />;
 
-  const openDetail = async (id) => {
-    setOpenId(id);
-    setDetail(null);
-    setDetailError(null);
-    setDetailLoading(true);
-    try {
-      const res = await studentApi.notes.get(id);
-      setDetail(res?.data ?? null);
-    } catch (err) {
-      setDetailError(err);
-    } finally {
-      setDetailLoading(false);
-    }
+  const openDetail = (item) => {
+    const request = ++detailRequest.current;
+    setOpenId(item._id);
+    setDetail(item);
+    warmAttachmentImages(item.attachments);
+    studentApi.notes.get(item._id)
+      .then((res) => { if (detailRequest.current === request && res?.data) setDetail(res.data); })
+      .catch(() => {});
+  };
+  const closeDetail = () => {
+    detailRequest.current += 1;
+    setOpenId(null);
   };
 
   useFocusHighlight(visibleGroups);
@@ -188,7 +187,8 @@ export default function StudentNotesPage() {
                           <button
                             type="button"
                             data-item-id={n._id}
-                            onClick={() => { unread.markSeen(n._id); openDetail(n._id); }}
+                            onPointerDown={() => warmAttachmentImages(n.attachments)}
+                            onClick={() => { unread.markSeen(n._id); openDetail(n); }}
                             className={`relative w-full overflow-hidden rounded-2xl border p-5 text-left shadow-soft transition-shadow hover:shadow-lift ${
                               unread.isNew(n._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'
                             }`}
@@ -216,12 +216,8 @@ export default function StudentNotesPage() {
         </>
       )}
 
-      <Modal open={openId != null} onClose={() => setOpenId(null)} title="Note">
-        {detailLoading ? (
-          <div className="space-y-3" role="status"><Skeleton className="h-5 w-2/3 rounded" /><SkeletonText lines={4} /></div>
-        ) : detailError ? (
-          <Alert variant="danger"><p className="font-medium">{detailError.message}</p></Alert>
-        ) : detail ? (
+      <Modal open={openId != null} onClose={closeDetail} title="Note">
+        {detail ? (
           <div className="space-y-3">
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-base font-semibold text-slate-900">{detail.title}</h3>

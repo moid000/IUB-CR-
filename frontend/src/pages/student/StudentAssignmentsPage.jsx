@@ -16,6 +16,7 @@ import { PillFilters } from '../../components/motion/primitives.jsx';
 import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import useUnreadContent from '../../hooks/useUnreadContent.js';
 import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
+import useAttachmentPrefetch, { warmAttachmentImages } from '../../hooks/useAttachmentPrefetch.js';
 import { FileUploader } from '../../components/files/FileUploader.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import {
@@ -42,6 +43,7 @@ export default function StudentAssignmentsPage() {
   );
   const [openId, setOpenId] = useState(null);
   const [flash, showFlash] = useFlash();
+  useAttachmentPrefetch(items);
   const unread = useUnreadContent(studentApi.notifications, 'assignment', items);
 
   // notification deep-link: ?focus=<id> scrolls to + rings that assignment
@@ -102,6 +104,7 @@ export default function StudentAssignmentsPage() {
                 <button
                   type="button"
                   data-item-id={a._id}
+                  onPointerDown={() => warmAttachmentImages(a.attachments)}
                   onClick={() => { unread.markSeen(a._id); setOpenId(a._id); showFlash(null); }}
                   className={`group relative block w-full overflow-hidden rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
                     hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]
@@ -156,7 +159,9 @@ export default function StudentAssignmentsPage() {
 
       {openId && (
         <AssignmentDetail
+          key={openId}
           assignmentId={openId}
+          initialAssignment={items.find((a) => a._id === openId) ?? null}
           onClose={() => { setOpenId(null); reload(); }}
           onSaved={(msg) => showFlash(msg)}
         />
@@ -167,10 +172,11 @@ export default function StudentAssignmentsPage() {
 
 /* ---------------------- assignment detail + submission ---------------------- */
 
-function AssignmentDetail({ assignmentId, onClose, onSaved }) {
-  const [assignment, setAssignment] = useState(null);
-  const [submission, setSubmission] = useState(null);
-  const [loading, setLoading] = useState(true);
+function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved }) {
+  const [assignment, setAssignment] = useState(initialAssignment);
+  const [submission, setSubmission] = useState(initialAssignment?.mySubmission ?? null);
+  const [loading, setLoading] = useState(!initialAssignment);
+  const [submissionLoading, setSubmissionLoading] = useState(Boolean(initialAssignment?.mySubmission));
   const [loadError, setLoadError] = useState(null);
   const [textAnswer, setTextAnswer] = useState('');
   const [saving, setSaving] = useState(false);
@@ -180,25 +186,30 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
   const [pendingNotice, setPendingNotice] = useState(null);
   const [afterUpload, setAfterUpload] = useState(null); // { done, failed } summary
 
-  const load = async () => {
-    setLoading(true);
+  useEffect(() => {
+    let cancelled = false;
+    // Assignment text/files are already in the list item, so the modal paints
+    // immediately. Detail + an existing submission refresh in PARALLEL.
     setLoadError(null);
-    try {
-      const res = await studentApi.assignments.get(assignmentId);
-      const a = res?.data ?? null;
-      setAssignment(a);
-      let sub = null;
-      try { sub = (await studentApi.assignments.submission(assignmentId))?.data ?? null; } catch { sub = null; }
-      setSubmission(sub);
-      setTextAnswer(sub?.textAnswer ?? '');
-    } catch (err) {
-      setLoadError(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const assignmentRequest = studentApi.assignments.get(assignmentId);
+    const submissionRequest = initialAssignment?.mySubmission
+      ? studentApi.assignments.submission(assignmentId)
+      : Promise.resolve({ data: null });
 
-  useEffect(() => { load(); }, [assignmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+    Promise.allSettled([assignmentRequest, submissionRequest]).then(([aResult, sResult]) => {
+      if (cancelled) return;
+      if (aResult.status === 'fulfilled' && aResult.value?.data) setAssignment(aResult.value.data);
+      else if (!initialAssignment) setLoadError(aResult.reason);
+      if (sResult.status === 'fulfilled') {
+        const sub = sResult.value?.data ?? null;
+        setSubmission(sub);
+        setTextAnswer(sub?.textAnswer ?? '');
+      }
+      setLoading(false);
+      setSubmissionLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [assignmentId, initialAssignment]);
 
   const locked = !assignment || assignment.status === 'archived' || assignment.deadlinePassed;
 
@@ -294,7 +305,7 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
     <Modal open onClose={onClose} title="Assignment" className="sm:max-w-2xl">
       {loading ? (
         <div className="space-y-4" role="status"><Skeleton className="h-6 w-3/4 rounded" /><SkeletonText lines={5} /></div>
-      ) : loadError ? (
+      ) : loadError && !assignment ? (
         <Alert variant="danger"><p className="font-medium">{loadError.message}</p></Alert>
       ) : assignment ? (
         <div className="space-y-4">
@@ -326,7 +337,11 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
           )}
 
           {/* ---- current submission ---- */}
-          {submission ? (
+          {submissionLoading ? (
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-4" role="status" aria-label="Loading your submission">
+              <Skeleton className="h-4 w-40 rounded" />
+            </div>
+          ) : submission ? (
             <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-emerald-800">
@@ -351,7 +366,7 @@ function AssignmentDetail({ assignmentId, onClose, onSaved }) {
           )}
 
           {/* ---- submission form ---- */}
-          {locked ? (
+          {submissionLoading ? null : locked ? (
             <p className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               {assignment.status === 'archived'
                 ? 'This assignment is archived — submissions are closed.'

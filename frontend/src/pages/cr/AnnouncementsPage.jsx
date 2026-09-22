@@ -4,6 +4,7 @@ import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import useUnreadContent from '../../hooks/useUnreadContent.js';
+import useAttachmentPrefetch, { warmAttachmentImages } from '../../hooks/useAttachmentPrefetch.js';
 import { formatDate, timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -142,6 +143,7 @@ export default function AnnouncementsPage() {
       page, limit: 10,
     })
   );
+  useAttachmentPrefetch(items);
   const unread = useUnreadContent(crApi.notifications, 'announcement', items);
   const displayItems = unread.ordered(items);
   const pageNewCount = displayItems.filter((a) => unread.isNew(a._id)).length;
@@ -229,6 +231,7 @@ export default function AnnouncementsPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <button
                   type="button"
+                  onPointerDown={() => warmAttachmentImages(a.attachments)}
                   onClick={() => { unread.markSeen(a._id); setViewTarget(a); }}
                   className="min-w-0 flex-1 text-left"
                 >

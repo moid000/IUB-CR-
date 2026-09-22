@@ -5,7 +5,7 @@ import { Button } from './Button.jsx';
 const EASE = [0.22, 1, 0.36, 1];
 
 /** Accessible modal dialog: Esc to close, backdrop click, focus management.
- *  Animated entrance/exit: backdrop fades, card rises + unfades. */
+ *  Fast entrance/exit: a short opacity/scale settle, with no slow rise. */
 export function Modal({ open, onClose, title, children, footer = null, className = '' }) {
   const dialogRef = useRef(null);
   const previouslyFocused = useRef(null);
@@ -57,7 +57,7 @@ export function Modal({ open, onClose, title, children, footer = null, className
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18, ease: EASE }}
+          transition={{ duration: 0.1, ease: EASE }}
           onMouseDown={(e) => { if (e.target === e.currentTarget) onCloseRef.current?.(); }}
         >
           <motion.div
@@ -66,10 +66,10 @@ export function Modal({ open, onClose, title, children, footer = null, className
             aria-modal="true"
             aria-label={title}
             className={`flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-lift ${className}`}
-            initial={{ opacity: 0, y: 10, scale: 0.985 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.99 }}
-            transition={{ duration: 0.22, ease: EASE }}
+            initial={{ opacity: 0, scale: 0.995 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.995 }}
+            transition={{ duration: 0.12, ease: EASE }}
           >
             <div className="mb-4 flex shrink-0 items-start justify-between gap-4 px-6 pt-6">
               <h2 className="text-base font-semibold text-slate-900">{title}</h2>

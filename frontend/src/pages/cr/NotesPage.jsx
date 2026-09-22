@@ -4,6 +4,7 @@ import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import useUnreadContent from '../../hooks/useUnreadContent.js';
+import useAttachmentPrefetch, { warmAttachmentImages } from '../../hooks/useAttachmentPrefetch.js';
 import { timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -149,6 +150,7 @@ export default function NotesPage() {
     }),
     [debouncedSearch, subjectFilter, status, page]
   );
+  useAttachmentPrefetch(items);
   const unread = useUnreadContent(crApi.notifications, 'note', items);
   useFocusHighlight(items);
 
@@ -226,7 +228,7 @@ export default function NotesPage() {
     <li data-item-id={n._id} className={`relative overflow-hidden rounded-2xl border p-5 shadow-soft transition-shadow hover:shadow-lift ${unread.isNew(n._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'}`}>
       {unread.isNew(n._id) && <NewRail />}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <button type="button" onClick={() => { unread.markSeen(n._id); setViewTarget(n); }} className="min-w-0 flex-1 text-left">
+        <button type="button" onPointerDown={() => warmAttachmentImages(n.attachments)} onClick={() => { unread.markSeen(n._id); setViewTarget(n); }} className="min-w-0 flex-1 text-left">
           <div className="flex flex-wrap items-start gap-2">
             <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{n.title}</p>
             <span className="flex shrink-0 flex-wrap items-center gap-2">

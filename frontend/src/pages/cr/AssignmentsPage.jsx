@@ -5,6 +5,7 @@ import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import useUnreadContent from '../../hooks/useUnreadContent.js';
+import useAttachmentPrefetch, { warmAttachmentImages } from '../../hooks/useAttachmentPrefetch.js';
 import { formatDateTime, timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -196,6 +197,7 @@ export default function AssignmentsPage() {
       page, limit: 10,
     })
   );
+  useAttachmentPrefetch(items);
   const unread = useUnreadContent(crApi.notifications, 'assignment', items);
   const displayItems = unread.ordered(items);
   const pageNewCount = displayItems.filter((a) => unread.isNew(a._id)).length;
@@ -285,7 +287,7 @@ export default function AssignmentsPage() {
             <div data-item-id={a._id} className={`relative overflow-hidden rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${unread.isNew(a._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'}`}>
               {unread.isNew(a._id) && <NewRail />}
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <button type="button" onClick={() => { unread.markSeen(a._id); setSubmissionsFor(a); }} className="min-w-0 flex-1 text-left">
+                <button type="button" onPointerDown={() => warmAttachmentImages(a.attachments)} onClick={() => { unread.markSeen(a._id); setSubmissionsFor(a); }} className="min-w-0 flex-1 text-left">
                   <div className="flex flex-wrap items-start gap-2">
                     <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{a.title}</p>
                     <span className="flex shrink-0 flex-wrap items-center gap-2">
