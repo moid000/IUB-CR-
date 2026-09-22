@@ -50,7 +50,7 @@ export default function WhatsappGroupPage() {
   const section = user?.section;
   const { flash, show } = useFlash();
 
-  const [cfg, setCfg] = useState(null); // { group, instanceNumber, appUrl }
+  const [cfg, setCfg] = useState(null); // { group, gatewayPhone, appUrl }
   const [groups, setGroups] = useState(null); // null = not fetched yet
   const [meta, setMeta] = useState(null); // { totalGroups, matchedPhone, reason }
   const [selected, setSelected] = useState('');
@@ -207,7 +207,7 @@ export default function WhatsappGroupPage() {
 
           <div className="mt-6 space-y-4 border-t border-slate-100 pt-5">
             <StepCard n={1} title="Add the Tri3M number to your class WhatsApp group">
-              Add <span className="font-semibold text-slate-700">{cfg?.instanceNumber ?? 'the Tri3M WhatsApp number'}</span> as a
+              Add <span className="font-semibold text-slate-700">{cfg?.gatewayPhone ?? 'the Tri3M WhatsApp number'}</span> as a
               member, exactly like any other member. Only a group admin can do this.
             </StepCard>
             <StepCard n={2} title="Refresh below">

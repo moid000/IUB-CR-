@@ -69,7 +69,7 @@ export async function getGroupConfigCr(req) {
   const g = section.whatsappGroup;
   return {
     group: g && g.id ? { id: g.id, name: g.name, linkedAt: g.linkedAt } : null,
-    instanceNumber: env.whatsapp.instanceNumber || null,
+    gatewayPhone: prettyNumber(env.whatsapp.gatewayPhone) || env.whatsapp.gatewayPhone || null,
     appUrl: APP_URL,
   };
 }

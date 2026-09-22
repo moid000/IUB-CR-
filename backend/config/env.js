@@ -31,6 +31,7 @@ export const env = {
     dashboardEmail: process.env.ULTRAMSG_DASHBOARD_EMAIL,
     dashboardPassword: process.env.ULTRAMSG_DASHBOARD_PASSWORD,
     instanceNumber: process.env.ULTRAMSG_INSTANCE_NUMBER,
+    gatewayPhone: process.env.ULTRAMSG_GATEWAY_PHONE,
     alertEmails: (process.env.WHATSAPP_WATCHDOG_ALERT_EMAILS || '')
       .split(',')
       .map((email) => email.trim())

@@ -36,7 +36,7 @@ export const crApi = {
 
   /* ---- WhatsApp class group (section broadcasts; marks never broadcast) ---- */
   whatsappGroup: {
-    config: () => api.get('/api/cr/whatsapp-group'), // { group, instanceNumber, appUrl }
+    config: () => api.get('/api/cr/whatsapp-group'), // { group, gatewayPhone, appUrl }
     refreshGroups: () => api.get('/api/cr/whatsapp-group/groups'), // { groups: [{id,name}] }
     link: (body) => api.put('/api/cr/whatsapp-group', body), // { groupId, groupName }
     unlink: () => api.del('/api/cr/whatsapp-group'),
