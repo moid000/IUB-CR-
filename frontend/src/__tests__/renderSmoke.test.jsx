@@ -19,6 +19,8 @@ import {
 import { DayNav, SlotTimeline } from '../components/shared/TimetableDay.jsx';
 import { RouteErrorBoundary } from '../pages/ErrorBoundary.jsx';
 import { fmtTime, fmtDuration } from '../admin/format.js';
+import { Modal } from '../components/ui/Modal.jsx';
+import { FileList } from '../components/files/FileList.jsx';
 
 const R = (ui) => renderToString(<MemoryRouter>{ui}</MemoryRouter>);
 
@@ -184,5 +186,39 @@ describe('DataPrefetcher path contract', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// 2026-09-22: every announcement/assignment/note detail opened "slow", and
+// the image lightbox felt "very slow" to move/zoom. Root cause: Modal's
+// backdrop had an UNCONDITIONAL backdrop-blur-sm — an expensive GPU filter
+// that has to be recomputed every frame during the open animation AND during
+// native pinch-zoom/pan of the image inside it (same class of bug as the
+// earlier sticky-header/hero-blob mobile-blur fixes). Now blur is desktop-only.
+describe('Modal backdrop-blur is desktop-only (mobile perf)', () => {
+  it('has no unconditional backdrop-blur class — only the lg: variant', () => {
+    const html = renderToString(
+      <Modal open onClose={() => {}} title="t">
+        <p>content</p>
+      </Modal>
+    );
+    // must NOT contain a bare (mobile-applying) backdrop-blur class — only the lg:-prefixed variant
+    expect(html).not.toMatch(/(?:^|\s)backdrop-blur-sm(?:\s|"|$)/);
+    expect(html).toContain('lg:backdrop-blur-sm');
+  });
+});
+
+describe('FileList image lightbox renders with a capped preview URL', () => {
+  it('uses previewUrl (non-cropping, capped width) not the raw original', () => {
+    const files = [{
+      _id: 'f1',
+      originalName: 'photo.jpg',
+      format: 'jpg',
+      resourceType: 'image',
+      size: 12345,
+      url: 'https://res.cloudinary.com/demo/image/upload/v1/x/photo.jpg',
+    }];
+    const html = renderToString(<FileList files={files} />);
+    expect(html).toContain('Preview photo.jpg');
   });
 });

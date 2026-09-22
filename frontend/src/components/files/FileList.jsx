@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Modal } from '../ui/Modal.jsx';
 import { Button } from '../ui/Button.jsx';
 import { IconDownload, IconFileText, IconPaperclip, IconX } from '../icons.jsx';
-import { formatBytes, thumbUrl, typeLabel } from '../../api/upload.js';
+import { formatBytes, thumbUrl, previewUrl, typeLabel } from '../../api/upload.js';
 
 /**
  * STEP 18 — confirmed attachment display (read-only by default).
@@ -81,7 +81,7 @@ export function FileList({ files = [], emptyText = null, className = '', onRemov
         <Modal open onClose={() => setPreview(null)} title={preview.originalName ?? 'Preview'} className="sm:max-w-3xl">
           <div className="flex justify-center">
             <img
-              src={preview.url} alt={preview.originalName ?? 'attachment'}
+              src={previewUrl(preview.url, 1600)} alt={preview.originalName ?? 'attachment'}
               className="max-h-[70vh] w-auto rounded-xl object-contain"
               loading="lazy"
             />

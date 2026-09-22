@@ -122,3 +122,17 @@ export function thumbUrl(url, w = 240) {
   if (!url) return url;
   return url.replace('/upload/', `/upload/w_${w},c_fill,ar_1,f_auto,q_auto/`);
 }
+
+/**
+ * Full-image preview (lightbox) transform — caps the LONG edge at `w` px
+ * without cropping (c_limit keeps the original aspect ratio; a portrait
+ * photo stays portrait). Fixes 2026-09-22: the lightbox used to load the
+ * raw original (some phone photos are 4000x3000px, several MB) — every
+ * pinch-zoom/pan repaint had to re-decode that at scaled resolution, which
+ * is what felt "very slow" moving/zooming. 1600px is already sharper than
+ * any phone screen can show, so quality is unaffected.
+ */
+export function previewUrl(url, w = 1600) {
+  if (!url) return url;
+  return url.replace('/upload/', `/upload/w_${w},c_limit,f_auto,q_auto/`);
+}
