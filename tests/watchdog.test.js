@@ -2,7 +2,9 @@
  * UltraMsg trial-watchdog tests — in-memory REPLICA SET.
  * All network (UltraMsg status API + user.ultramsg.com dashboard) is stubbed
  * via globalThis.fetch: healthy, stopped→renew, renew-failed alert, QR alert
- * (with 20h throttle), unknown-status alert, and the secret-guarded route.
+ * (with 20h throttle), unknown-status alert, the secret-guarded route, the
+ * SELF-HEAL fallback (wrong configured id → dashboard page ids retry), and
+ * transitional booting/connecting states staying quiet.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -66,6 +68,10 @@ function stubFetch(list) {
   };
 }
 
+function htmlRes(html) {
+  return { status: 200, ok: true, text: async () => html };
+}
+
 const STATUS_OK = jsonRes({ status: { accountStatus: { status: 'authenticated', substatus: 'connected' } } });
 const STATUS_STOPPED = jsonRes({ error: 'Instance stopped. Stopped due to non-payment' });
 const STATUS_QR = jsonRes({ status: { accountStatus: { status: 'qr', substatus: 'normal' } } });
@@ -120,6 +126,38 @@ test('stopped instance → dashboard login + extend_trial + verify', async () =>
   assert.equal(extendBody, 'extend_trial=138500');
 });
 
+test('SELF-HEAL: configured id fails → retries dashboard page ids and renews', async () => {
+  await cleanupState();
+  // simulates the 2026-09-22 outage class: ULTRAMSG_INSTANCE_NUMBER drifts wrong,
+  // the dashboard page itself shows the real extendable ids (configured is
+  // skipped, first candidate fails, second renews)
+  const instancesHtml = [
+    '<button onclick="extend_trial(\'138500\')" class="btn btn-warning">',
+    '<button onclick="extend_trial(\'456789\')" class="btn btn-warning">',
+    '<button onclick="extend_trial(\'999111\')" class="btn btn-warning">',
+  ].join('');
+  stubFetch([
+    STATUS_STOPPED, // status check
+    jsonRes({}, SEED_COOKIE), // seed session
+    LOGIN_OK, // login
+    jsonRes({ error: 'instance not found' }), // extend with CONFIGURED id fails
+    htmlRes(instancesHtml), // self-heal: instances page
+    jsonRes({ error: 'instance not found' }), // candidate 456789 fails
+    EXTEND_OK, // candidate 999111 succeeds
+    STATUS_OK, // verify
+  ]);
+  const report = await runWatchdog();
+  assert.equal(report.action, 'renew');
+  assert.equal(report.renewed, true);
+  assert.equal(report.renewedVia, '999111');
+  assert.equal(report.statusAfter, 'authenticated');
+  const extendCalls = calls.filter((c) => c.url.endsWith('/request/post.php') && c.options.body.toString().startsWith('extend_trial='));
+  assert.equal(extendCalls.length, 3);
+  assert.equal(extendCalls[0].options.body.toString(), 'extend_trial=138500');
+  assert.equal(extendCalls[1].options.body.toString(), 'extend_trial=456789');
+  assert.equal(extendCalls[2].options.body.toString(), 'extend_trial=999111');
+});
+
 test('stopped instance but extend fails → alert email, renewed false', async () => {
   await cleanupState();
   stubFetch([
@@ -127,6 +165,7 @@ test('stopped instance but extend fails → alert email, renewed false', async (
     jsonRes({}, SEED_COOKIE),
     LOGIN_OK,
     jsonRes({ error: 'instance is not stopped' }), // extend fails
+    htmlRes('<p>no extend buttons here</p>'), // self-heal: instances page, no candidates
     jsonRes({ messageId: 'ok' }, {}), // brevo email
   ]);
   const report = await runWatchdog();
@@ -155,14 +194,26 @@ test('QR status → alert once, then throttled', async () => {
   assert.equal(calls.filter((c) => c.url.includes('brevo')).length, 1);
 });
 
+test('transitional booting/connecting status → quiet, NO alert', async () => {
+  await cleanupState();
+  stubFetch([
+    jsonRes({ status: { accountStatus: { status: 'booting', substatus: 'normal' } } }),
+  ]);
+  const report = await runWatchdog();
+  assert.equal(report.status, 'booting');
+  assert.equal(report.action, 'none');
+  assert.equal(calls.length, 1); // status check only — no brevo, no dashboard
+  assert.equal(calls.filter((c) => c.url.includes('brevo')).length, 0);
+});
+
 test('unknown unhealthy status → alert with status name', async () => {
   await cleanupState();
   stubFetch([
-    jsonRes({ status: { accountStatus: { status: 'loading', substatus: 'weird' } } }),
+    jsonRes({ status: { accountStatus: { status: 'error', substatus: 'weird' } } }),
     jsonRes({ messageId: 'ok' }),
   ]);
   const report = await runWatchdog();
-  assert.equal(report.status, 'loading');
+  assert.equal(report.status, 'error');
   assert.equal(report.alerted, true);
 });
 

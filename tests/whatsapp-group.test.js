@@ -26,6 +26,7 @@ process.env.ULTRAMSG_INSTANCE_ID = 'instance123';
 process.env.ULTRAMSG_TOKEN = 'fake-token';
 process.env.ULTRAMSG_API_URL = 'https://ultramsg.test.local';
 process.env.ULTRAMSG_INSTANCE_NUMBER = '+92 300 0000000';
+process.env.ULTRAMSG_GATEWAY_PHONE = '923001234567';
 
 const { default: mongoose } = await import('mongoose');
 const models = await import('../backend/models/index.js');
@@ -141,7 +142,7 @@ test('config starts unlinked; refresh returns the gateway group list', async () 
   const cfg = await cr.api('GET', '/api/cr/whatsapp-group');
   assert.equal(cfg.status, 200);
   assert.equal(cfg.json.data.group, null);
-  assert.equal(cfg.json.data.instanceNumber, '+92 300 0000000');
+  assert.equal(cfg.json.data.gatewayPhone, '+92 300 1234567');
   assert.ok(cfg.json.data.appUrl.includes('iubcr.vercel.app'));
 
   const list = await cr.api('GET', '/api/cr/whatsapp-group/groups');

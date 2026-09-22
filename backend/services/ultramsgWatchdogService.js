@@ -26,6 +26,12 @@ const DASHBOARD = 'https://user.ultramsg.com';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
 const FETCH_TIMEOUT_MS = 20_000;
 const ALERT_THROTTLE_MS = 20 * 60 * 60 * 1000; // ~1 alert per 20h per kind
+// Renewal failure is the one alert that costs real downtime — re-alert every
+// 6h while it stays broken (2026-09-22: the 24h outage sent a single email
+// in that window and the owner never noticed until he checked himself).
+const ALERT_THROTTLE_MS_BY_KIND = {
+  'watchdog:renew-failed': 6 * 60 * 60 * 1000,
+};
 const VERIFY_WAIT_MS = Number(process.env.WATCHDOG_VERIFY_WAIT_MS ?? 25_000); // short in tests
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -114,7 +120,7 @@ async function dashboardLogin() {
 }
 
 /** The exact POST the dashboard "Extend trial" button fires. */
-async function extendTrial(cookie) {
+async function extendTrial(cookie, instanceNumber = env.whatsapp.instanceNumber) {
   const res = await fetchWithTimeout(`${DASHBOARD}/request/post.php`, {
     method: 'POST',
     headers: {
@@ -125,9 +131,24 @@ async function extendTrial(cookie) {
       referer: `${DASHBOARD}/app/instances/instances.php`,
       'x-requested-with': 'XMLHttpRequest',
     },
-    body: new URLSearchParams({ extend_trial: String(env.whatsapp.instanceNumber) }),
+    body: new URLSearchParams({ extend_trial: String(instanceNumber) }),
   });
   return res.json().catch(() => ({ error: 'non-JSON dashboard response' }));
+}
+
+/**
+ * SELF-HEAL fallback (2026-09-22): every instance id the dashboard itself
+ * shows an "Extend trial" button for. When the configured
+ * ULTRAMSG_INSTANCE_NUMBER drifts wrong (it once pointed at the gateway
+ * phone number for >24h and every renewal failed "instance not found"),
+ * these ids are the ground truth to retry with.
+ */
+async function listExtendableInstances(cookie) {
+  const res = await fetchWithTimeout(`${DASHBOARD}/app/instances/instances.php`, {
+    headers: { 'user-agent': UA, cookie: `PHPSESSID=${cookie}`, referer: `${DASHBOARD}/` },
+  });
+  const html = await res.text();
+  return [...new Set([...html.matchAll(/extend_trial\('?(\d+)'?\)/g)].map((m) => m[1]))];
 }
 
 /** At most one alert email per kind per ~20h (watchdog runs hourly). */
@@ -138,7 +159,8 @@ async function alertOncePer(kind, subject, text) {
   } catch (err) {
     console.error('[watchdog] throttle state failed:', err.message);
   }
-  if (existing && Date.now() - existing.lastSentAt.getTime() < ALERT_THROTTLE_MS) {
+  const throttle = ALERT_THROTTLE_MS_BY_KIND[kind] ?? ALERT_THROTTLE_MS;
+  if (existing && Date.now() - existing.lastSentAt.getTime() < throttle) {
     return { alerted: false, reason: 'throttled' };
   }
   try {
@@ -224,9 +246,24 @@ async function watchdogPass() {
   if (health.stopped) {
     // trial expired → renew through the dashboard, exactly like the button
     let extendResponse = null;
+    let renewedVia = null;
     try {
       const cookie = await dashboardLogin();
       extendResponse = await extendTrial(cookie);
+      if (extendResponse?.error) {
+        // SELF-HEAL: configured id is wrong (or gone) — retry with every id
+        // the dashboard itself offers an Extend-trial button for.
+        const candidates = await listExtendableInstances(cookie).catch(() => []);
+        for (const candidate of candidates) {
+          if (String(candidate) === String(env.whatsapp.instanceNumber)) continue;
+          const retry = await extendTrial(cookie, candidate).catch(() => null);
+          if (retry && !retry?.error) {
+            extendResponse = retry;
+            renewedVia = candidate;
+            break;
+          }
+        }
+      }
     } catch (err) {
       const alert = await alertOncePer(
         'watchdog:renew-failed',
@@ -247,7 +284,7 @@ async function watchdogPass() {
       const alert = await alertOncePer(
         'watchdog:renew-failed',
         'Tri3M watchdog: trial renewal FAILED',
-        `extend_trial answered: ${extendResponse.error}. WhatsApp alerts are paused — check user.ultramsg.com → Instances.`,
+        `extend_trial answered: ${extendResponse.error}. Self-heal retry found no working instance either — WhatsApp alerts are paused, check user.ultramsg.com → Instances manually.`,
       );
       return {
         configured: true,
@@ -271,9 +308,17 @@ async function watchdogPass() {
       status: health.status,
       action: 'renew',
       renewed: true,
+      renewedVia,
       extendResponse: { success: extendResponse?.success ?? true },
       statusAfter,
     };
+  }
+
+  // Transitional states right after a renewal (booting/connecting) are
+  // normal — the next ping confirms. No alert (2026-09-22: the successful
+  // renewal triggered a pointless "unknown status: booting" email).
+  if (['booting', 'connecting', 'loading', 'initialization'].includes(health.status)) {
+    return { configured: true, status: health.status, action: 'none', renewed: false };
   }
 
   if (health.needsQr) {
