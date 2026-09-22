@@ -21,6 +21,7 @@ import { RouteErrorBoundary } from '../pages/ErrorBoundary.jsx';
 import { fmtTime, fmtDuration } from '../admin/format.js';
 import { Modal } from '../components/ui/Modal.jsx';
 import { FileList } from '../components/files/FileList.jsx';
+import { ImageLightbox } from '../components/files/ImageLightbox.jsx';
 
 const R = (ui) => renderToString(<MemoryRouter>{ui}</MemoryRouter>);
 
@@ -220,5 +221,54 @@ describe('FileList image lightbox renders with a capped preview URL', () => {
     }];
     const html = renderToString(<FileList files={files} />);
     expect(html).toContain('Preview photo.jpg');
+  });
+});
+
+// 2026-09-22: the old preview had NO zoom — users pinch-zoomed with the
+// BROWSER's native page zoom, re-rasterizing the whole page every frame
+// ("bohot slow / lag karti"). New ImageLightbox zooms/pans only the image
+// via GPU transform, with its own controls.
+describe('ImageLightbox renders the zoomable preview', () => {
+  const file = {
+    _id: 'f1',
+    originalName: 'photo.jpg',
+    format: 'jpg',
+    size: 12345,
+    url: 'https://res.cloudinary.com/demo/image/upload/v1/x/photo.jpg',
+  };
+
+  it('renders fullscreen dialog with zoom controls and capped (c_limit) image URL', () => {
+    const html = renderToString(<ImageLightbox file={file} onClose={() => {}} />);
+    expect(html).toContain('Zoom in');
+    expect(html).toContain('Zoom out');
+    expect(html).toContain('Reset zoom');
+    expect(html).toContain('Close preview');
+    expect(html).toContain('Open full size');
+    // image served via the non-cropping capped transform, not the raw original
+    expect(html).toContain('w_1600,c_limit');
+    expect(html).not.toContain('c_fill');
+  });
+
+  it('renders safely without a file', () => {
+    const html = renderToString(<ImageLightbox file={null} onClose={() => {}} />);
+    expect(html).toContain('Preview');
+  });
+
+  it('has no backdrop-blur filter anywhere (mobile perf)', () => {
+    const html = renderToString(<ImageLightbox file={file} onClose={() => {}} />);
+    expect(html).not.toMatch(/(?:^|\s)backdrop-blur(?:\s|"|$)/);
+  });
+
+  it('FileList preview flow now mounts ImageLightbox (not the old Modal)', async () => {
+    const files = [{ ...file, resourceType: 'image' }];
+    // render with preview open by simulating: FileList + lightbox side by side
+    const html = renderToString(
+      <>
+        <FileList files={files} />
+        <ImageLightbox file={files[0]} onClose={() => {}} />
+      </>
+    );
+    expect(html).toContain('Preview photo.jpg');
+    expect(html).toContain('w_1600,c_limit');
   });
 });

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Modal } from '../ui/Modal.jsx';
+import { ImageLightbox } from './ImageLightbox.jsx';
 import { Button } from '../ui/Button.jsx';
 import { IconDownload, IconFileText, IconPaperclip, IconX } from '../icons.jsx';
-import { formatBytes, thumbUrl, previewUrl, typeLabel } from '../../api/upload.js';
+import { formatBytes, thumbUrl, typeLabel } from '../../api/upload.js';
 
 /**
  * STEP 18 — confirmed attachment display (read-only by default).
@@ -76,26 +76,8 @@ export function FileList({ files = [], emptyText = null, className = '', onRemov
         })}
       </ul>
 
-      {/* image lightbox — Esc/backdrop closes, focus returns (a11y) */}
-      {preview && (
-        <Modal open onClose={() => setPreview(null)} title={preview.originalName ?? 'Preview'} className="sm:max-w-3xl">
-          <div className="flex justify-center">
-            <img
-              src={previewUrl(preview.url, 1600)} alt={preview.originalName ?? 'attachment'}
-              className="max-h-[70vh] w-auto rounded-xl object-contain"
-              loading="lazy"
-            />
-          </div>
-          <div className="mt-4 flex justify-center">
-            <a
-              href={preview.url} target="_blank" rel="noopener noreferrer"
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              <IconDownload className="size-4" aria-hidden="true" />Open full size
-            </a>
-          </div>
-        </Modal>
-      )}
+      {/* zoomable image lightbox — pinch/wheel/double-tap zoom, one-finger pan */}
+      {preview && <ImageLightbox file={preview} onClose={() => setPreview(null)} />}
     </>
   );
 }
