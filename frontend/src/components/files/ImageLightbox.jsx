@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { IconDownload, IconX } from '../icons.jsx';
-import { previewUrl } from '../../api/upload.js';
+import { downloadFile, downloadName, previewUrl } from '../../api/upload.js';
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
@@ -25,6 +25,7 @@ export function ImageLightbox({ file, onClose }) {
   const stageRef = useRef(null);
   const imgRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
+  const [saved, setSaved] = useState(false);
   // Transform lives in a ref — mutated during gestures without re-rendering.
   const t = useRef({ x: 0, y: 0, scale: 1 });
   // Gesture bookkeeping: active pointers + baselines captured at gesture start.
@@ -77,6 +78,17 @@ export function ImageLightbox({ file, onClose }) {
     clamp();
     apply(animate);
   }, [apply, clamp]);
+
+  /** Save the ORIGINAL full-quality picture to the device (gallery on
+   *  Android/iOS photos, disk on desktop). Blob download so it is a real
+   *  Save, not a tab switch. */
+  const saveToGallery = useCallback(async () => {
+    if (!file) return;
+    setSaved(false);
+    await downloadFile(file.url, downloadName(file));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }, [file]);
 
   const reset = useCallback(() => {
     t.current = { x: 0, y: 0, scale: 1 };
@@ -231,13 +243,31 @@ export function ImageLightbox({ file, onClose }) {
         />
       </div>
 
-      {/* footer */}
-      <div className="flex shrink-0 justify-center px-4 py-3">
+      {/* footer — Save to gallery is the primary action (owner request
+          2026-09-22); Open full size stays for browser/other-app viewing */}
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-4 py-3">
+        <button
+          type="button"
+          onClick={saveToGallery}
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium leading-none text-white transition-colors hover:bg-primary-700"
+        >
+          {saved ? (
+            <>
+              <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+              Saved
+            </>
+          ) : (
+            <>
+              <IconDownload className="size-4 shrink-0" aria-hidden="true" />
+              Save to gallery
+            </>
+          )}
+        </button>
         <a
           href={file?.url} target="_blank" rel="noopener noreferrer"
-          className="inline-flex h-10 items-center gap-2 rounded-lg bg-white/10 px-4 text-sm font-medium text-white transition-colors hover:bg-white/20"
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-white/10 px-4 text-sm font-medium leading-none text-white transition-colors hover:bg-white/20"
         >
-          <IconDownload className="size-4" aria-hidden="true" />Open full size
+          Open full size
         </a>
       </div>
     </div>

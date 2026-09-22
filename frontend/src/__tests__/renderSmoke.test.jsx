@@ -254,6 +254,26 @@ describe('ImageLightbox renders the zoomable preview', () => {
     expect(html).toContain('Preview');
   });
 
+  it('has a Save to gallery primary action (owner request 2026-09-22)', () => {
+    const html = renderToString(<ImageLightbox file={file} onClose={() => {}} />);
+    expect(html).toContain('Save to gallery');
+    expect(html).toContain('Open full size');
+  });
+
+  it('image file card offers Preview + Save actions, file card offers Download + Open', () => {
+    const imageFile = { ...file, resourceType: 'image', format: 'jpg', _id: 'i1' };
+    const pdfFile = { ...file, resourceType: 'raw', format: 'pdf', _id: 'p1' };
+    const html = renderToString(<FileList files={[imageFile, pdfFile]} />);
+    // image card
+    expect(html).toContain('Preview photo.jpg');
+    expect(html).toContain('Save photo.jpg to gallery');
+    // file card
+    expect(html).toContain('Download ');
+    expect(html).toContain('Open ');
+    // no raw cloudinary URL text shown to users
+    expect(html).not.toContain('>https://res.cloudinary.com');
+  });
+
   it('has no backdrop-blur filter anywhere (mobile perf)', () => {
     const html = renderToString(<ImageLightbox file={file} onClose={() => {}} />);
     expect(html).not.toMatch(/(?:^|\s)backdrop-blur(?:\s|"|$)/);

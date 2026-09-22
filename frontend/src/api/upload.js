@@ -124,6 +124,48 @@ export function thumbUrl(url, w = 240) {
 }
 
 /**
+ * Best filename for a Save/Download action — keeps the original upload name;
+ * if it has no extension (or none was stored), appends the stored format so
+ * Android/Windows know how to open it and gallery apps index it correctly.
+ */
+export function downloadName(f) {
+  const base = (f?.originalName || 'download').replace(/[\r\n\/]+/g, '_').trim() || 'download';
+  if (/\.[a-z0-9]{2,5}$/i.test(base)) return base;
+  const ext = (f?.format || '').toLowerCase();
+  return ext ? `${base}.${ext}` : base;
+}
+
+/**
+ * Saves a file to the device. Primary path fetches it as a blob so the
+ * <a download> attribute actually works (a real Save, not a tab switch);
+ * on Android the download lands where the system saves media (gallery apps
+ * index it). If CORS or the network refuses, falls back to letting the
+ * browser handle the raw URL.
+ */
+export async function downloadFile(url, name = 'download') {
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) throw new Error(String(res.status));
+    const blob = await res.blob();
+    const obj = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: obj, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(obj), 5000);
+    return true;
+  } catch {
+    const a = Object.assign(document.createElement('a'), {
+      href: url, download: name, target: '_blank', rel: 'noopener noreferrer',
+    });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return false;
+  }
+}
+
+/**
  * Full-image preview (lightbox) transform — caps the LONG edge at `w` px
  * without cropping (c_limit keeps the original aspect ratio; a portrait
  * photo stays portrait). Fixes 2026-09-22: the lightbox used to load the
