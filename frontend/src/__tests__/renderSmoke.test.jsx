@@ -260,6 +260,15 @@ describe('ImageLightbox renders the zoomable preview', () => {
     expect(html).toContain('Open full size');
   });
 
+  // 2026-09-22 (owner screenshot): Save to gallery must be a plain <button>
+  // (not a link) — the popup viewer over the app was caused by opening a
+  // new tab/blob URL on save. Only the secondary "Open full size" opens one.
+  it('Save to gallery is a button, not a link (no popup-viewer tab)', () => {
+    const html = renderToString(<ImageLightbox file={file} onClose={() => {}} />);
+    expect(html).toMatch(/<button[^>]*>[\s\S]*?Save to gallery[\s\S]*?<\/button>/);
+    expect((html.match(/target="_blank"/g) || []).length).toBe(1);
+  });
+
   it('image file card offers Preview + Save actions, file card offers Download + Open', () => {
     const imageFile = { ...file, resourceType: 'image', format: 'jpg', _id: 'i1' };
     const pdfFile = { ...file, resourceType: 'raw', format: 'pdf', _id: 'p1' };
@@ -272,6 +281,20 @@ describe('ImageLightbox renders the zoomable preview', () => {
     expect(html).toContain('Open ');
     // no raw cloudinary URL text shown to users
     expect(html).not.toContain('>https://res.cloudinary.com');
+  });
+
+  // 2026-09-22 (owner screenshot): Save/Download are plain <button>s (no
+  // href/target) — clicking them must NEVER open a new tab/window, which is
+  // what caused Android Chrome's floating photo-viewer popup to appear on
+  // top of the app. Only "Open" (view raw file) is an <a target="_blank">.
+  it('Save/Download are buttons (no target=_blank popup); only Open opens a tab', () => {
+    const imageFile = { ...file, resourceType: 'image', format: 'jpg', _id: 'i1' };
+    const pdfFile = { ...file, resourceType: 'raw', format: 'pdf', _id: 'p1' };
+    const html = renderToString(<FileList files={[imageFile, pdfFile]} />);
+    expect(html).toMatch(/<button[^>]*>[\s\S]*?Save[\s\S]*?<\/button>/);
+    expect(html).toMatch(/<button[^>]*>[\s\S]*?Download[\s\S]*?<\/button>/);
+    // exactly one target="_blank" anchor (the file card's "Open")
+    expect((html.match(/target="_blank"/g) || []).length).toBe(1);
   });
 
   it('has no backdrop-blur filter anywhere (mobile perf)', () => {

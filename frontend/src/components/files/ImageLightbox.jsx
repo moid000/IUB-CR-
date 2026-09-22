@@ -25,7 +25,9 @@ export function ImageLightbox({ file, onClose }) {
   const stageRef = useRef(null);
   const imgRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // 'idle' | 'saving' | 'saved' — 'saving' shows the instant the button is
+  // pressed so it never feels like the tap did nothing.
+  const [saveState, setSaveState] = useState('idle');
   // Transform lives in a ref — mutated during gestures without re-rendering.
   const t = useRef({ x: 0, y: 0, scale: 1 });
   // Gesture bookkeeping: active pointers + baselines captured at gesture start.
@@ -79,15 +81,18 @@ export function ImageLightbox({ file, onClose }) {
     apply(animate);
   }, [apply, clamp]);
 
-  /** Save the ORIGINAL full-quality picture to the device (gallery on
-   *  Android/iOS photos, disk on desktop). Blob download so it is a real
-   *  Save, not a tab switch. */
-  const saveToGallery = useCallback(async () => {
+  /** Save the ORIGINAL full-quality picture to the device. Uses a real
+   *  forced-download (Cloudinary fl_attachment, see api/upload.js) — no
+   *  popup photo-viewer, no blob/CORS wait. Feedback: busy immediately on
+   *  press, confirmed tick shortly after. */
+  const saveToGallery = useCallback(() => {
     if (!file) return;
-    setSaved(false);
-    await downloadFile(file.url, downloadName(file));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setSaveState('saving');
+    downloadFile(file.url, downloadName(file));
+    setTimeout(() => {
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2200);
+    }, 550);
   }, [file]);
 
   const reset = useCallback(() => {
@@ -249,9 +254,18 @@ export function ImageLightbox({ file, onClose }) {
         <button
           type="button"
           onClick={saveToGallery}
-          className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium leading-none text-white transition-colors hover:bg-primary-700"
+          disabled={saveState === 'saving'}
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium leading-none text-white transition-colors hover:bg-primary-700 disabled:opacity-80"
         >
-          {saved ? (
+          {saveState === 'saving' ? (
+            <>
+              <svg className="size-4 shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.3" />
+                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+              Saving…
+            </>
+          ) : saveState === 'saved' ? (
             <>
               <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
               Saved

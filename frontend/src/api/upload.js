@@ -136,33 +136,37 @@ export function downloadName(f) {
 }
 
 /**
- * Saves a file to the device. Primary path fetches it as a blob so the
- * <a download> attribute actually works (a real Save, not a tab switch);
- * on Android the download lands where the system saves media (gallery apps
- * index it). If CORS or the network refuses, falls back to letting the
- * browser handle the raw URL.
+ * Cloudinary "force download" URL — inserts the `fl_attachment` flag so
+ * Cloudinary's SERVER responds with `Content-Disposition: attachment`.
+ *
+ * Fixed 2026-09-22 (owner screenshot): the previous approach fetched the
+ * file as a blob and clicked an `<a download>` on the resulting blob: URL.
+ * Blob-URL downloads of IMAGES are exactly what makes Android Chrome pop
+ * open its own floating "photo viewer" overlay (zoom controls, refresh, X)
+ * ON TOP of the page — that's the ugly translucent panel with our app
+ * bleeding through behind it in the screenshot. A real HTTP response with
+ * a `Content-Disposition: attachment` header downloads silently instead —
+ * no viewer, no new tab, no CORS fetch needed at all.
  */
-export async function downloadFile(url, name = 'download') {
-  try {
-    const res = await fetch(url, { mode: 'cors' });
-    if (!res.ok) throw new Error(String(res.status));
-    const blob = await res.blob();
-    const obj = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), { href: obj, download: name });
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(obj), 5000);
-    return true;
-  } catch {
-    const a = Object.assign(document.createElement('a'), {
-      href: url, download: name, target: '_blank', rel: 'noopener noreferrer',
-    });
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    return false;
-  }
+export function attachmentUrl(url, filename) {
+  if (!url) return url;
+  const base = String(filename || '').replace(/\.[a-z0-9]{2,5}$/i, '').trim();
+  const flag = base ? `fl_attachment:${encodeURIComponent(base)}` : 'fl_attachment';
+  return url.includes('/upload/') ? url.replace('/upload/', `/upload/${flag}/`) : url;
+}
+
+/**
+ * Saves a file to the device via a real forced-download navigation (see
+ * attachmentUrl above) — no popup viewer, no blob/CORS round trip, so the
+ * browser starts the download the instant this is called (no user-visible
+ * wait before something happens).
+ */
+export function downloadFile(url, name = 'download') {
+  const href = attachmentUrl(url, name);
+  const a = Object.assign(document.createElement('a'), { href, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /**

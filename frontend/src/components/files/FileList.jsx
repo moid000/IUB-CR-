@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import { Button } from '../ui/Button.jsx';
-import { IconDownload, IconEye, IconFileText, IconPaperclip, IconX } from '../icons.jsx';
+import { IconCheck, IconDownload, IconEye, IconFileText, IconPaperclip, IconX } from '../icons.jsx';
 import { downloadFile, downloadName, formatBytes, thumbUrl, typeLabel } from '../../api/upload.js';
 
 /**
@@ -12,12 +12,30 @@ import { downloadFile, downloadName, formatBytes, thumbUrl, typeLabel } from '..
  * request 2026-09-22: "koi bhi button card se bahar na jaye, professional
  * lage, bary options na hon, text theek align ho").
  */
-function ActionBtn({ onClick, href, icon: Icon, children, disabled = false, ariaLabel, title }) {
+/** Small inline spinner — shown INSTEAD of the icon while a save/download
+ *  is in flight, so pressing the button gives immediate visible feedback
+ *  (owner request 2026-09-22: no mystery delay before anything happens). */
+function Spinner({ className = '' }) {
+  return (
+    <svg className={`animate-spin ${className}`} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ActionBtn({ onClick, href, icon: Icon, children, state = 'idle', disabled = false, ariaLabel, title }) {
   const cls =
-    'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium leading-none text-slate-600 transition-colors hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-50';
+    'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium leading-none text-slate-600 transition-colors hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-70';
   const inner = (
     <>
-      {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
+      {state === 'busy' ? (
+        <Spinner className="size-3.5 shrink-0" />
+      ) : state === 'done' ? (
+        <IconCheck className="size-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
+      ) : (
+        Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      )}
       <span className="whitespace-nowrap">{children}</span>
     </>
   );
@@ -43,20 +61,24 @@ function ActionBtn({ onClick, href, icon: Icon, children, disabled = false, aria
  */
 export function FileList({ files = [], emptyText = null, className = '', onRemove = null, removeBusyId = null }) {
   const [preview, setPreview] = useState(null);
-  const [saveBusyId, setSaveBusyId] = useState(null);
+  // { [id]: 'busy' | 'done' } — busy shows the second the button is
+  // pressed (before anything else happens), done shows a checkmark once
+  // the download has actually been handed to the browser.
+  const [saveState, setSaveState] = useState({});
   const list = files.filter(Boolean);
 
-  /** Save/Download — fetches the file as a blob so the browser does a REAL
-   *  save (image to the device gallery/downloads, PDF/doc to Files) instead
-   *  of just opening a tab. */
-  const saveToDevice = async (f) => {
+  /** Save/Download — triggers the browser's real forced-download (see
+   *  downloadFile in api/upload.js: Cloudinary `fl_attachment`, no popup
+   *  viewer, no blob/CORS wait). Feedback is immediate: busy the instant
+   *  you press it, a brief confirmed "done" tick right after. */
+  const saveToDevice = (f) => {
     const id = f._id ?? f.publicId;
-    setSaveBusyId(id);
-    try {
-      await downloadFile(f.url, downloadName(f));
-    } finally {
-      setSaveBusyId(null);
-    }
+    setSaveState((s) => ({ ...s, [id]: 'busy' }));
+    downloadFile(f.url, downloadName(f));
+    setTimeout(() => {
+      setSaveState((s) => ({ ...s, [id]: 'done' }));
+      setTimeout(() => setSaveState((s) => { const { [id]: _drop, ...rest } = s; return rest; }), 2200);
+    }, 550);
   };
   if (list.length === 0 && !emptyText) return null;
 
@@ -105,35 +127,43 @@ export function FileList({ files = [], emptyText = null, className = '', onRemov
                     onClick={() => onRemove(f)}
                   >Remove</Button>
                 )}
-                {isImage ? (
-                  <>
-                    <ActionBtn
-                      onClick={() => setPreview(f)} icon={IconEye}
-                      ariaLabel={`Preview ${f.originalName ?? 'image'}`}
-                      title="Zoom and pan preview"
-                    >Preview</ActionBtn>
-                    <ActionBtn
-                      onClick={() => saveToDevice(f)} icon={IconDownload}
-                      disabled={saveBusyId === (f._id ?? f.publicId)}
-                      ariaLabel={`Save ${f.originalName ?? 'image'} to gallery`}
-                      title="Save this picture to your device gallery"
-                    >{saveBusyId === (f._id ?? f.publicId) ? 'Saving…' : 'Save'}</ActionBtn>
-                  </>
-                ) : (
-                  <>
-                    <ActionBtn
-                      onClick={() => saveToDevice(f)} icon={IconDownload}
-                      disabled={saveBusyId === (f._id ?? f.publicId)}
-                      ariaLabel={`Download ${f.originalName ?? 'file'}`}
-                      title="Download this file to your device"
-                    >{saveBusyId === (f._id ?? f.publicId) ? 'Downloading…' : 'Download'}</ActionBtn>
-                    <ActionBtn
-                      href={f.url}
-                      ariaLabel={`Open ${f.originalName ?? 'file'} in a new tab`}
-                      title="Open file"
-                    >Open</ActionBtn>
-                  </>
-                )}
+                {isImage ? (() => {
+                  const id = f._id ?? f.publicId;
+                  const state = saveState[id] ?? 'idle';
+                  return (
+                    <>
+                      <ActionBtn
+                        onClick={() => setPreview(f)} icon={IconEye}
+                        ariaLabel={`Preview ${f.originalName ?? 'image'}`}
+                        title="Zoom and pan preview"
+                      >Preview</ActionBtn>
+                      <ActionBtn
+                        onClick={() => saveToDevice(f)} icon={IconDownload} state={state}
+                        disabled={state === 'busy'}
+                        ariaLabel={`Save ${f.originalName ?? 'image'} to gallery`}
+                        title="Save this picture to your device gallery"
+                      >{state === 'busy' ? 'Saving…' : state === 'done' ? 'Saved' : 'Save'}</ActionBtn>
+                    </>
+                  );
+                })() : (() => {
+                  const id = f._id ?? f.publicId;
+                  const state = saveState[id] ?? 'idle';
+                  return (
+                    <>
+                      <ActionBtn
+                        onClick={() => saveToDevice(f)} icon={IconDownload} state={state}
+                        disabled={state === 'busy'}
+                        ariaLabel={`Download ${f.originalName ?? 'file'}`}
+                        title="Download this file to your device"
+                      >{state === 'busy' ? 'Downloading…' : state === 'done' ? 'Downloaded' : 'Download'}</ActionBtn>
+                      <ActionBtn
+                        href={f.url}
+                        ariaLabel={`Open ${f.originalName ?? 'file'} in a new tab`}
+                        title="Open file"
+                      >Open</ActionBtn>
+                    </>
+                  );
+                })()}
               </div>
             </li>
           );
