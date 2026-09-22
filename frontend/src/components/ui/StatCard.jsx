@@ -14,14 +14,14 @@ export function StatCard({ to, icon: Icon = null, label, value, hint, className 
           <Icon className="size-4" />
         </span>
       )}
-      <p className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="min-w-0 line-clamp-2 text-[10px] font-semibold uppercase leading-tight tracking-[0.1em] text-slate-500">{label}</p>
     </div>
   );
 
   const metric = (
     <div className={wideMobile ? 'min-w-0 text-right lg:text-left' : 'min-w-0'}>
       <p className="text-2xl font-semibold leading-none tracking-tight text-slate-900">{value}</p>
-      {hint && <p className="mt-1 truncate text-[10px] text-slate-400">{hint}</p>}
+      {hint && <p className="mt-1 line-clamp-2 text-[10px] leading-tight text-slate-400">{hint}</p>}
     </div>
   );
 

@@ -50,5 +50,7 @@ describe('final mobile metric row is intentional, not a stretched normal tile', 
     expect(code).toContain('lg:flex-col');
     expect(code).toContain('lg:min-h-[84px]');
     expect(code).toContain('duration-200');
+    expect(code).toContain('line-clamp-2');
+    expect(code).not.toContain('truncate text-[10px] font-semibold uppercase');
   });
 });
