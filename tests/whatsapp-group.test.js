@@ -33,7 +33,7 @@ const models = await import('../backend/models/index.js');
 const { default: app } = await import('../backend/app.js');
 
 const { User, Section, Subject, Announcement } = models;
-const { broadcastAttachmentToSectionGroup } = await import('../backend/services/whatsappGroupService.js');
+const { broadcastAttachmentToSectionGroup, contentPreview, announcementMessage } = await import('../backend/services/whatsappGroupService.js');
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
@@ -640,4 +640,53 @@ test('update/archive/delete of content never re-broadcast', async () => {
   assert.equal((await cr.api('POST', `/api/cr/announcements/${id}/archive`)).status, 200);
   assert.equal((await cr.api('DELETE', `/api/cr/announcements/${id}`)).status, 200);
   assert.equal(sent.length, 0);
+});
+
+
+// ---- contentPreview / paragraph-spacing regression (2026-09-22) ----------
+// Owner screenshot: content typed with blank lines between paragraphs in the
+// app arrived on WhatsApp as one run-on paragraph, no breaks at all.
+test('contentPreview: preserves single line breaks', () => {
+  const input = 'Line one.\nLine two.\nLine three.';
+  assert.equal(contentPreview(input), 'Line one.\nLine two.\nLine three.');
+});
+
+test('contentPreview: preserves blank-line paragraph breaks (the bug)', () => {
+  const input = 'Paragraph one.\n\nParagraph two.\n\nParagraph three.';
+  assert.equal(contentPreview(input), 'Paragraph one.\n\nParagraph two.\n\nParagraph three.');
+});
+
+test('contentPreview: collapses excess blank lines (3+ newlines -> exactly one blank line)', () => {
+  const input = 'Para one.\n\n\n\nPara two.';
+  assert.equal(contentPreview(input), 'Para one.\n\nPara two.');
+});
+
+test('contentPreview: collapses only horizontal whitespace within a line, trims each line', () => {
+  const input = '  Hello    world  \n   Second   line   ';
+  assert.equal(contentPreview(input), 'Hello world\nSecond line');
+});
+
+test('contentPreview: truncates by length while still capping to max', () => {
+  const input = 'a'.repeat(10) + '\n\n' + 'b'.repeat(10);
+  const out = contentPreview(input, 12);
+  assert.ok(out.endsWith('\u2026'));
+  assert.ok(out.length <= 13); // 12 chars + ellipsis
+});
+
+test('announcementMessage: real owner-shaped content keeps paragraph breaks in the WhatsApp text', async () => {
+  const doc = {
+    title: 'Ever wonder which model actually does a better job with your specific build request?',
+    content:
+      'Ever wonder which model actually does a better job with your specific build request?\n\n' +
+      'Find out tomorrow.\nOn Tuesday, Sep 22, 9AM\u20133PM ET, Compare models is open to everyone for free!\n\n' +
+      "Base44 builds your request on two models, and you vote for the one that did it better.\n\n" +
+      "We'll be giving away 10,000 credits across all platforms so come back tomorrow for all the details!",
+  };
+  const msg = announcementMessage(doc);
+  // paragraph blank lines must survive into the final WhatsApp text
+  assert.ok(msg.includes('Find out tomorrow.\nOn Tuesday'));
+  assert.ok(msg.includes('open to everyone for free!\n\nBase44 builds'));
+  assert.ok(msg.includes("did it better.\n\nWe'll be giving away"));
+  // must NOT be flattened into one run-on line
+  assert.ok(!msg.includes('Find out tomorrow. On Tuesday'));
 });

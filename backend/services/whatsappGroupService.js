@@ -283,9 +283,28 @@ export async function broadcastContentToGroup(req, { Model, kind, buildMessage }
 
 /* ---------------------------- message builders -------------------------- */
 
-function contentPreview(content, max = 200) {
-  const flat = String(content ?? '').replace(/\s+/g, ' ').trim();
-  return flat.length > max ? `${flat.slice(0, max).trimEnd()}…` : flat;
+/**
+ * Prepares free-text content (announcement/note/assignment body) for a
+ * WhatsApp message. BUG FIXED 2026-09-22: this used to `replace(/\s+/g, ' ')`,
+ * which collapses EVERY whitespace run — including blank lines between
+ * paragraphs — into a single space. The app preserved the author's line
+ * breaks; WhatsApp received one solid unreadable block (owner screenshot:
+ * paragraphs typed with blank lines between them arrived as one run-on
+ * paragraph). Fix: normalize line endings, collapse only HORIZONTAL
+ * whitespace within each line, trim each line, then cap runs of 3+ newlines
+ * (2+ blank lines) down to exactly one blank line — single and double
+ * line breaks the author typed are preserved as typed.
+ */
+export function contentPreview(content, max = 200) {
+  const normalized = String(content ?? '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[^\S\n]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max).trimEnd()}…`;
 }
 
 export function announcementMessage(doc) {
