@@ -52,11 +52,19 @@ describe('popup motion and image delivery are optimized globally', () => {
     for (const rel of pages) expect(src(rel)).toContain('useAttachmentPrefetch(items)');
   });
 
-  it('prefetch is tiny-thumbnail-only and respects save-data/2G', () => {
+  it('list prefetch stays tiny, while opened read modals warm adaptive previews', () => {
     const code = src('hooks/useAttachmentPrefetch.js');
     expect(code).toContain('thumbUrl(file.url, 96)');
+    expect(code).toContain('previewUrl(file.url, 320)');
+    expect(code).toContain('preferredPreviewWidth()');
     expect(code).toContain('connection?.saveData');
     expect(code).toContain('requestIdleCallback');
-    expect(code).not.toContain('previewUrl');
+  });
+
+  it('lightbox progressively paints 320px before adaptive quality', () => {
+    const code = src('components/files/ImageLightbox.jsx');
+    expect(code).toContain('const lowSrc = previewUrl(file?.url, 320)');
+    expect(code).toContain('const previewSrc = previewUrl(file?.url, previewWidth)');
+    expect(code).toContain("loaded ? 'opacity-0' : 'opacity-100'");
   });
 });

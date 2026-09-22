@@ -161,7 +161,7 @@ export default function StudentAnnouncementsPage() {
             {(detail.attachments?.length ?? 0) > 0 && (
               <div className="border-t border-slate-100 pt-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Attachments</p>
-                <div className="mt-2"><FileList files={detail.attachments} /></div>
+                <div className="mt-2"><FileList files={detail.attachments} prefetchPreview /></div>
               </div>
             )}
           </div>

@@ -103,7 +103,7 @@ function ViewAnnouncementModal({ open, onClose, item }) {
         {(item?.attachments?.length ?? 0) > 0 && (
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Attachments</p>
-            <div className="mt-2"><FileList files={item.attachments} /></div>
+            <div className="mt-2"><FileList files={item.attachments} prefetchPreview /></div>
           </div>
         )}
       </div>

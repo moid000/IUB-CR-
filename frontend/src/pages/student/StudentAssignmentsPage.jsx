@@ -332,7 +332,7 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
           {(assignment.attachments?.length ?? 0) > 0 && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Assignment files from your CR / GR</p>
-              <div className="mt-2"><FileList files={assignment.attachments} /></div>
+              <div className="mt-2"><FileList files={assignment.attachments} prefetchPreview /></div>
             </div>
           )}
 

@@ -191,6 +191,18 @@ export function downloadFile(url, name = 'download') {
  * is what felt "very slow" moving/zooming. 1600px is already sharper than
  * any phone screen can show, so quality is unaffected.
  */
+
+/** Adaptive lightbox resolution: phones get a much smaller Cloudinary asset
+ * than desktop while staying sharp at screen-fit size. Slow/data-saving links
+ * prefer 720px; ordinary phones 1080px; larger screens 1440px. */
+export function preferredPreviewWidth() {
+  if (typeof window === 'undefined') return 1280;
+  const connection = navigator.connection ?? navigator.mozConnection ?? navigator.webkitConnection;
+  if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType ?? '')) return 720;
+  const shortEdge = Math.min(window.innerWidth || 1280, window.innerHeight || 1280);
+  return shortEdge <= 600 ? 1080 : 1440;
+}
+
 export function previewUrl(url, w = 1600) {
   if (!url) return url;
   return url.replace('/upload/', `/upload/w_${w},c_limit,f_auto,q_auto/`);

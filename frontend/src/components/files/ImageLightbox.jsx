@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { IconDownload, IconX } from '../icons.jsx';
-import { downloadFile, downloadName, previewUrl } from '../../api/upload.js';
+import { downloadFile, downloadName, preferredPreviewWidth, previewUrl } from '../../api/upload.js';
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
@@ -25,6 +25,10 @@ export function ImageLightbox({ file, onClose }) {
   const stageRef = useRef(null);
   const imgRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
+  const [lowLoaded, setLowLoaded] = useState(false);
+  const previewWidth = useRef(preferredPreviewWidth()).current;
+  const lowSrc = previewUrl(file?.url, 320);
+  const previewSrc = previewUrl(file?.url, previewWidth);
   // 'idle' | 'saving' | 'saved' — 'saving' shows the instant the button is
   // pressed so it never feels like the tap did nothing.
   const [saveState, setSaveState] = useState('idle');
@@ -38,7 +42,7 @@ export function ImageLightbox({ file, onClose }) {
     dragging: false,
   });
   const lastTap = useRef({ time: 0, x: 0, y: 0 });
-  const [scaleDisplay, setScaleDisplay] = useState(1);
+  const [scaleDisplay, setScaleDisplay] = useState(100);
 
   const apply = useCallback((withTransition = false) => {
     const el = imgRef.current;
@@ -237,12 +241,22 @@ export function ImageLightbox({ file, onClose }) {
         onWheel={onWheel}
         onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
       >
-        {!loaded && <div className="absolute inset-0 grid place-items-center text-xs text-white/50">Loading image…</div>}
+        {!lowLoaded && !loaded && <div className="absolute inset-0 grid place-items-center text-xs text-white/50">Loading image…</div>}
+        {/* Progressive preview: cached 320px frame appears first, then the
+            adaptive high-quality asset fades over it. No blank dark wait. */}
+        <img
+          src={lowSrc}
+          alt=""
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 size-full object-contain transition-opacity duration-100 ${loaded ? 'opacity-0' : 'opacity-100'}`}
+          draggable={false}
+          onLoad={() => setLowLoaded(true)}
+        />
         <img
           ref={imgRef}
-          src={previewUrl(file?.url, 1600)}
+          src={previewSrc}
           alt={file?.originalName ?? 'attachment'}
-          className="max-h-full max-w-full object-contain will-change-transform"
+          className={`relative max-h-full max-w-full object-contain will-change-transform transition-opacity duration-100 ${loaded ? 'opacity-100' : 'opacity-0'}`}
           draggable={false}
           onLoad={() => setLoaded(true)}
         />

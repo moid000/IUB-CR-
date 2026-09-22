@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { thumbUrl } from '../api/upload.js';
+import { preferredPreviewWidth, previewUrl, thumbUrl } from '../api/upload.js';
 
 const isImage = (f) => f?.resourceType === 'image'
   || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(String(f?.format ?? '').toLowerCase());
@@ -13,6 +13,24 @@ export function warmAttachmentImages(files = [], limit = 4) {
     const img = new Image();
     img.decoding = 'async';
     img.src = thumbUrl(file.url, 96);
+    count += 1;
+  }
+}
+
+/** Warm the progressive lightbox pair after a detail modal opens.
+ * 320px appears almost immediately; the adaptive 720/1080/1440px image then
+ * replaces it from cache when Preview is tapped. Raw originals are never used. */
+export function warmPreviewImages(files = [], limit = 2) {
+  if (typeof Image === 'undefined') return;
+  let count = 0;
+  const width = preferredPreviewWidth();
+  for (const file of files) {
+    if (!isImage(file) || !file?.url || count >= limit) continue;
+    for (const src of [previewUrl(file.url, 320), previewUrl(file.url, width)]) {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = src;
+    }
     count += 1;
   }
 }

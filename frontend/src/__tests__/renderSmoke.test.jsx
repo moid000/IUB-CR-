@@ -245,7 +245,8 @@ describe('ImageLightbox renders the zoomable preview', () => {
     expect(html).toContain('Close preview');
     expect(html).toContain('Open full size');
     // image served via the non-cropping capped transform, not the raw original
-    expect(html).toContain('w_1600,c_limit');
+    expect(html).toContain('w_320,c_limit');
+    expect(html).toContain('w_1280,c_limit');
     expect(html).not.toContain('c_fill');
   });
 
@@ -312,6 +313,7 @@ describe('ImageLightbox renders the zoomable preview', () => {
       </>
     );
     expect(html).toContain('Preview photo.jpg');
-    expect(html).toContain('w_1600,c_limit');
+    expect(html).toContain('w_320,c_limit');
+    expect(html).toContain('w_1280,c_limit');
   });
 });

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import { Button } from '../ui/Button.jsx';
 import { IconCheck, IconDownload, IconEye, IconFileText, IconPaperclip, IconX } from '../icons.jsx';
 import { downloadFile, downloadName, formatBytes, thumbUrl, typeLabel } from '../../api/upload.js';
+import { warmPreviewImages } from '../../hooks/useAttachmentPrefetch.js';
 
 /**
  * Compact attachment action (Save/Preview/Download/Open). One shared style
@@ -59,13 +60,16 @@ function ActionBtn({ onClick, href, icon: Icon, children, state = 'idle', disabl
  * actions. Images open a lightbox; PDFs/documents open in a new tab via
  * their verified HTTPS URL. No raw Cloudinary URL text is ever shown.
  */
-export function FileList({ files = [], emptyText = null, className = '', onRemove = null, removeBusyId = null }) {
+export function FileList({ files = [], emptyText = null, className = '', onRemove = null, removeBusyId = null, prefetchPreview = false }) {
   const [preview, setPreview] = useState(null);
   // { [id]: 'busy' | 'done' } — busy shows the second the button is
   // pressed (before anything else happens), done shows a checkmark once
   // the download has actually been handed to the browser.
   const [saveState, setSaveState] = useState({});
   const list = files.filter(Boolean);
+  useEffect(() => {
+    if (prefetchPreview) warmPreviewImages(files, 2);
+  }, [files, prefetchPreview]);
 
   /** Save/Download — triggers the browser's real forced-download (see
    *  downloadFile in api/upload.js: Cloudinary `fl_attachment`, no popup
@@ -97,6 +101,7 @@ export function FileList({ files = [], emptyText = null, className = '', onRemov
                 {isImage ? (
                   <button
                     type="button"
+                    onPointerDown={() => warmPreviewImages([f], 1)}
                     onClick={() => setPreview(f)}
                     aria-label={`Preview ${f.originalName ?? 'image'}`}
                     className="size-11 shrink-0 overflow-hidden rounded-lg border border-slate-100"
@@ -133,7 +138,7 @@ export function FileList({ files = [], emptyText = null, className = '', onRemov
                   return (
                     <>
                       <ActionBtn
-                        onClick={() => setPreview(f)} icon={IconEye}
+                        onClick={() => { warmPreviewImages([f], 1); setPreview(f); }} icon={IconEye}
                         ariaLabel={`Preview ${f.originalName ?? 'image'}`}
                         title="Zoom and pan preview"
                       >Preview</ActionBtn>
