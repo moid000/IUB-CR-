@@ -289,7 +289,7 @@ export default function AssignmentsPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <button type="button" onPointerDown={() => warmAttachmentImages(a.attachments)} onClick={() => { unread.markSeen(a._id); setSubmissionsFor(a); }} className="min-w-0 flex-1 text-left">
                   <div className="flex flex-wrap items-start gap-2">
-                    <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{a.title}</p>
+                    <p dir="auto" className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{a.title}</p>
                     <span className="flex shrink-0 flex-wrap items-center gap-2">
                       {unread.isNew(a._id) && <NewBadge />}
                       <StatusBadge status={a.status} />
@@ -300,7 +300,7 @@ export default function AssignmentsPage() {
                     <span>{a.deadlinePassed ? 'Deadline passed' : 'Due'} · {formatDateTime(a.deadline)} PKT</span>
                     {!a.deadlinePassed && <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
                   </p>
-                  {a.instructions && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{a.instructions}</p>}
+                  {a.instructions && <p dir="auto" className="mt-2 line-clamp-2 text-sm text-slate-500">{a.instructions}</p>}
                   {(a.attachments?.length ?? 0) > 0 && (
                     <div className="mt-2.5 flex items-center justify-end border-t border-slate-100 pt-2">
                       <FileChips files={a.attachments} />

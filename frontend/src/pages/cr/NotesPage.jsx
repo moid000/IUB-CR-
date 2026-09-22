@@ -225,18 +225,18 @@ export default function NotesPage() {
   };
 
   const renderCard = (n) => (
-    <li data-item-id={n._id} className={`relative overflow-hidden rounded-2xl border p-5 shadow-soft transition-shadow hover:shadow-lift ${unread.isNew(n._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'}`}>
+    <li data-item-id={n._id} className={`relative overflow-hidden rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${unread.isNew(n._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'}`}>
       {unread.isNew(n._id) && <NewRail />}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <button type="button" onPointerDown={() => warmAttachmentImages(n.attachments)} onClick={() => { unread.markSeen(n._id); setViewTarget(n); }} className="min-w-0 flex-1 text-left">
           <div className="flex flex-wrap items-start gap-2">
-            <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{n.title}</p>
+            <p dir="auto" className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{n.title}</p>
             <span className="flex shrink-0 flex-wrap items-center gap-2">
               {unread.isNew(n._id) && <NewBadge />}
               <StatusBadge status={n.status} />
             </span>
           </div>
-          {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
+          {n.content && <p dir="auto" className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
           <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
             <p className="text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
             <FileChips files={n.attachments} />

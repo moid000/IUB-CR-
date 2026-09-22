@@ -118,7 +118,10 @@ export default function StudentNotesPage() {
         <>
           {/* Subject category chips */}
           <div
-            className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="relative -mx-1 [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-28px),transparent)]"
+          >
+          <div
+            className="flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             role="tablist"
             aria-label="Filter notes by subject"
           >
@@ -149,6 +152,7 @@ export default function StudentNotesPage() {
                 </span>
               </button>
             ))}
+          </div>
           </div>
 
           {/* Subject-wise groups, newest-first inside each */}
@@ -189,16 +193,16 @@ export default function StudentNotesPage() {
                             data-item-id={n._id}
                             onPointerDown={() => warmAttachmentImages(n.attachments)}
                             onClick={() => { unread.markSeen(n._id); openDetail(n); }}
-                            className={`relative w-full overflow-hidden rounded-2xl border p-5 text-left shadow-soft transition-shadow hover:shadow-lift ${
+                            className={`relative w-full overflow-hidden rounded-2xl border p-5 text-left shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${
                               unread.isNew(n._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'
                             }`}
                           >
                             {unread.isNew(n._id) && <NewRail />}
                             <div className="flex items-start justify-between gap-2">
-                              <h3 className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900">{n.title}</h3>
+                              <h3 dir="auto" className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900">{n.title}</h3>
                               {unread.isNew(n._id) && <NewBadge />}
                             </div>
-                            {n.content && <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{n.content}</p>}
+                            {n.content && <p dir="auto" className="mt-1.5 line-clamp-2 text-sm text-slate-600">{n.content}</p>}
                             <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
                               <p className="text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
                               <FileChips files={n.attachments} />
@@ -220,11 +224,11 @@ export default function StudentNotesPage() {
         {detail ? (
           <div className="space-y-3">
             <div className="flex items-start justify-between gap-3">
-              <h3 className="text-base font-semibold text-slate-900">{detail.title}</h3>
+              <h3 dir="auto" className="text-base font-semibold text-slate-900">{detail.title}</h3>
               {detail.subject && <Badge variant="primary">{detail.subject.name}</Badge>}
             </div>
             {detail.content && (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{detail.content}</p>
+              <p dir="auto" className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{detail.content}</p>
             )}
             <p className="text-xs text-slate-400">Shared {formatDate(detail.createdAt)}</p>
             {(detail.attachments?.length ?? 0) > 0 && (
