@@ -127,6 +127,7 @@ export const crApi = {
     list: (params) => api.get(`/api/cr/notifications${qs(params)}`), // unread | page | limit
     unreadCount: () => api.get('/api/cr/notifications/unread-count'),
     unreadByType: () => api.get('/api/cr/notifications/unread-count-by-type'), // -> { byType, total }
+    unreadContentRefs: (type) => api.get(`/api/cr/notifications/unread-content-refs?type=${encodeURIComponent(type)}`),
     readByType: (types) => api.post('/api/cr/notifications/read-by-type', { types }), // → { count }
     read: (id) => api.post(`/api/cr/notifications/${id}/read`),
     readAll: () => api.post('/api/cr/notifications/read-all'),

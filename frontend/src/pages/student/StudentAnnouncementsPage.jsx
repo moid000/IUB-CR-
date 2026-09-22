@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
@@ -14,6 +14,8 @@ import { NoSection } from '../../student/NoSection.jsx';
 import { IconMegaphone, IconFileText } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { thumbUrl } from '../../api/upload.js';
+import useUnreadContent from '../../hooks/useUnreadContent.js';
+import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
 
 /** Read-only announcements — the CR authors these; students never modify. */
 export default function StudentAnnouncementsPage() {
@@ -24,9 +26,12 @@ export default function StudentAnnouncementsPage() {
     [],
     () => studentApi.announcements.cachedList({ page: 1, limit: 30 })
   );
-  // pinned first, then newest — pure ordering, content always server data
-  const sorted = [...items].sort((a, b) =>
-    (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || new Date(b.createdAt) - new Date(a.createdAt));
+  const unread = useUnreadContent(studentApi.notifications, 'announcement', items);
+  // NEW first, then pinned, then newest. Stable `ordered` preserves the old
+  // order inside each seen/unseen section.
+  const sorted = unread.ordered([...items].sort((a, b) =>
+    (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || new Date(b.createdAt) - new Date(a.createdAt)));
+  const pageNewCount = sorted.filter((a) => unread.isNew(a._id)).length;
   const [openId, setOpenId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -76,22 +81,28 @@ export default function StudentAnnouncementsPage() {
         </div>
       ) : (
         <div className="space-y-3" role="list" aria-label="Announcements">
-          {sorted.map((a) => {
+          {sorted.map((a, index) => {
             const image = (a.attachments ?? []).find(
               (f) => f?.resourceType === 'image' || ['png', 'jpg', 'jpeg', 'webp'].includes(f?.format)
             );
             return (
-              <div key={a._id} role="listitem">
+              <Fragment key={a._id}>
+                {index === 0 && <NewUpdatesDivider count={pageNewCount} />}
+                {index === pageNewCount && pageNewCount > 0 && pageNewCount < sorted.length && <EarlierDivider />}
+              <div role="listitem">
                 <button
                   type="button"
                   data-item-id={a._id}
-                  onClick={() => openDetail(a._id)}
-                  className={`group block w-full rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
+                  onClick={() => { unread.markSeen(a._id); openDetail(a._id); }}
+                  className={`group relative block w-full overflow-hidden rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
                     hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]
-                    ${a.pinned
-                      ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white'
-                      : 'border-slate-200/80 bg-white'}`}
+                    ${unread.isNew(a._id)
+                      ? 'border-primary-200 bg-primary-50/60'
+                      : a.pinned
+                        ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white'
+                        : 'border-slate-200/80 bg-white'}`}
                 >
+                  {unread.isNew(a._id) && <NewRail />}
                   {/* Title/content row — a large title is clamped to 2 lines (owner
                       2026-09-22: a long title used to grow the card to 6+ lines, wildly
                       inconsistent next to short ones; full title is still shown once the
@@ -106,7 +117,10 @@ export default function StudentAnnouncementsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
-                        {a.pinned && <Badge variant="primary">Pinned</Badge>}
+                        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                          {unread.isNew(a._id) && <NewBadge />}
+                          {a.pinned && <Badge variant="primary">Pinned</Badge>}
+                        </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-slate-500">{a.content}</p>
                     </div>
@@ -127,6 +141,7 @@ export default function StudentAnnouncementsPage() {
                   </div>
                 </button>
               </div>
+              </Fragment>
             );
           })}
         </div>

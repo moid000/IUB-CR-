@@ -8,7 +8,7 @@ import {
   attendWithCode, attendWithQr, listMyAttendance, listSessionsStudent,
 } from '../controllers/studentController.js';
 import {
-  listMyNotifications, getUnreadCount, getUnreadCountByType, markNotificationRead,
+  listMyNotifications, getUnreadCount, getUnreadCountByType, getUnreadContentRefs, markNotificationRead,
   markAllNotificationsRead, markNotificationsReadByType,
 } from '../controllers/notificationController.js';
 import { listAssessmentsStudent, getAssessmentStudent, listMyMarks } from '../controllers/gradingController.js';
@@ -61,6 +61,7 @@ router.post('/files/remove', removeFileUpload);
 router.get('/notifications', listMyNotifications);
 router.get('/notifications/unread-count', getUnreadCount);
 router.get('/notifications/unread-count-by-type', getUnreadCountByType);
+router.get('/notifications/unread-content-refs', getUnreadContentRefs);
 router.post('/notifications/:id/read', markNotificationRead);
 router.post('/notifications/read-all', markAllNotificationsRead);
 router.post('/notifications/read-by-type', markNotificationsReadByType);

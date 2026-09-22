@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
 import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
@@ -13,6 +13,8 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { NoSection } from '../../student/NoSection.jsx';
 import { IconFileText, IconBook, IconChevronRight } from '../../components/icons.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
+import useUnreadContent from '../../hooks/useUnreadContent.js';
+import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
 
 /** Read-only notes — grouped into per-subject categories, newest-first inside
  *  each. Archived notes follow backend visibility. */
@@ -29,6 +31,7 @@ export default function StudentNotesPage() {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState(null);
+  const unread = useUnreadContent(studentApi.notifications, 'note', items);
 
   /** Subject categories built from the notes themselves (API returns them
    *  newest-first, so a subject appears in the order of its latest note). */
@@ -41,8 +44,14 @@ export default function StudentNotesPage() {
       }
       map.get(k).notes.push(n);
     }
-    return [...map.values()];
-  }, [items]);
+    const built = [...map.values()].map((g) => {
+      const notes = unread.ordered(g.notes);
+      return { ...g, notes, newCount: notes.filter((n) => unread.isNew(n._id)).length };
+    });
+    // Subject groups containing unseen notes come first; original newest-subject
+    // order remains stable within the NEW and Earlier sections.
+    return built.sort((a, b) => Number(b.newCount > 0) - Number(a.newCount > 0));
+  }, [items, unread.isNew, unread.ordered]);
 
   const visibleGroups = useMemo(
     () => (subjectFilter === 'all' ? groups : groups.filter((g) => g.key === subjectFilter)),
@@ -164,21 +173,31 @@ export default function StudentNotesPage() {
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
+                      {g.newCount > 0 && <NewBadge />}
                       <Badge variant="neutral">{g.notes.length}</Badge>
                       <IconChevronRight className={`size-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
                     </span>
                   </button>
                   {open && (
                     <ul className="mt-2.5 space-y-3">
-                      {g.notes.map((n) => (
-                        <li key={n._id}>
+                      {g.notes.map((n, index) => (
+                        <Fragment key={n._id}>
+                          {index === 0 && <li className="list-none"><NewUpdatesDivider count={g.newCount} /></li>}
+                          {index === g.newCount && g.newCount > 0 && g.newCount < g.notes.length && <li className="list-none"><EarlierDivider /></li>}
+                        <li>
                           <button
                             type="button"
                             data-item-id={n._id}
-                            onClick={() => openDetail(n._id)}
-                            className="w-full rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-soft transition-shadow hover:shadow-lift"
+                            onClick={() => { unread.markSeen(n._id); openDetail(n._id); }}
+                            className={`relative w-full overflow-hidden rounded-2xl border p-5 text-left shadow-soft transition-shadow hover:shadow-lift ${
+                              unread.isNew(n._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'
+                            }`}
                           >
-                            <h3 className="line-clamp-2 text-sm font-semibold text-slate-900">{n.title}</h3>
+                            {unread.isNew(n._id) && <NewRail />}
+                            <div className="flex items-start justify-between gap-2">
+                              <h3 className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900">{n.title}</h3>
+                              {unread.isNew(n._id) && <NewBadge />}
+                            </div>
                             {n.content && <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{n.content}</p>}
                             <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
                               <p className="text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
@@ -186,6 +205,7 @@ export default function StudentNotesPage() {
                             </div>
                           </button>
                         </li>
+                        </Fragment>
                       ))}
                     </ul>
                   )}

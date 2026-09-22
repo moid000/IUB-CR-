@@ -1,5 +1,5 @@
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Skeleton, SkeletonText } from '../../components/ui/Skeleton.jsx';
 import { studentApi } from '../../api/student.js';
 import { useAdminQuery, useFlash } from '../../admin/hooks.js';
@@ -14,6 +14,8 @@ import { NoSection } from '../../student/NoSection.jsx';
 import { IconClipboard } from '../../components/icons.jsx';
 import { PillFilters } from '../../components/motion/primitives.jsx';
 import { DueChip } from '../../components/shared/OverviewBits.jsx';
+import useUnreadContent from '../../hooks/useUnreadContent.js';
+import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
 import { FileUploader } from '../../components/files/FileUploader.jsx';
 import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import {
@@ -40,17 +42,20 @@ export default function StudentAssignmentsPage() {
   );
   const [openId, setOpenId] = useState(null);
   const [flash, showFlash] = useFlash();
+  const unread = useUnreadContent(studentApi.notifications, 'assignment', items);
 
   // notification deep-link: ?focus=<id> scrolls to + rings that assignment
   useFocusHighlight(items);
 
   if (!section) return <NoSection />;
 
-  const filtered = filter === 'All'
+  const filteredRaw = filter === 'All'
     ? items
     : items.filter((a) => (filter === 'Submitted' ? submissionState(a) === 'submitted'
         : filter === 'Pending' ? submissionState(a) === 'pending'
         : submissionState(a) === 'overdue'));
+  const filtered = unread.ordered(filteredRaw);
+  const pageNewCount = filtered.filter((a) => unread.isNew(a._id)).length;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -87,22 +92,28 @@ export default function StudentAssignmentsPage() {
         </div>
       ) : (
         <div className="space-y-3" role="list" aria-label="Assignments">
-          {filtered.map((a) => {
+          {filtered.map((a, index) => {
             const state = submissionState(a);
             return (
-              <div key={a._id} role="listitem">
+              <Fragment key={a._id}>
+                {index === 0 && <NewUpdatesDivider count={pageNewCount} />}
+                {index === pageNewCount && pageNewCount > 0 && pageNewCount < filtered.length && <EarlierDivider />}
+              <div role="listitem">
                 <button
                   type="button"
                   data-item-id={a._id}
-                  onClick={() => { setOpenId(a._id); showFlash(null); }}
-                  className={`group block w-full rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
+                  onClick={() => { unread.markSeen(a._id); setOpenId(a._id); showFlash(null); }}
+                  className={`group relative block w-full overflow-hidden rounded-2xl border p-4 text-left shadow-soft transition-all duration-200
                     hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]
-                    ${state === 'submitted'
-                      ? 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/50 via-white to-white'
-                      : state === 'overdue'
-                        ? 'border-red-200/80 bg-gradient-to-br from-red-50/50 via-white to-white'
-                        : 'border-slate-200/80 bg-white'}`}
+                    ${unread.isNew(a._id)
+                      ? 'border-primary-200 bg-primary-50/60'
+                      : state === 'submitted'
+                        ? 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/50 via-white to-white'
+                        : state === 'overdue'
+                          ? 'border-red-200/80 bg-gradient-to-br from-red-50/50 via-white to-white'
+                          : 'border-slate-200/80 bg-white'}`}
                 >
+                  {unread.isNew(a._id) && <NewRail />}
                   <div className="flex items-start gap-3">
                     <span className={`grid size-10 shrink-0 place-items-center rounded-xl ring-1
                       ${state === 'submitted'
@@ -115,11 +126,14 @@ export default function StudentAssignmentsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
-                        {state === 'submitted'
-                          ? <Badge variant="success">Submitted{a.mySubmission?.isLate ? ' (late)' : ''}</Badge>
-                          : state === 'overdue'
-                            ? <Badge variant="danger">Overdue</Badge>
-                            : <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
+                        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                          {unread.isNew(a._id) && <NewBadge />}
+                          {state === 'submitted'
+                            ? <Badge variant="success">Submitted{a.mySubmission?.isLate ? ' (late)' : ''}</Badge>
+                            : state === 'overdue'
+                              ? <Badge variant="danger">Overdue</Badge>
+                              : <DueChip deadline={a.deadline} passed={a.deadlinePassed} />}
+                        </span>
                       </div>
                       <p className="mt-1 truncate text-xs font-medium text-slate-500">
                         {a.subject?.name ?? 'General'} · Due {formatDateTime(a.deadline)}
@@ -134,6 +148,7 @@ export default function StudentAssignmentsPage() {
                   </div>
                 </button>
               </div>
+              </Fragment>
             );
           })}
         </div>

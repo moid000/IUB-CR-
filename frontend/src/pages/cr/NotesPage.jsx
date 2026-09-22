@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
+import useUnreadContent from '../../hooks/useUnreadContent.js';
 import { timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -19,6 +20,7 @@ import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 import { StagedFiles } from '../../components/files/StagedFiles.jsx';
 import { createPostAndBroadcast } from '../../api/postFlow.js';
+import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
 
 /** CR notes — section-scoped, linked to an ACTIVE subject of the SAME section
  *  (validated server-side; archived subjects are rejected). */
@@ -147,6 +149,7 @@ export default function NotesPage() {
     }),
     [debouncedSearch, subjectFilter, status, page]
   );
+  const unread = useUnreadContent(crApi.notifications, 'note', items);
   useFocusHighlight(items);
 
   const [lastKey, setLastKey] = useState('');
@@ -168,11 +171,17 @@ export default function NotesPage() {
       }
       map.get(k).notes.push(n);
     }
-    return [...map.values()].sort((a, b) => {
+    const built = [...map.values()].map((g) => {
+      const notes = unread.ordered(g.notes);
+      return { ...g, notes, newCount: notes.filter((n) => unread.isNew(n._id)).length };
+    });
+    return built.sort((a, b) => {
+      const unreadOrder = Number(b.newCount > 0) - Number(a.newCount > 0);
+      if (unreadOrder) return unreadOrder;
       const rank = (g) => (g.key === 'general' ? 999 : order.get(g.key) ?? 998);
       return rank(a) - rank(b);
     });
-  }, [items, subjects]);
+  }, [items, subjects, unread.isNew, unread.ordered]);
 
   const toggleGroup = (k) =>
     setClosedGroups((prev) => {
@@ -214,12 +223,16 @@ export default function NotesPage() {
   };
 
   const renderCard = (n) => (
-    <li key={n._id} data-item-id={n._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift">
+    <li data-item-id={n._id} className={`relative overflow-hidden rounded-2xl border p-5 shadow-soft transition-shadow hover:shadow-lift ${unread.isNew(n._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'}`}>
+      {unread.isNew(n._id) && <NewRail />}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <button type="button" onClick={() => setViewTarget(n)} className="min-w-0 flex-1 text-left">
+        <button type="button" onClick={() => { unread.markSeen(n._id); setViewTarget(n); }} className="min-w-0 flex-1 text-left">
           <div className="flex flex-wrap items-start gap-2">
             <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{n.title}</p>
-            <StatusBadge status={n.status} />
+            <span className="flex shrink-0 flex-wrap items-center gap-2">
+              {unread.isNew(n._id) && <NewBadge />}
+              <StatusBadge status={n.status} />
+            </span>
           </div>
           {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}
           <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
@@ -297,11 +310,22 @@ export default function NotesPage() {
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
+                    {g.newCount > 0 && <NewBadge />}
                     <Badge variant="neutral">{g.notes.length}</Badge>
                     <IconChevronRight className={`size-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
                   </span>
                 </button>
-                {open && <ul className="mt-2.5 space-y-3">{g.notes.map(renderCard)}</ul>}
+                {open && (
+                  <ul className="mt-2.5 space-y-3">
+                    {g.notes.map((n, index) => (
+                      <Fragment key={n._id}>
+                        {index === 0 && <li className="list-none"><NewUpdatesDivider count={g.newCount} /></li>}
+                        {index === g.newCount && g.newCount > 0 && g.newCount < g.notes.length && <li className="list-none"><EarlierDivider /></li>}
+                        {renderCard(n)}
+                      </Fragment>
+                    ))}
+                  </ul>
+                )}
               </section>
             );
           })}

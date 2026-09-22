@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { SkeletonRows } from '../../components/ui/Skeleton.jsx';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
+import useUnreadContent from '../../hooks/useUnreadContent.js';
 import { formatDateTime, timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -21,6 +22,7 @@ import { DueChip } from '../../components/shared/OverviewBits.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 import { StagedFiles } from '../../components/files/StagedFiles.jsx';
 import { createPostAndBroadcast } from '../../api/postFlow.js';
+import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
 
 /** datetime-local default: tomorrow 23:59 in Pakistan time, value for <input> */
 function defaultDeadline() {
@@ -194,7 +196,10 @@ export default function AssignmentsPage() {
       page, limit: 10,
     })
   );
-  useFocusHighlight(items);
+  const unread = useUnreadContent(crApi.notifications, 'assignment', items);
+  const displayItems = unread.ordered(items);
+  const pageNewCount = displayItems.filter((a) => unread.isNew(a._id)).length;
+  useFocusHighlight(displayItems);
 
   const [lastKey, setLastKey] = useState('');
   const key = `${debouncedSearch}|${subjectFilter}|${status}`;
@@ -273,13 +278,20 @@ export default function AssignmentsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((a) => (
-            <div key={a._id} data-item-id={a._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99]">
+          {displayItems.map((a, index) => (
+            <Fragment key={a._id}>
+              {index === 0 && <NewUpdatesDivider count={pageNewCount} />}
+              {index === pageNewCount && pageNewCount > 0 && pageNewCount < displayItems.length && <EarlierDivider />}
+            <div data-item-id={a._id} className={`relative overflow-hidden rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${unread.isNew(a._id) ? 'border-primary-200 bg-primary-50/60' : 'border-slate-200/80 bg-white'}`}>
+              {unread.isNew(a._id) && <NewRail />}
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
+                <button type="button" onClick={() => { unread.markSeen(a._id); setSubmissionsFor(a); }} className="min-w-0 flex-1 text-left">
                   <div className="flex flex-wrap items-start gap-2">
                     <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{a.title}</p>
-                    <StatusBadge status={a.status} />
+                    <span className="flex shrink-0 flex-wrap items-center gap-2">
+                      {unread.isNew(a._id) && <NewBadge />}
+                      <StatusBadge status={a.status} />
+                    </span>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">{a.subject?.name ?? '—'}{a.subject?.code ? ` (${a.subject.code})` : ''}</p>
                   <p className={`mt-2 flex flex-wrap items-center gap-1.5 text-xs font-medium ${a.deadlinePassed ? 'text-red-600' : 'text-slate-600'}`}>
@@ -292,7 +304,7 @@ export default function AssignmentsPage() {
                       <FileChips files={a.attachments} />
                     </div>
                   )}
-                </div>
+                </button>
                 <div className="grid w-full grid-cols-2 gap-1.5 sm:w-auto sm:flex sm:shrink-0 sm:flex-wrap sm:gap-1">
                   <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={() => setSubmissionsFor(a)}>Submissions</Button>
                   {a.status === 'published' && (
@@ -306,6 +318,7 @@ export default function AssignmentsPage() {
                 </div>
               </div>
             </div>
+            </Fragment>
           ))}
         </div>
       )}

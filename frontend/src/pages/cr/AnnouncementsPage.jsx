@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useDebounced, useFlash } from '../../admin/hooks.js';
 import useFocusHighlight from '../../hooks/useFocusHighlight.js';
+import useUnreadContent from '../../hooks/useUnreadContent.js';
 import { formatDate, timeAgo } from '../../admin/format.js';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
 import { PageHeader, FilterBar, FilterSelect, SearchInput, ConfirmDialog, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
@@ -18,6 +19,7 @@ import { FileList, FileChips } from '../../components/files/FileList.jsx';
 import { AttachModal } from '../../components/files/AttachModal.jsx';
 import { StagedFiles } from '../../components/files/StagedFiles.jsx';
 import { createPostAndBroadcast } from '../../api/postFlow.js';
+import { EarlierDivider, NewBadge, NewRail, NewUpdatesDivider } from '../../components/shared/NewContent.jsx';
 
 /**
  * CR announcements — always created in the CR's OWN section (server-derived).
@@ -140,7 +142,10 @@ export default function AnnouncementsPage() {
       page, limit: 10,
     })
   );
-  useFocusHighlight(items);
+  const unread = useUnreadContent(crApi.notifications, 'announcement', items);
+  const displayItems = unread.ordered(items);
+  const pageNewCount = displayItems.filter((a) => unread.isNew(a._id)).length;
+  useFocusHighlight(displayItems);
 
   const [lastKey, setLastKey] = useState('');
   const key = `${debouncedSearch}|${status}`;
@@ -215,17 +220,22 @@ export default function AnnouncementsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((a) => (
-            <div key={a._id} data-item-id={a._id} className={`rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${a.pinned ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white' : 'border-slate-200/80 bg-white'}`}>
+          {displayItems.map((a, index) => (
+            <Fragment key={a._id}>
+              {index === 0 && <NewUpdatesDivider count={pageNewCount} />}
+              {index === pageNewCount && pageNewCount > 0 && pageNewCount < displayItems.length && <EarlierDivider />}
+            <div data-item-id={a._id} className={`relative overflow-hidden rounded-2xl border p-5 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift [@media(hover:hover)]:active:scale-[0.99] ${unread.isNew(a._id) ? 'border-primary-200 bg-primary-50/60' : a.pinned ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white' : 'border-slate-200/80 bg-white'}`}>
+              {unread.isNew(a._id) && <NewRail />}
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() => setViewTarget(a)}
+                  onClick={() => { unread.markSeen(a._id); setViewTarget(a); }}
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="flex flex-wrap items-start gap-2">
                     <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{a.title}</p>
                     <div className="flex shrink-0 flex-wrap gap-2">
+                      {unread.isNew(a._id) && <NewBadge />}
                       {a.pinned && <Badge variant="primary">Pinned</Badge>}
                       <StatusBadge status={a.status} />
                     </div>
@@ -246,6 +256,7 @@ export default function AnnouncementsPage() {
                 )}
               </div>
             </div>
+            </Fragment>
           ))}
         </div>
       )}

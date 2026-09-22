@@ -119,34 +119,26 @@ export default function CrLayout() {
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
   useBodyScrollLock(drawerOpen);
 
-  // Per-type unread counts — fetched once per navigation (lazy server reminders).
-  // Landing on a tab page ALSO clears that tab's unread rows server-side.
+  // Unread counts remain until the actual content card is opened. Merely
+  // landing on a tab is NOT a read action (professional per-item semantics).
+  // Content pages emit an event after a successful read so badges update now.
   useEffect(() => {
     let cancelled = false;
-    const clearTypes = BADGE_TYPES_FOR_PATH[location.pathname];
-    crApi.notifications.unreadByType()
-      .then((res) => {
-        if (cancelled) return;
-        const byType = res?.data?.byType ?? {};
-        setUnread(res?.data?.total ?? 0);
-        setUnreadByType(byType);
-        if (clearTypes && clearTypes.some((t) => byType[t] > 0)) {
-          crApi.notifications.readByType(clearTypes)
-            .then((r) => {
-              if (cancelled) return;
-              const cleared = r?.data?.count ?? 0;
-              setUnreadByType((prev) => {
-                const next = { ...prev };
-                for (const t of clearTypes) delete next[t];
-                return next;
-              });
-              setUnread((prev) => Math.max(0, (prev ?? 0) - cleared));
-            })
-            .catch(() => {}); // badge clear is best-effort
-        }
-      })
-      .catch(() => {}); // badges are decorative — never block the shell
-    return () => { cancelled = true; };
+    const refresh = () => {
+      crApi.notifications.unreadByType()
+        .then((res) => {
+          if (cancelled) return;
+          setUnread(res?.data?.total ?? 0);
+          setUnreadByType(res?.data?.byType ?? {});
+        })
+        .catch(() => {}); // badges are decorative — never block the shell
+    };
+    refresh();
+    window.addEventListener('tri3m:notifications-changed', refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('tri3m:notifications-changed', refresh);
+    };
   }, [location.pathname]);
 
   // Per-tab badge number (sum of that tab's notification types)

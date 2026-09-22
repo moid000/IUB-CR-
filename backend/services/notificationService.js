@@ -28,6 +28,7 @@ import { sendPushToUsers, pushUrlFor } from './pushService.js';
 // Types are the model's enum — the single source of truth. Extensible by
 // adding a value to the schema enum only; clients can never supply types.
 const TYPE_ENUM = ['announcement', 'assignment', 'note', 'timetable', 'attendance', 'reminder', 'system'];
+const CONTENT_TYPES = ['announcement', 'assignment', 'note'];
 
 const RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // 90-day in-app retention
 const TITLE_MAX = 120;
@@ -376,6 +377,28 @@ export async function countMyUnreadByType(req) {
     total += row.count;
   }
   return { byType, total };
+}
+
+/**
+ * Small, privacy-scoped projection used to decorate content cards as NEW.
+ * The server returns only this user's unread notification id + content ref,
+ * never titles/messages/recipients. `type` is mandatory and restricted to
+ * content that has a real list card (announcement/assignment/note).
+ */
+export async function listMyUnreadContentRefs(req) {
+  const type = req.query?.type;
+  if (!CONTENT_TYPES.includes(type)) throw new ApiError(400, 'Invalid content notification type');
+  const items = await Notification.find({
+    recipient: req.user._id,
+    read: false,
+    type,
+    refId: { $exists: true },
+  })
+    .select('_id type refId createdAt')
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .lean();
+  return items;
 }
 
 /**

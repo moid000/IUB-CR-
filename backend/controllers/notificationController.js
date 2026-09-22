@@ -28,6 +28,7 @@ const wrapList = (fn) => async (req, res, next) => {
 export const listMyNotifications = wrapList(notificationSvc.listMyNotifications);
 export const getUnreadCount = wrap(notificationSvc.countMyUnread);
 export const getUnreadCountByType = wrap(notificationSvc.countMyUnreadByType);
+export const getUnreadContentRefs = wrap(notificationSvc.listMyUnreadContentRefs);
 export const markNotificationsReadByType = wrap(notificationSvc.markMyNotificationsReadByType);
 export const markNotificationRead = wrap(notificationSvc.markMyNotificationRead);
 export const markAllNotificationsRead = wrap(notificationSvc.markAllMyNotificationsRead);

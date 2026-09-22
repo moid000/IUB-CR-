@@ -124,6 +124,7 @@ test('A. unauthenticated notification access → 401', async () => {
   assert.equal((await makeSession().api('GET', '/api/student/notifications')).status, 401);
   assert.equal((await makeSession().api('GET', '/api/student/notifications/unread-count')).status, 401);
   assert.equal((await makeSession().api('GET', '/api/student/notifications/unread-count-by-type')).status, 401);
+  assert.equal((await makeSession().api('GET', '/api/student/notifications/unread-content-refs?type=announcement')).status, 401);
   assert.equal((await makeSession().api('POST', '/api/student/notifications/read-by-type', { types: ['announcement'] })).status, 401);
   assert.equal((await makeSession().api('POST', '/api/student/notifications/507f1f77bcf86cd799439011/read')).status, 401);
   assert.equal((await makeSession().api('GET', '/api/cr/notifications')).status, 401);
@@ -221,6 +222,28 @@ test('E1. CR assignment → active section students notified; message carries de
   }
   assert.equal(await Notification.countDocuments({ refId: res.json.data._id }), 3);
   assert.equal(await Notification.countDocuments({ recipient: cr1Id, refId: res.json.data._id }), 0);
+});
+
+test('E1b. unread-content-refs is item-level, type-validated and recipient-isolated', async () => {
+  const s1Announcements = await s1.api('GET', '/api/student/notifications/unread-content-refs?type=announcement');
+  assert.equal(s1Announcements.status, 200);
+  assert.ok(s1Announcements.json.data.some((n) => String(n.refId) === ann1Id));
+  assert.ok(s1Announcements.json.data.every((n) => n.type === 'announcement'));
+  assert.ok(s1Announcements.json.data.every((n) => Object.keys(n).every((k) => ['_id', 'type', 'refId', 'createdAt'].includes(k))));
+
+  const s1Assignments = await s1.api('GET', '/api/student/notifications/unread-content-refs?type=assignment');
+  assert.equal(s1Assignments.status, 200);
+  assert.ok(s1Assignments.json.data.some((n) => String(n.refId) === asg1Id));
+
+  // The CR did not author the admin announcement, so that card can be NEW in
+  // the CR portal too. Student-only rows must never leak into the CR mailbox.
+  const crAnnouncements = await cr1.api('GET', '/api/cr/notifications/unread-content-refs?type=announcement');
+  assert.equal(crAnnouncements.status, 200);
+  assert.ok(crAnnouncements.json.data.some((n) => String(n.refId) === ann2Id));
+  assert.ok(!crAnnouncements.json.data.some((n) => String(n.refId) === ann1Id));
+
+  assert.equal((await s1.api('GET', '/api/student/notifications/unread-content-refs?type=system')).status, 400);
+  assert.equal((await s1.api('GET', '/api/student/notifications/unread-content-refs')).status, 400);
 });
 
 test('E2. update + archive never create notification spam', async () => {
