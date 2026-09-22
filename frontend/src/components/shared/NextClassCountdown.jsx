@@ -51,7 +51,7 @@ function fmtCountdown(ms) {
   return fmtDuration(ms);
 }
 
-export default function NextClassCountdown({ slots, loading = false }) {
+export default function NextClassCountdown({ slots, loading = false, className = '' }) {
   const [tick, setTick] = useState(() => Date.now());
   const [perm, setPerm] = useState(() =>
     (typeof Notification === 'undefined') ? 'unsupported' : Notification.permission);
@@ -163,13 +163,13 @@ export default function NextClassCountdown({ slots, loading = false }) {
   return (
     <section
       aria-label="Next class countdown"
-      className={`rounded-2xl border p-4 shadow-soft ${
+      className={`h-full rounded-2xl border p-5 shadow-soft ${
         isAlert
           ? 'border-amber-300 bg-amber-50'
           : state.mode === 'ongoing'
             ? 'border-emerald-200 bg-emerald-50/60'
             : 'border-slate-200/80 bg-white'
-      }`}
+      } ${className}`}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <h3 className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">

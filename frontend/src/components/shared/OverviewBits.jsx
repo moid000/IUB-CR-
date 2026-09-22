@@ -54,7 +54,7 @@ function pkDateLine() {
 
 export function Chip({ children }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200/70 bg-white/70 px-2 py-1 text-[11px] font-medium text-slate-600">
+    <span className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/85">
       {children}
     </span>
   );
@@ -66,29 +66,43 @@ export function DashboardHero({ roleLabel, name, section, status, extraChips = [
   const firstName = (name ?? '').split(' ')[0];
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-primary-50/60 p-5 shadow-soft sm:p-7">
-      <span aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 lg:animate-aurora-a rounded-full" style={{ background: 'radial-gradient(circle, rgba(191,219,254,0.45) 0%, rgba(191,219,254,0) 70%)' }} />
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="relative overflow-hidden rounded-3xl border border-primary-700 bg-gradient-to-br from-primary-700 via-primary-600 to-primary-500 p-5 text-white shadow-lift sm:p-7">
+      {/* CSS-only depth, no blur/filter or moving decoration on mobile. */}
+      <span aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full border-[40px] border-white/5" />
+      <span aria-hidden className="pointer-events-none absolute -bottom-24 -left-16 size-48 rounded-full border-[32px] border-white/5" />
+      <div className="relative flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-primary-600">{pkDateLine()}</p>
-          <Badge variant="primary" className="mt-2.5">{roleLabel}</Badge>
-          <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-            {greetingFor(hour)}{firstName ? `, ${firstName}` : ''} 👋
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-white/90">{roleLabel}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-primary-100">{pkDateLine()}</span>
+          </div>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+            {greetingFor(hour)}{firstName ? `, ${firstName}` : ''}.
           </h2>
+          <p className="mt-1 text-sm text-primary-100">Here’s your section overview for today.</p>
         </div>
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium
-          ${status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-          <span className={`size-1.5 rounded-full ${status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-          Section {status}
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white">
+          <span className={`size-1.5 rounded-full ${status === 'active' ? 'bg-emerald-300' : 'bg-white/50'}`} />
+          {status === 'active' ? 'Active section' : 'Section inactive'}
         </span>
       </div>
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {section?.name && <Chip>Section <span className="font-semibold text-slate-800">{section.name}</span></Chip>}
+      <div className="relative mt-5 flex flex-wrap gap-1.5 border-t border-white/15 pt-4">
+        {section?.name && <Chip>Section <span className="font-semibold text-white">{section.name}</span></Chip>}
         {section?.department?.name && <Chip>{section.department.name}</Chip>}
         {section?.semester != null && <Chip>Semester {section.semester}</Chip>}
         {extraChips}
       </div>
     </section>
+  );
+}
+
+/** Quiet hierarchy label shared by both dashboards. */
+export function DashboardSectionHeader({ title, description }) {
+  return (
+    <div className="mb-3">
+      <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
+      {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}
+    </div>
   );
 }
 
@@ -138,7 +152,7 @@ function ClassRow({ c, focusTo }) {
   );
 }
 
-export function TodayClassesCard({ slots, loading, to, linkLabel, emptyText, focusTo }) {
+export function TodayClassesCard({ slots, loading, to, linkLabel, emptyText, focusTo, className = '' }) {
   const sorted = [...(slots ?? [])].sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   let content;
@@ -159,7 +173,7 @@ export function TodayClassesCard({ slots, loading, to, linkLabel, emptyText, foc
   }
 
   return (
-    <Card className="p-5 sm:p-6">
+    <Card className={`h-full p-5 sm:p-6 ${className}`}>
       <div className="mb-4 flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           Today's classes
@@ -216,7 +230,7 @@ export function AssignmentFeedRow({ title, subject, dueLine, chip, to }) {
       <FeedIcon Icon={IconClipboard} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 truncate text-sm font-semibold text-slate-800">{title}</p>
+          <p dir="auto" className="min-w-0 truncate text-sm font-semibold text-slate-800">{title}</p>
           {chip}
         </div>
         <p className="mt-0.5 truncate text-[11px] text-slate-500">
@@ -235,10 +249,10 @@ export function AnnouncementFeedRow({ title, content, meta, pinned, to }) {
       <FeedIcon Icon={IconMegaphone} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 text-sm font-semibold text-slate-800">{title}</p>
+          <p dir="auto" className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-800">{title}</p>
           {pinned && <Badge variant="primary">Pinned</Badge>}
         </div>
-        {content && <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">{content}</p>}
+        {content && <p dir="auto" className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">{content}</p>}
         <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">{meta}</p>
       </div>
     </>
