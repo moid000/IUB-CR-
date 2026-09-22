@@ -26,6 +26,32 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
 }
 
+// Self-heal stale-deploy chunk failures (owner screenshot 2026-09-22:
+// "This page couldn't load" + "Try again" doing nothing). Every page is
+// lazy()-loaded; after we ship a new build, a tab that's been open since
+// before that deploy still points at the OLD chunk filenames, which no
+// longer exist on the CDN. Vite detects this itself and dispatches
+// `vite:preloadError` on window — this can fire OUTSIDE a React render (a
+// module preloaded ahead of use), so it needs its own listener in addition
+// to the render-time detection in ErrorBoundary.jsx. A full reload fetches
+// the current index.html (pointing at the new chunk hashes) and fixes it;
+// the same 10s-cooldown guard (shared key) stops a genuine outage from
+// reload-looping forever.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  try {
+    const key = 'tri3m.chunkReloadAt';
+    const last = Number(sessionStorage.getItem(key) || 0);
+    const now = Date.now();
+    if (now - last > 10000) {
+      sessionStorage.setItem(key, String(now));
+      window.location.reload();
+    }
+  } catch {
+    window.location.reload();
+  }
+});
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
