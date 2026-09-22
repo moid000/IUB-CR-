@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { PageTransition } from '../components/motion/primitives.jsx';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useBodyScrollLock } from '../components/ui/useBodyScrollLock.js';
 import { SidebarBrand, NavGroup } from '../components/layout/Sidebar.jsx';
@@ -160,9 +159,7 @@ export default function AdminLayout() {
 
         <main className="flex-1 px-4 pt-4 pb-28 sm:px-6 sm:pt-6 lg:p-8">
           <div className="mx-auto w-full max-w-6xl">
-            <PageTransition key={location.pathname}>
-              <Outlet />
-            </PageTransition>
+            <Outlet />
           </div>
         </main>
       </div>

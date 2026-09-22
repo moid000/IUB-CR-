@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { PageTransition } from '../components/motion/primitives.jsx';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useBodyScrollLock } from '../components/ui/useBodyScrollLock.js';
 import { studentApi } from '../api/student.js';
@@ -221,9 +220,7 @@ export default function StudentLayout() {
         </header>
 
         <main className="px-4 pt-6 pb-28 sm:px-6 sm:pt-8 lg:px-8 lg:pb-8">
-          <PageTransition key={location.pathname}>
-            <Outlet />
-          </PageTransition>
+          <Outlet />
         </main>
       </div>
 

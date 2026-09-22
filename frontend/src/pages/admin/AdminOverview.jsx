@@ -4,7 +4,6 @@ import { useAuth } from '../../auth/AuthContext.jsx';
 import { adminApi } from '../../api/admin.js';
 import { useAdminQuery } from '../../admin/hooks.js';
 import { timeAgo } from '../../admin/format.js';
-import { CountUp } from '../../components/ui/CountUp.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
@@ -29,7 +28,7 @@ function MetricCard({ icon: Icon, label, value, sub, to }) {
       </span>
       <p className="mt-2.5 text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
-        {value === '' || value === null || value === undefined ? '' : <CountUp value={value} />}
+        {value ?? ''}
       </p>
       {sub && <p className="mt-1 text-xs text-slate-500">{sub}</p>}
       <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary-600 opacity-0 transition-all duration-300 group-hover:translate-x-0.5 group-hover:opacity-100">
