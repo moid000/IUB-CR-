@@ -92,6 +92,12 @@ export default function StudentAnnouncementsPage() {
                       ? 'border-primary-200 bg-gradient-to-br from-primary-50/70 via-white to-white'
                       : 'border-slate-200/80 bg-white'}`}
                 >
+                  {/* Title/content row — a large title is clamped to 2 lines (owner
+                      2026-09-22: a long title used to grow the card to 6+ lines, wildly
+                      inconsistent next to short ones; full title is still shown once the
+                      card is opened). The meta row (author/time/attachment pill) lives in
+                      its OWN full-width row below, never sharing space with the thumbnail —
+                      that's what was crushing the timestamp to "14…" before. */}
                   <div className="flex items-start gap-3">
                     <span className={`grid size-10 shrink-0 place-items-center rounded-xl ring-1
                       ${a.pinned ? 'bg-primary-100 text-primary-700 ring-primary-200' : 'bg-primary-50 text-primary-600 ring-primary-100'}`}>
@@ -99,16 +105,10 @@ export default function StudentAnnouncementsPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <h3 className="min-w-0 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
+                        <h3 className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
                         {a.pinned && <Badge variant="primary">Pinned</Badge>}
                       </div>
                       <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-slate-500">{a.content}</p>
-                      <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
-                        <p className="min-w-0 truncate text-xs text-slate-500">
-                          {a.author?.name ? `${a.author.name} · ` : ''}{timeAgo(a.createdAt)}
-                        </p>
-                        <FileChips files={a.attachments} />
-                      </div>
                     </div>
                     {image?.url && (
                       <img
@@ -118,6 +118,12 @@ export default function StudentAnnouncementsPage() {
                         className="size-16 shrink-0 rounded-xl object-cover ring-1 ring-slate-200"
                       />
                     )}
+                  </div>
+                  <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                    <p className="min-w-0 truncate text-xs text-slate-500">
+                      {a.author?.name ? `${a.author.name} · ` : ''}{timeAgo(a.createdAt)}
+                    </p>
+                    <FileChips files={a.attachments} />
                   </div>
                 </button>
               </div>

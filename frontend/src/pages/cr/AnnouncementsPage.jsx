@@ -223,10 +223,12 @@ export default function AnnouncementsPage() {
                   onClick={() => setViewTarget(a)}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-slate-900">{a.title}</p>
-                    {a.pinned && <Badge variant="primary">Pinned</Badge>}
-                    <StatusBadge status={a.status} />
+                  <div className="flex flex-wrap items-start gap-2">
+                    <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{a.title}</p>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      {a.pinned && <Badge variant="primary">Pinned</Badge>}
+                      <StatusBadge status={a.status} />
+                    </div>
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm text-slate-500">{a.content}</p>
                   <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">

@@ -217,8 +217,8 @@ export default function NotesPage() {
     <li key={n._id} data-item-id={n._id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft transition-shadow hover:shadow-lift">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <button type="button" onClick={() => setViewTarget(n)} className="min-w-0 flex-1 text-left">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold text-slate-900">{n.title}</p>
+          <div className="flex flex-wrap items-start gap-2">
+            <p className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{n.title}</p>
             <StatusBadge status={n.status} />
           </div>
           {n.content && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{n.content}</p>}

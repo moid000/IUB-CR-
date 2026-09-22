@@ -178,7 +178,7 @@ export default function StudentNotesPage() {
                             onClick={() => openDetail(n._id)}
                             className="w-full rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-soft transition-shadow hover:shadow-lift"
                           >
-                            <h3 className="text-sm font-semibold text-slate-900">{n.title}</h3>
+                            <h3 className="line-clamp-2 text-sm font-semibold text-slate-900">{n.title}</h3>
                             {n.content && <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{n.content}</p>}
                             <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
                               <p className="text-xs text-slate-400">{timeAgo(n.createdAt)}</p>

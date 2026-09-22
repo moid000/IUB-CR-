@@ -114,7 +114,7 @@ export default function StudentAssignmentsPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <h3 className="min-w-0 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
+                        <h3 className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
                         {state === 'submitted'
                           ? <Badge variant="success">Submitted{a.mySubmission?.isLate ? ' (late)' : ''}</Badge>
                           : state === 'overdue'
