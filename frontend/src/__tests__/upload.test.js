@@ -50,10 +50,31 @@ describe('attachmentUrl (forced-download, no popup viewer)', () => {
     );
   });
 
-  it('inserts fl_attachment:<encoded filename> (extension stripped) when given', () => {
+  it('inserts fl_attachment:<sanitized filename> (extension stripped) when given', () => {
     const out = attachmentUrl(raw, 'Section 3M Timetable.jpg');
-    expect(out).toContain('fl_attachment:Section%203M%20Timetable/');
+    expect(out).toContain('fl_attachment:Section_3M_Timetable/');
     expect(out).not.toContain('fl_attachment/'); // the bare-flag form, not present
+  });
+
+  // 2026-09-22 (owner screenshot): Cloudinary rejected the URL with 400
+  // "Invalid flag in transformation: attachment:images (2)" — a filename
+  // with parentheses (a common phone duplicate-download name) broke
+  // Cloudinary's transformation parser even though encodeURIComponent does
+  // NOT escape "(" or ")". Both Save and Download silently failed.
+  it('strips parentheses/commas/colons/slashes that break Cloudinary\'s parser (the exact reported bug)', () => {
+    const out = attachmentUrl(raw, 'images (2).jpg');
+    expect(out).not.toContain('(');
+    expect(out).not.toContain(')');
+    expect(out).toContain('fl_attachment:images_2/'); // safe, still recognisable
+  });
+
+  it('strips other unsafe characters (comma, colon, slash, unicode) to a safe charset', () => {
+    expect(attachmentUrl(raw, 'a,b:c/d.jpg')).toContain('fl_attachment:a_b_c_d/');
+    expect(attachmentUrl(raw, '😀 report.pdf')).toContain('fl_attachment:report/');
+  });
+
+  it('falls back to the bare flag (no filename segment) if nothing safe remains', () => {
+    expect(attachmentUrl(raw, '😀😀.jpg')).toContain('fl_attachment/');
   });
 
   it('never crops/resizes — full original quality for a real download', () => {

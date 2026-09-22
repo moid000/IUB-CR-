@@ -150,8 +150,21 @@ export function downloadName(f) {
  */
 export function attachmentUrl(url, filename) {
   if (!url) return url;
-  const base = String(filename || '').replace(/\.[a-z0-9]{2,5}$/i, '').trim();
-  const flag = base ? `fl_attachment:${encodeURIComponent(base)}` : 'fl_attachment';
+  let base = String(filename || '').replace(/\.[a-z0-9]{2,5}$/i, '').trim();
+  // Cloudinary's fl_attachment:<value> only tolerates a narrow charset for
+  // the flag value — parentheses (a very common "images (2).jpg"
+  // duplicate-download name on phones), commas, colons, slashes etc. break
+  // its transformation parser even when URL-encoded (encodeURIComponent
+  // does NOT escape parentheses — that's exactly the 2026-09-22 owner bug:
+  // "Invalid flag in transformation: attachment:images (2)", a 400 that
+  // silently killed both Save and Download). Strip to a safe charset only,
+  // no encoding needed afterwards.
+  base = base
+    .replace(/[^A-Za-z0-9 _-]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const flag = base ? `fl_attachment:${base}` : 'fl_attachment';
   return url.includes('/upload/') ? url.replace('/upload/', `/upload/${flag}/`) : url;
 }
 
