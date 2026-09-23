@@ -193,7 +193,7 @@ export default function SubjectsPage() {
                     {s.teacherName ? ` · ${s.teacherName}` : ''}
                     {s.creditHours ? ` · ${s.creditHours} credit${s.creditHours === 1 ? '' : 's'}` : ''}
                   </p>
-                  {s.description && <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-slate-500">{s.description}</p>}
+                  {s.description && <p className="mt-1.5 line-clamp-2 break-words text-[13px] leading-snug text-slate-500">{s.description}</p>}
                 </div>
               </div>
               {s.status === 'active' && (

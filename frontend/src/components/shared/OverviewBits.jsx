@@ -249,10 +249,10 @@ export function AnnouncementFeedRow({ title, content, meta, pinned, to }) {
       <FeedIcon Icon={IconMegaphone} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p dir="auto" className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-800">{title}</p>
+          <p dir="auto" className="min-w-0 line-clamp-2 break-words text-sm font-semibold text-slate-800">{title}</p>
           {pinned && <Badge variant="primary">Pinned</Badge>}
         </div>
-        {content && <p dir="auto" className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">{content}</p>}
+        {content && <p dir="auto" className="mt-0.5 line-clamp-2 break-words text-[11px] leading-snug text-slate-500">{content}</p>}
         <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">{meta}</p>
       </div>
     </>

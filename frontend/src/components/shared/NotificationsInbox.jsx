@@ -138,7 +138,7 @@ export function NotificationRow({ n, onMarkRead, basePath }) {
           )}
         </div>
         {n.message && (
-          <p className={`mt-0.5 line-clamp-2 text-[13px] leading-snug ${unread ? 'text-slate-600' : 'text-slate-400'}`}>
+          <p className={`mt-0.5 line-clamp-2 break-words text-[13px] leading-snug ${unread ? 'text-slate-600' : 'text-slate-400'}`}>
             {n.message}
           </p>
         )}

@@ -236,14 +236,14 @@ export default function AnnouncementsPage() {
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="flex flex-wrap items-start gap-2">
-                    <p dir="auto" className="min-w-0 flex-1 line-clamp-2 font-semibold text-slate-900">{a.title}</p>
+                    <p dir="auto" className="min-w-0 flex-1 line-clamp-2 break-words font-semibold text-slate-900">{a.title}</p>
                     <div className="flex shrink-0 flex-wrap gap-2">
                       {unread.isNew(a._id) && <NewBadge />}
                       {a.pinned && <Badge variant="primary">Pinned</Badge>}
                       <StatusBadge status={a.status} />
                     </div>
                   </div>
-                  <p dir="auto" className="mt-1 line-clamp-2 text-sm text-slate-500">{a.content}</p>
+                  <p dir="auto" className="mt-1 line-clamp-2 break-words text-sm text-slate-500">{a.content}</p>
                   <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
                     <p className="min-w-0 truncate text-xs text-slate-400">{a.author?.name ?? 'CR'} · {timeAgo(a.createdAt)}</p>
                     <FileChips files={a.attachments} />

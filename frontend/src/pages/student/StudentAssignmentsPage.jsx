@@ -128,7 +128,7 @@ export default function StudentAssignmentsPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <h3 dir="auto" className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
+                        <h3 dir="auto" className="min-w-0 line-clamp-2 break-words text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
                         <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                           {unread.isNew(a._id) && <NewBadge />}
                           {state === 'submitted'
@@ -141,7 +141,7 @@ export default function StudentAssignmentsPage() {
                       <p className="mt-1 truncate text-xs font-medium text-slate-500">
                         {a.subject?.name ?? 'General'} · Due {formatDateTime(a.deadline)}
                       </p>
-                      {a.instructions && <p dir="auto" className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-slate-500">{a.instructions}</p>}
+                      {a.instructions && <p dir="auto" className="mt-1.5 line-clamp-2 break-words text-[13px] leading-snug text-slate-500">{a.instructions}</p>}
                       {(a.attachments?.length ?? 0) > 0 && (
                         <div className="mt-2.5 flex items-center justify-end border-t border-slate-100 pt-2">
                           <FileChips files={a.attachments} />

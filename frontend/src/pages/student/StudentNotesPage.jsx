@@ -199,10 +199,10 @@ export default function StudentNotesPage() {
                           >
                             {unread.isNew(n._id) && <NewRail />}
                             <div className="flex items-start justify-between gap-2">
-                              <h3 dir="auto" className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900">{n.title}</h3>
+                              <h3 dir="auto" className="min-w-0 line-clamp-2 break-words text-sm font-semibold text-slate-900">{n.title}</h3>
                               {unread.isNew(n._id) && <NewBadge />}
                             </div>
-                            {n.content && <p dir="auto" className="mt-1.5 line-clamp-2 text-sm text-slate-600">{n.content}</p>}
+                            {n.content && <p dir="auto" className="mt-1.5 line-clamp-2 break-words text-sm text-slate-600">{n.content}</p>}
                             <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
                               <p className="text-xs text-slate-400">{timeAgo(n.createdAt)}</p>
                               <FileChips files={n.attachments} />

@@ -118,13 +118,13 @@ export default function StudentAnnouncementsPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <h3 dir="auto" className="min-w-0 line-clamp-2 text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
+                        <h3 dir="auto" className="min-w-0 line-clamp-2 break-words text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary-700">{a.title}</h3>
                         <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                           {unread.isNew(a._id) && <NewBadge />}
                           {a.pinned && <Badge variant="primary">Pinned</Badge>}
                         </span>
                       </div>
-                      <p dir="auto" className="mt-1 line-clamp-2 text-[13px] leading-snug text-slate-500">{a.content}</p>
+                      <p dir="auto" className="mt-1 line-clamp-2 break-words text-[13px] leading-snug text-slate-500">{a.content}</p>
                     </div>
                     {image?.url && (
                       <img

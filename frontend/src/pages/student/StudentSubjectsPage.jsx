@@ -26,7 +26,7 @@ function SubjectCard({ s }) {
             <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500">{s.code}</span>
           </div>
           {meta && <p className="mt-1 text-xs text-slate-500">{meta}</p>}
-          {s.description && <p className="mt-1.5 line-clamp-2 text-[13px] leading-snug text-slate-500">{s.description}</p>}
+          {s.description && <p className="mt-1.5 line-clamp-2 break-words text-[13px] leading-snug text-slate-500">{s.description}</p>}
         </div>
       </div>
     </div>
