@@ -115,22 +115,22 @@ export default function NextClassCountdown({ slots, loading = false, className =
     body = (
       <>
         <div className="flex items-center gap-2">
-          <span className="relative flex size-2.5">
+          <span className="relative flex shrink-0 size-2.5">
             <span className="absolute inline-flex size-full rounded-full bg-emerald-400 opacity-75 lg:animate-ping" />
             <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
           </span>
-          <p className="text-sm font-semibold text-slate-900">
+          <p className="min-w-0 break-words text-sm font-semibold text-slate-900">
             {name(state.slot)} is in progress{state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}
           </p>
         </div>
-        <p className="mt-1 text-xs text-slate-500">Ends at {fmtTime(state.slot.endTime)} · {fmtCountdown(state.end - live)} left</p>
+        <p className="mt-1 break-words text-xs text-slate-500">Ends at {fmtTime(state.slot.endTime)} · {fmtCountdown(state.end - live)} left</p>
       </>
     );
   } else if (state.mode === 'upcoming' && state.start - live <= ALERT_WINDOW_MS) {
     body = (
       <>
         <div className="flex items-start justify-between gap-2">
-          <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+          <p className="inline-flex min-w-0 items-center gap-1.5 break-words text-sm font-semibold text-amber-900">
             <IconBell className="size-4 shrink-0 [@media(hover:hover)]:animate-pulse" />
             {name(state.slot)}
           </p>
@@ -140,7 +140,7 @@ export default function NextClassCountdown({ slots, loading = false, className =
           <span className="font-mono text-2xl font-bold leading-none text-amber-900">{fmtCountdown(state.start - live)}</span>
           <span className="text-xs font-medium text-amber-700">until start</span>
         </div>
-        <p className="mt-2 text-xs text-amber-800/80">
+        <p className="mt-2 break-words text-xs text-amber-800/80">
           Starts {fmtTime(state.slot.startTime)} · ends {fmtTime(state.slot.endTime)}{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}
         </p>
       </>
@@ -149,7 +149,7 @@ export default function NextClassCountdown({ slots, loading = false, className =
     body = (
       <>
         <p className="text-sm font-semibold text-slate-900">Next class: {name(state.slot)} at {fmtTime(state.slot.startTime)}</p>
-        <p className="mt-1 text-xs text-slate-500">{fmtCountdown(state.start - live)} to go{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}</p>
+        <p className="mt-1 break-words text-xs text-slate-500">{fmtCountdown(state.start - live)} to go{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}</p>
       </>
     );
   } else if (todaySlots.length === 0) {
@@ -163,7 +163,7 @@ export default function NextClassCountdown({ slots, loading = false, className =
   return (
     <section
       aria-label="Next class countdown"
-      className={`h-full rounded-2xl border p-5 shadow-soft ${
+      className={`h-full min-w-0 rounded-2xl border p-5 shadow-soft ${
         isAlert
           ? 'border-amber-300 bg-amber-50'
           : state.mode === 'ongoing'

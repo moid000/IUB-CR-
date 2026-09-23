@@ -71,7 +71,7 @@ export default function StudentOverview() {
 
       <section aria-label="Today's schedule">
         <DashboardSectionHeader title="Today" description="Your next class and complete schedule for the day." />
-        <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-stretch gap-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
           <NextClassCountdown slots={recent.todayClasses} loading={!loaded} />
           <TodayClassesCard
             slots={recent.todayClasses}
