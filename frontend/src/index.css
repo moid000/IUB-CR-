@@ -37,11 +37,20 @@ html {
      own edges when an inner scroll (modals/drawers) hits its end. */
   scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
+  /* Safety net: if any element ever ends up a hair wider than the
+     viewport, mobile Safari auto-shrinks the WHOLE page's initial scale
+     to avoid a horizontal scrollbar — the app then renders zoomed out
+     with grey margins on both sides from first paint. Never let one
+     overflowing element degrade the entire page like that. */
+  overflow-x: hidden;
+  width: 100%;
 }
 
 body {
   @apply bg-slate-50 text-slate-900 font-sans;
   overscroll-behavior-y: contain;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 /* Visible, consistent focus states (accessibility) */
