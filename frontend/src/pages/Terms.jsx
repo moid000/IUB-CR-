@@ -6,7 +6,7 @@ import { IconArrowRight, IconChevronLeft } from '../components/icons.jsx';
  *  Terms & Conditions — public legal page, white premium style.
  * ------------------------------------------------------------------ */
 
-const UPDATED = 'September 15, 2026';
+const UPDATED = 'September 24, 2026';
 
 const SECTIONS = [
   {
@@ -14,6 +14,8 @@ const SECTIONS = [
     p: [
       'By accessing or using Tri3M ("the Service"), you agree to be bound by these Terms & Conditions. If you do not agree, please do not use the Service.',
       'The Service is provided for student class sections and is operated on behalf of the section admin and class representative (CR).',
+      'Tri3M is built for class representatives (CRs) and group representatives (GRs), so they can manage their sections in a disciplined, time-saving way.',
+      'Tri3M is an independent, student-built software. It is not an official or registered product of the Islamia University of Bahawalpur (IUB), and it is not run, prompted, promoted or endorsed by the university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher — it should not be taken as a university or HOD initiative in any form. Tri3M is represented by the students of the AI Department, Semester 2, Section 3M, and exists to help class representatives (CRs) and group representatives (GRs) manage their sections in a disciplined, time-saving way.',
     ],
   },
   {
@@ -47,6 +49,8 @@ const SECTIONS = [
     h: '6. Disclaimer & limitation of liability',
     p: [
       'The Service is provided "as is" without warranties of any kind. We are not liable for academic consequences of missed announcements or deadlines, loss of uploaded content, or any indirect or incidental damages arising from use of the Service.',
+      'Tri3M is not affiliated with, sponsored by, or endorsed by the Islamia University of Bahawalpur. The university, its administration, and the Chairman of the AI Department (Prof. Dr. Najia Saher) neither operate nor promote this Service, and it must not be presented as an official university initiative. The students of the AI Department, Semester 2, Section 3M, represent Tri3M and are solely responsible for its operation.',
+      'Student data handled by the Service is never leaked or used for advertising in any form; this commitment is binding regardless of any other clause in these terms.',
       'Your CR and section admin are the authoritative source for official academic information.',
     ],
   },

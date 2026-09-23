@@ -9,13 +9,14 @@ import { IconArrowRight, IconChevronLeft } from '../components/icons.jsx';
  *  data selling.
  * ------------------------------------------------------------------ */
 
-const UPDATED = 'September 15, 2026';
+const UPDATED = 'September 24, 2026';
 
 const SECTIONS = [
   {
     h: '1. Who we are & scope',
     p: [
       'Tri3M ("the Service") is a class portal for student sections — organized by department, session and class. This policy explains what data the Service collects, why, and how it is handled.',
+      'Tri3M is an independent, student-built software. It is not an official or registered product of the Islamia University of Bahawalpur (IUB), and it is not run, prompted, promoted or endorsed by the university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher — it should not be taken as a university or HOD initiative in any form. Tri3M is represented by the students of the AI Department, Semester 2, Section 3M, and exists to help class representatives (CRs) and group representatives (GRs) manage their sections in a disciplined, time-saving way.',
     ],
   },
   {
@@ -31,6 +32,7 @@ const SECTIONS = [
     p: [
       'Data is used strictly to run your class portal: signing you in, showing you your section\u2019s content, delivering notifications, recording attendance, and publishing marks.',
       'We do not sell, rent, or share your personal data with advertisers or data brokers. There are no third-party trackers or advertising pixels in the Service.',
+      'Student data is never leaked or shared with any third party under any circumstances, is never used to show or target advertising of any kind, and is never traded for any commercial purpose. The Service has no advertising business — it exists only to run your class portal.',
     ],
   },
   {

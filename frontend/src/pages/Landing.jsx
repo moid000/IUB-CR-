@@ -746,6 +746,7 @@ const FAQS = [
   { q: 'Which files can be shared?', a: 'Virtually everything a class needs — PDF, Word, PowerPoint, Excel, images, archives and more, up to 10 MB per file, stored securely in the cloud.' },
   { q: 'How does QR attendance work?', a: 'Today, your CR opens a QR session and students check in from their portal. We are designing stronger checks against proxy attendance; that solution is not live yet.' },
   { q: 'Is it free?', a: 'Yes — completely free for your class. No ads, no upsells, no data selling.' },
+  { q: 'Is this an official university service?', a: 'No. Tri3M is an independent, student-built tool — not an official, registered product of the Islamia University of Bahawalpur, and not promoted or endorsed by the university, its administration, or the Chairman of the AI Department. It is represented by the students of the AI Department, Semester 2, Section 3M, purely to help CRs and GRs manage their sections efficiently. Student data is never leaked and never used for ads.' },
 ];
 
 function FaqItem({ q, a, open, onToggle }) {
@@ -784,6 +785,47 @@ function Faq() {
             </Reveal>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* ===================== INDEPENDENCE & TRUST ======================= *
+ *  Honest positioning: Tri3M is a student-built tool, not an official
+ *  university product. Student data is never leaked or monetized.
+ * */
+function TrustNotice() {
+  return (
+    <section aria-label="About Tri3M and your data" className="relative py-14 lg:py-16">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <div className="landing-card rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_1px_2px_rgb(16_24_40/0.05)] sm:p-8">
+            <div className="flex items-center gap-3">
+              <span className="relative grid size-9 place-items-center rounded-xl bg-primary-50 text-primary-600">
+                <IconBuilding className="size-5" />
+                <span className="animate-live-pulse absolute -right-1 -top-1 size-2.5 rounded-full bg-primary-500 ring-2 ring-white" aria-hidden="true" />
+              </span>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">An independent, student-built class tool</h2>
+            </div>
+            <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
+              <p>
+                Tri3M is a software tool built for class representatives (CRs) and group representatives (GRs), so they can manage
+                their sections in a disciplined, time-saving way. It is <span className="font-semibold text-slate-900">not an official or registered
+                product of the Islamia University of Bahawalpur (IUB)</span>, and it is not run, prompted, promoted or endorsed by the
+                university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher. It should not be taken as a
+                university or HOD initiative in any form.
+              </p>
+              <p>
+                Tri3M is represented by the students of the AI Department, Semester&nbsp;2, Section&nbsp;3M. Student data is
+                <span className="font-semibold text-slate-900"> never leaked or shared under any circumstances</span>, and is
+                <span className="font-semibold text-slate-900"> never used for advertising</span>. Full details are in our{' '}
+                <Link to="/privacy" className="font-medium text-primary-600 transition-colors hover:text-primary-700">Privacy Policy</Link>
+                {' '}and{' '}
+                <Link to="/terms" className="font-medium text-primary-600 transition-colors hover:text-primary-700">Terms &amp; Conditions</Link>.
+              </p>
+            </div>
+          </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -885,6 +927,7 @@ export default function Landing() {
         <FileMarquee />
         <Roles />
         <Faq />
+        <TrustNotice />
         <FinalCta />
       </main>
       <Footer />
