@@ -440,24 +440,30 @@ function Features() {
 function WorkflowVisual({ type }) {
   if (type === 'teacher') return (
     <div className="landing-preview" aria-hidden="true">
-      <div className="landing-preview-top"><IconClock className="size-4" /><span>Class confirmation</span><span className="ml-auto text-[10px] text-slate-400">WhatsApp</span></div>
-      <p className="mt-3 text-xs font-semibold text-slate-800">Your class is scheduled</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Subject · section · date &amp; time</p>
-      <div className="mt-3 flex gap-2"><span className="landing-preview-pill">YES · Confirmed</span><span className="landing-preview-pill">NO · Unavailable</span></div>
+      <div className="landing-preview-top"><IconClock className="landing-icon-breathe size-4" /><span>Class confirmation</span><span className="ml-auto text-[10px] text-slate-400">WhatsApp</span></div>
+      <p className="landing-workflow-row mt-3 text-xs font-semibold text-slate-800">Your class is scheduled</p>
+      <p className="landing-workflow-row mt-1 text-[11px] leading-relaxed text-slate-500">Subject · section · date &amp; time</p>
+      <div className="mt-3 flex gap-2">
+        <span className="landing-preview-pill landing-pill-glow">YES · Confirmed</span>
+        <span className="landing-preview-pill">NO · Unavailable</span>
+      </div>
     </div>
   );
   if (type === 'deadline') return (
     <div className="landing-preview" aria-hidden="true">
-      <div className="landing-preview-top"><IconClipboard className="size-4" /><span>Deadline report</span><span className="ml-auto text-[10px] text-slate-400">Teacher</span></div>
-      <div className="mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-700"><span>Submitted / not submitted</span><IconCheck className="size-3.5 text-primary-600" /></div>
-      <div className="mt-2 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-700"><span>Individual submission details</span><IconFileText className="size-3.5 text-primary-600" /></div>
+      <div className="landing-preview-top"><IconClipboard className="landing-icon-breathe size-4" /><span>Deadline report</span><span className="ml-auto text-[10px] text-slate-400">Teacher</span></div>
+      <div className="landing-workflow-row mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-700"><span>Submitted / not submitted</span><IconCheck className="size-3.5 text-primary-600" /></div>
+      <div className="landing-workflow-row mt-2 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-700"><span>Individual submission details</span><IconFileText className="size-3.5 text-primary-600" /></div>
     </div>
   );
   return (
     <div className="landing-preview" aria-hidden="true">
-      <div className="landing-preview-top"><IconMegaphone className="size-4" /><span>Section broadcast</span><span className="ml-auto text-[10px] text-slate-400">WhatsApp group</span></div>
-      <p className="mt-3 text-xs font-semibold text-slate-800">One post. Your class group.</p>
-      <div className="mt-3 flex gap-2"><span className="landing-preview-pill">Announcement</span><span className="landing-preview-pill">Notes + files</span></div>
+      <div className="landing-preview-top"><IconMegaphone className="landing-icon-breathe size-4" /><span>Section broadcast</span><span className="ml-auto text-[10px] text-slate-400">WhatsApp group</span></div>
+      <p className="landing-workflow-row mt-3 text-xs font-semibold text-slate-800">One post. Your class group.</p>
+      <div className="mt-3 flex gap-2">
+        <span className="landing-preview-pill landing-workflow-row">Announcement</span>
+        <span className="landing-preview-pill landing-workflow-row">Notes + files</span>
+      </div>
     </div>
   );
 }
@@ -491,7 +497,7 @@ function ConnectedWorkflows() {
         </div>
         <Reveal className="mt-5">
           <div className="rounded-2xl border border-primary-100 bg-primary-50/60 p-5 sm:flex sm:items-center sm:gap-6 sm:p-6">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary-600"><IconQr className="size-5" /></div>
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary-600"><IconQr className="landing-icon-breathe size-5" /></div>
             <div className="mt-3 min-w-0 sm:mt-0">
               <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary-700">Attendance · In development</p>
               <h3 className="mt-1 text-base font-semibold text-slate-900">Working toward stronger anti-proxy attendance</h3>
@@ -707,8 +713,9 @@ function Roles() {
             <StaggerItem key={r.name}>
               <div className="h-full rounded-2xl border border-slate-200/90 bg-white p-7 shadow-[0_1px_2px_rgb(16_24_40/0.04)] transition-all duration-300 hover:-translate-y-1 hover:border-primary-200 hover:shadow-[0_18px_44px_-14px_rgb(37_99_235/0.25)]">
                 <div className="flex items-center gap-3">
-                  <span className="grid size-10 place-items-center rounded-xl bg-primary-50 text-primary-600">
+                  <span className="relative grid size-10 place-items-center rounded-xl bg-primary-50 text-primary-600">
                     <r.icon className="size-5" />
+                    <span className="animate-live-pulse absolute -right-1 -top-1 size-2.5 rounded-full bg-primary-500 ring-2 ring-white" aria-hidden="true" />
                   </span>
                   <div>
                     <h3 className="text-sm font-bold tracking-widest text-slate-900">{r.name}</h3>
@@ -717,8 +724,8 @@ function Roles() {
                 </div>
                 <ul className="mt-5 space-y-2.5">
                   {r.lines.map((l) => (
-                    <li key={l} className="flex items-start gap-2.5 text-sm text-slate-600">
-                      <IconPlus className="mt-0.5 size-3.5 shrink-0 text-primary-500" aria-hidden="true" />
+                    <li key={l} className="landing-role-line flex items-start gap-2.5 text-sm text-slate-600">
+                      <IconCheckCircle className="mt-0.5 size-3.5 shrink-0 text-primary-500" aria-hidden="true" />
                       {l}
                     </li>
                   ))}

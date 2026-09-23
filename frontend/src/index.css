@@ -390,3 +390,31 @@ body {
 
 /* Slow links / Save-Data: all marketing content remains visible, no loops. */
 .landing-fast.landing-low-motion [class*="animate-"] { animation: none !important; }
+
+/* ---------- Roles + Connected-workflow cards: motion that carries meaning,
+   not decoration. Icons "breathe" only while their section is on screen (the
+   existing [class*="animate-"] pause rule already covers this); checklist
+   rows and the primary reply pill get a one-shot pop each time the card
+   scrolls into view, so the eye reads "this is live" without any text. ---- */
+@keyframes landing-icon-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
+.landing-fast .landing-icon-breathe { animation: landing-icon-breathe 2.4s ease-in-out infinite; transform-origin: center; }
+
+@keyframes landing-pill-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(37 99 235 / .22); }
+  50%      { box-shadow: 0 0 0 5px rgb(37 99 235 / .14); }
+}
+.landing-fast .landing-pill-glow { animation: landing-pill-glow 2.2s ease-in-out infinite; }
+
+.landing-fast.landing-motion-enabled .landing-active .landing-role-line,
+.landing-fast.landing-motion-enabled .landing-active .landing-workflow-row {
+  animation: landing-rise .3s ease-out both;
+}
+.landing-fast.landing-motion-enabled .landing-active .landing-role-line:nth-child(2),
+.landing-fast.landing-motion-enabled .landing-active .landing-workflow-row:nth-child(2) { animation-delay: .07s; }
+.landing-fast.landing-motion-enabled .landing-active .landing-role-line:nth-child(3),
+.landing-fast.landing-motion-enabled .landing-active .landing-workflow-row:nth-child(3) { animation-delay: .14s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-fast .landing-icon-breathe,
+  .landing-fast .landing-pill-glow { animation: none !important; }
+}
