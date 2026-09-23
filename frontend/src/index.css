@@ -299,3 +299,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .focus-highlight { animation-duration: 8s; }
 }
+
+/* Public landing: keep feature visuals but never run background animation loops.
+   The old phone/mock/feature keyframes kept painting while off-screen; on
+   low-end phones this competed with scrolling and taps. The static states
+   also respect users who prefer reduced motion. Scoped: portal/auth unaffected. */
+.landing-fast [class*="animate-"] {
+  animation: none !important;
+}

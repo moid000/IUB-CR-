@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AnimatePresence, motion } from 'motion/react';
-import {
-  FadeIn, Reveal, Stagger, StaggerItem, EASE,
-} from '../components/motion/primitives.jsx';
+// Landing content paints immediately: no hidden-by-default reveal, entrance
+// scheduler or per-card motion observers on this public, launch-critical route.
+function Instant({ children, className = '' }) {
+  return <div className={className}>{children}</div>;
+}
+const FadeIn = Instant;
+const Reveal = Instant;
+const Stagger = Instant;
+const StaggerItem = Instant;
 import {
   IconGrid, IconUserSquare, IconGraduation, IconMegaphone, IconFileText,
   IconClipboard, IconQr, IconCheckCircle, IconMenu, IconX,
@@ -34,25 +39,17 @@ const NAV_LINKS = [
 ];
 
 function Navbar() {
-  const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const scrollTo = useScrollTo();
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
 
   return (
     <header
-      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300
-        ${scrolled ? 'border-b border-slate-200/70 bg-white/85 shadow-[0_1px_12px_rgb(16_24_40/0.04)] backdrop-blur-xl' : 'border-b border-transparent bg-transparent'}`}
+      className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/70 bg-white shadow-[0_1px_12px_rgb(16_24_40/0.04)]"
     >
       <nav className="mx-auto flex h-16 w-full max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8" aria-label="Main">
         <Link to="/" className="flex items-center gap-2.5" aria-label="Tri3M home">
-          <img src={`${import.meta.env.BASE_URL}logo-256.png`} alt="Tri3M logo" className="size-9 rounded-xl object-contain shadow-[0_6px_16px_rgb(16_24_40/0.12)]" />
+          <img src={`${import.meta.env.BASE_URL}logo-64.png`} width="36" height="36" alt="Tri3M logo" className="size-9 rounded-xl object-contain shadow-[0_6px_16px_rgb(16_24_40/0.12)]" />
           <span className="text-sm font-semibold tracking-widest text-slate-900">
             Tri3M
           </span>
@@ -88,13 +85,8 @@ function Navbar() {
         </button>
       </nav>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            className="border-b border-slate-200 bg-white px-4 pb-5 pt-2 shadow-lg md:hidden"
-            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: EASE }}
-          >
+      {open && (
+          <div className="border-b border-slate-200 bg-white px-4 pb-5 pt-2 shadow-lg md:hidden">
             {NAV_LINKS.map((l) => (
               <button
                 key={l.id} type="button" onClick={() => { scrollTo(l.id); setOpen(false); }}
@@ -109,17 +101,14 @@ function Navbar() {
             >
               Sign in
             </Link>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
     </header>
   );
 }
 
 /* ==================== HERO PRODUCT MOCK ============================ *
- *  A living miniature of the real app: an announcement slides in,
- *  delivery confirms, a QR session opens. Pure CSS/motion — no
- *  screenshots, sample content only.
+ *  A lightweight static miniature of the real app, no layout timers.
  * */
 const MOCK_STEPS = [
   { id: 'post', chip: 'Announcement', title: 'Quiz — Wednesday, room B-204', meta: 'pinned · by CR' },
@@ -128,22 +117,14 @@ const MOCK_STEPS = [
 ];
 
 function HeroMock() {
-  const [step, setStep] = useState(1);
-
-  useEffect(() => {
-    const t = setTimeout(() => setStep((s) => (s % MOCK_STEPS.length) + 1), 2100);
-    return () => clearTimeout(t);
-  }, [step]);
-
-  const visible = MOCK_STEPS.slice(0, step);
+  // Show the complete mock at first paint. A 2.1s timer/layout animation
+  // continuously rebuilt the feed even when the visitor had scrolled away.
+  const visible = MOCK_STEPS;
 
   return (
     <div className="relative">
       {/* floating confirmation chips */}
-      <motion.div
-        className="absolute -right-2 top-10 z-10 hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-[0_10px_36px_rgb(16_24_40/0.12)] sm:flex"
-        animate={{ y: [0, -7, 0] }} transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
-      >
+      <div className="absolute -right-2 top-10 z-10 hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-[0_10px_36px_rgb(16_24_40/0.12)] sm:flex">
         <span className="grid size-6 place-items-center rounded-full bg-emerald-50 text-emerald-600">
           <IconCheck className="size-3.5" />
         </span>
@@ -151,11 +132,8 @@ function HeroMock() {
           <p className="text-xs font-semibold text-slate-900">Assignment submitted</p>
           <p className="text-[10px] text-slate-500">just now</p>
         </div>
-      </motion.div>
-      <motion.div
-        className="absolute -left-2 bottom-14 z-10 hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-[0_10px_36px_rgb(16_24_40/0.12)] sm:flex"
-        animate={{ y: [0, 8, 0] }} transition={{ duration: 5.2, repeat: Infinity, ease: 'easeInOut', delay: 0.6 }}
-      >
+      </div>
+      <div className="absolute -left-2 bottom-14 z-10 hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-[0_10px_36px_rgb(16_24_40/0.12)] sm:flex">
         <span className="grid size-6 place-items-center rounded-full bg-primary-50 text-primary-600">
           <IconCheckCircle className="size-3.5" />
         </span>
@@ -163,7 +141,7 @@ function HeroMock() {
           <p className="text-xs font-semibold text-slate-900">Attendance recorded</p>
           <p className="text-[10px] text-slate-500">via QR · verified</p>
         </div>
-      </motion.div>
+      </div>
 
       {/* the app window */}
       <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_24px_80px_-24px_rgb(16_24_40/0.25),0_4px_16px_rgb(16_24_40/0.06)]">
@@ -195,17 +173,11 @@ function HeroMock() {
             ))}
           </div>
 
-          {/* animated feed */}
+          {/* Static product feed, fully visible on first paint. */}
           <div className="min-h-56 space-y-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 sm:p-4">
-            <AnimatePresence mode="popLayout">
               {visible.map((s) => (
-                <motion.div
+                <div
                   key={s.id}
-                  layout
-                  initial={{ opacity: 0, y: 14, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.4, ease: EASE }}
                   className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_3px_rgb(16_24_40/0.05)]"
                 >
                   {s.id === 'qr' ? (
@@ -239,9 +211,8 @@ function HeroMock() {
                       <IconCheck className="size-4" />
                     </span>
                   )}
-                </motion.div>
+                </div>
               ))}
-            </AnimatePresence>
 
             {/* delivery hint */}
             <div className="flex items-center gap-2.5 px-1 pt-1">
@@ -262,10 +233,8 @@ function Hero() {
   const scrollTo = useScrollTo();
   return (
     <section className="relative overflow-hidden pb-16 pt-28 sm:pt-32 lg:pb-24 lg:pt-36">
-      {/* backdrop: dot grid + drifting aurora glow */}
+      {/* Lightweight dot-grid backdrop; no blurred moving layers. */}
       <div className="hero-dot-grid pointer-events-none absolute inset-0" aria-hidden="true" />
-      <div className="pointer-events-none absolute -left-24 top-8 size-[420px] rounded-full bg-primary-200/45 blur-[110px] animate-aurora-a" aria-hidden="true" />
-      <div className="pointer-events-none absolute -right-24 top-40 size-[380px] rounded-full bg-sky-200/40 blur-[110px] animate-aurora-b" aria-hidden="true" />
 
       <div className="relative mx-auto grid w-full max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:px-8">
         <div className="min-w-0">
@@ -304,7 +273,7 @@ function Hero() {
               </Link>
               <button
                 type="button" onClick={() => scrollTo('features')}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/70 px-6 py-3 text-sm font-semibold text-slate-700 backdrop-blur transition-all hover:border-primary-300 hover:bg-primary-50/60 hover:text-primary-700"
+                className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition-all hover:border-primary-300 hover:bg-primary-50/60 hover:text-primary-700"
               >
                 Explore features
               </button>
@@ -320,15 +289,14 @@ function Hero() {
         </FadeIn>
       </div>
 
-      {/* animated stat counters */}
+      {/* Static facts, fully visible on first paint. */}
       <StatsBand />
     </section>
   );
 }
 
 /* ==================== FEATURE VIGNETTES ============================ *
- *  Each card carries a small living visual — the feature explains
- *  itself before you read a word. All loops are GPU-friendly CSS.
+ *  Each card carries a small static visual so scrolling stays fluid.
  * */
 function VAnnouncements() {
   return (
@@ -463,36 +431,8 @@ function Features() {
 
 
 /* =========================== STATS BAND ============================ *
- *  Count-up numbers — the page's scale at a glance, zero paragraphs.
+ *  Immediate numbers — no per-frame counting or scroll observers.
  * */
-function CountUp({ to, suffix = '', duration = 1300 }) {
-  const ref = useRef(null);
-  const started = useRef(false);
-  const [val, setVal] = useState(0);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let raf;
-    const io = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && !started.current) {
-        started.current = true;
-        const t0 = performance.now();
-        const tick = (t) => {
-          const p = Math.min((t - t0) / duration, 1);
-          setVal(Math.round(to * (1 - Math.pow(1 - p, 3))));
-          if (p < 1) raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        io.disconnect();
-      }
-    }, { threshold: 0.35 });
-    io.observe(el);
-    return () => { io.disconnect(); if (raf) cancelAnimationFrame(raf); };
-  }, [to, duration]);
-
-  return <span ref={ref}>{val}{suffix}</span>;
-}
 
 const STATS = [
   { n: 6, suffix: '', label: 'core modules' },
@@ -507,7 +447,7 @@ function StatsBand() {
       {STATS.map((st, i) => (
         <Reveal key={st.label} delay={i * 0.07}>
           <p className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            <CountUp to={st.n} suffix={st.suffix} />
+            {st.n}{st.suffix}
           </p>
           <p className="mt-1 text-sm text-slate-600">{st.label}</p>
         </Reveal>
@@ -564,7 +504,7 @@ function Workflow() {
 }
 
 /* ====================== INSTANT DELIVERY (PHONE) =================== *
- *  A phone that keeps receiving — the delivery promise, animated.
+ *  A static product visual, no background animation while scrolling.
  * */
 const NOTIFS = [
   { icon: IconMegaphone, tone: 'bg-amber-50 text-amber-600', title: 'New announcement', body: 'Quiz — Wednesday, room B-204', time: 'now' },
@@ -576,7 +516,6 @@ const NOTIFS = [
 function PhoneDelivery() {
   return (
     <section className="relative overflow-hidden bg-slate-50/60 py-20 lg:py-28">
-      <div className="pointer-events-none absolute -left-24 bottom-0 size-[360px] rounded-full bg-sky-200/40 blur-[110px] animate-aurora-b" aria-hidden="true" />
       <div className="relative mx-auto grid w-full max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:px-8">
         <Reveal className="order-2 lg:order-1">
           <div className="relative mx-auto w-[288px] sm:w-[310px]">
@@ -632,8 +571,8 @@ function PhoneDelivery() {
   );
 }
 
-/* ====================== FILE MARQUEE =============================== *
- *  Infinite scroll of everything your class shares. Pure CSS.
+/* ====================== FILE TYPES ================================= *
+ *  All types visible without a continuously animated marquee.
  * */
 const FILE_TYPES = ['PDF', 'DOCX', 'PPTX', 'XLSX', 'CSV', 'PNG', 'JPG', 'GIF', 'ZIP', 'RAR', '7Z', 'MP3', 'WAV', 'MP4', 'WEBM'];
 
@@ -647,10 +586,10 @@ function FileMarquee() {
           </p>
         </Reveal>
       </div>
-      <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
-        <div className="animate-marquee flex w-max">
-          {[...FILE_TYPES, ...FILE_TYPES].map((t, i) => (
-            <span key={i} className="mr-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold tracking-wide text-slate-600 shadow-[0_1px_2px_rgb(16_24_40/0.05)]">
+      <div>
+        <div className="flex flex-wrap justify-center gap-2 px-4 sm:px-6">
+          {FILE_TYPES.map((t) => (
+            <span key={t} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold tracking-wide text-slate-600 shadow-[0_1px_2px_rgb(16_24_40/0.05)]">
               <IconFileText className="size-3.5 text-primary-500" /> {t}
             </span>
           ))}
@@ -679,7 +618,6 @@ const ROLES = [
 function Roles() {
   return (
     <section id="roles" className="relative py-20 lg:py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-1/3 h-64 bg-primary-100/40 blur-[120px]" aria-hidden="true" />
       <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">Portals</p>
@@ -744,16 +682,7 @@ function FaqItem({ q, a, open, onToggle }) {
           <IconPlus className="size-3.5" />
         </span>
       </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.28, ease: EASE }}
-          >
-            <p className="px-6 pb-6 text-sm leading-relaxed text-slate-600">{a}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {open && <p className="px-6 pb-6 text-sm leading-relaxed text-slate-600">{a}</p>}
     </div>
   );
 }
@@ -786,8 +715,6 @@ function FinalCta() {
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal>
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary-700 via-primary-600 to-blue-500 px-6 py-14 text-center shadow-[0_32px_80px_-20px_rgb(37_99_235/0.5)] sm:px-12">
-            <div className="pointer-events-none absolute -left-16 -top-16 size-64 rounded-full bg-white/15 blur-3xl animate-aurora-a" aria-hidden="true" />
-            <div className="pointer-events-none absolute -bottom-20 -right-10 size-72 rounded-full bg-sky-300/25 blur-3xl animate-aurora-b" aria-hidden="true" />
             <h2 className="relative mx-auto max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
               Move your class off WhatsApp — <span className="text-sky-200">today.</span>
             </h2>
@@ -839,7 +766,7 @@ function Footer() {
 /* =========================== PAGE ================================== */
 export default function Landing() {
   return (
-    <div className="min-h-dvh bg-white text-slate-900 antialiased">
+    <div className="landing-fast min-h-dvh bg-white text-slate-900 antialiased">
       <Navbar />
       <main>
         <Hero />
