@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-// Landing content paints immediately: no hidden-by-default reveal, entrance
-// scheduler or per-card motion observers on this public, launch-critical route.
-function Instant({ children, className = '' }) {
+// A single viewport observer powers short, one-shot card reveals and pauses
+// decorative motion when off-screen. All content stays visible without JS.
+function FadeIn({ children, className = '' }) {
+  return <div className={`landing-hero-in ${className}`}>{children}</div>;
+}
+function Reveal({ children, className = '' }) {
+  return <div className={`landing-reveal ${className}`}>{children}</div>;
+}
+function Stagger({ children, className = '' }) {
   return <div className={className}>{children}</div>;
 }
-const FadeIn = Instant;
-const Reveal = Instant;
-const Stagger = Instant;
-const StaggerItem = Instant;
+const StaggerItem = Reveal;
 import {
   IconGrid, IconUserSquare, IconGraduation, IconMegaphone, IconFileText,
   IconClipboard, IconQr, IconCheckCircle, IconMenu, IconX,
@@ -33,6 +36,7 @@ function useScrollTo() {
 /* =========================== NAVBAR ================================ */
 const NAV_LINKS = [
   { id: 'features', label: 'Features' },
+  { id: 'automation', label: 'Automation' },
   { id: 'how', label: 'How it works' },
   { id: 'roles', label: 'Portals' },
   { id: 'faq', label: 'FAQ' },
@@ -41,7 +45,6 @@ const NAV_LINKS = [
 function Navbar() {
   const [open, setOpen] = useState(false);
   const scrollTo = useScrollTo();
-
 
   return (
     <header
@@ -174,7 +177,7 @@ function HeroMock() {
           </div>
 
           {/* Static product feed, fully visible on first paint. */}
-          <div className="min-h-56 space-y-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 sm:p-4">
+          <div className="landing-hero-feed min-h-56 space-y-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 sm:p-4">
               {visible.map((s) => (
                 <div
                   key={s.id}
@@ -218,7 +221,7 @@ function HeroMock() {
             <div className="flex items-center gap-2.5 px-1 pt-1">
               <IconBell className="size-3.5 text-primary-500 animate-icon-wiggle" aria-hidden="true" />
               <p className="text-[11px] font-medium text-slate-500">
-                Delivered instantly to every student in the section
+                Published to your section
               </p>
             </div>
           </div>
@@ -233,8 +236,9 @@ function Hero() {
   const scrollTo = useScrollTo();
   return (
     <section className="relative overflow-hidden pb-16 pt-28 sm:pt-32 lg:pb-24 lg:pt-36">
-      {/* Lightweight dot-grid backdrop; no blurred moving layers. */}
+      {/* Static radial light: the original glow without a blur filter or paint loop. */}
       <div className="hero-dot-grid pointer-events-none absolute inset-0" aria-hidden="true" />
+      <div className="landing-hero-glow pointer-events-none absolute -left-20 top-5" aria-hidden="true" />
 
       <div className="relative mx-auto grid w-full max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:px-8">
         <div className="min-w-0">
@@ -259,7 +263,7 @@ function Hero() {
           <FadeIn delay={0.2}>
             <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
               Announcements, notes, assignments, timetable, attendance and marks — posted once by your CR,
-              delivered instantly to every student in your section. One professional home for your whole class.
+              shared with your section. One professional home for your whole class.
             </p>
           </FadeIn>
 
@@ -382,18 +386,18 @@ function VMarks() {
 }
 
 const FEATURES = [
-  { Visual: VAnnouncements, title: 'Announcements', text: 'Pinned notices, instant delivery, read receipts — the end of “check the group”.' },
+  { Visual: VAnnouncements, title: 'Announcements', text: 'Pinned notices, read receipts and a clear feed for the whole section.' },
   { Visual: VNotes, title: 'Notes & files', text: 'Lecture notes with cloud uploads — any file type, organized by subject.' },
   { Visual: VAssignments, title: 'Assignments', text: 'Deadlines, instructions and student submissions — all in one place, on time.' },
   { Visual: VTimetable, title: 'Daily timetable', text: 'A calendar day-by-day schedule with rooms, plus live next-class countdown.' },
-  { Visual: VAttendance, title: 'QR attendance', text: 'CR opens a session, students scan — verified presence in seconds.' },
+  { Visual: VAttendance, title: 'QR attendance', text: 'Current QR check-in keeps attendance in the portal. Stronger safeguards against proxy attendance are in development.' },
   { Visual: VMarks, title: 'Marks & assessments', text: 'Assessments, marks and results published straight to your section.' },
 ];
 
 function FeatureCard({ Visual, title, text }) {
   return (
     <StaggerItem>
-      <div className="group h-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)] transition-all duration-300 hover:-translate-y-1 hover:border-primary-200 hover:shadow-[0_18px_44px_-14px_rgb(37_99_235/0.25)]">
+      <div className="landing-card group h-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgb(16_24_40/0.04)] hover:border-primary-200">
         <div className="relative h-32 border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white">
           <Visual />
         </div>
@@ -417,8 +421,7 @@ function Features() {
             Everything a section needs, in one place.
           </h2>
           <p className="mt-4 max-w-2xl text-slate-600">
-            Built from real class workflows — not a generic noticeboard. Each module is designed for the way
-            CRs actually run a section.
+            Every update has a clear place, from everyday class posts to teacher coordination and deadline reports.
           </p>
         </Reveal>
         <Stagger className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -429,6 +432,77 @@ function Features() {
   );
 }
 
+
+/* ==================== CONNECTED WORKFLOWS ========================= *
+ *  Concrete, shipped capabilities. These are illustrations, not an
+ *  interactive demo or a guarantee that a third-party message always arrives.
+ * */
+function WorkflowVisual({ type }) {
+  if (type === 'teacher') return (
+    <div className="landing-preview" aria-hidden="true">
+      <div className="landing-preview-top"><IconClock className="size-4" /><span>Class confirmation</span><span className="ml-auto text-[10px] text-slate-400">WhatsApp</span></div>
+      <p className="mt-3 text-xs font-semibold text-slate-800">Your class is scheduled</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Subject · section · date &amp; time</p>
+      <div className="mt-3 flex gap-2"><span className="landing-preview-pill">YES · Confirmed</span><span className="landing-preview-pill">NO · Unavailable</span></div>
+    </div>
+  );
+  if (type === 'deadline') return (
+    <div className="landing-preview" aria-hidden="true">
+      <div className="landing-preview-top"><IconClipboard className="size-4" /><span>Deadline report</span><span className="ml-auto text-[10px] text-slate-400">Teacher</span></div>
+      <div className="mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-700"><span>Submitted / not submitted</span><IconCheck className="size-3.5 text-primary-600" /></div>
+      <div className="mt-2 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-700"><span>Individual submission details</span><IconFileText className="size-3.5 text-primary-600" /></div>
+    </div>
+  );
+  return (
+    <div className="landing-preview" aria-hidden="true">
+      <div className="landing-preview-top"><IconMegaphone className="size-4" /><span>Section broadcast</span><span className="ml-auto text-[10px] text-slate-400">WhatsApp group</span></div>
+      <p className="mt-3 text-xs font-semibold text-slate-800">One post. Your class group.</p>
+      <div className="mt-3 flex gap-2"><span className="landing-preview-pill">Announcement</span><span className="landing-preview-pill">Notes + files</span></div>
+    </div>
+  );
+}
+
+const AUTOMATIONS = [
+  { type: 'teacher', number: '01', title: 'Teachers stay in the loop', text: 'Add or reschedule a class and its linked teacher gets a WhatsApp confirmation request. A YES or NO reply updates the timetable for your section.' },
+  { type: 'deadline', number: '02', title: 'Deadlines report themselves', text: 'When an assignment deadline passes, the linked teacher gets a submitted/not-submitted summary, then a separate message for each submitted student with their work links. No alert on creation.' },
+  { type: 'group', number: '03', title: 'One post reaches the group', text: 'Link your section’s WhatsApp group. Announcements, assignments, notes with files, and timetable changes can be shared from the CR portal.' },
+];
+
+function ConnectedWorkflows() {
+  return (
+    <section id="automation" className="relative py-20 lg:py-28">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">Beyond a noticeboard</p>
+          <h2 className="mt-3 max-w-3xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">The right update, to the right person.</h2>
+          <p className="mt-4 max-w-2xl text-slate-600">Thoughtful automation for class representatives, students and linked teachers. No repeated forwarding or chasing a response.</p>
+        </Reveal>
+        <div className="mt-10 grid gap-4 md:grid-cols-3 lg:gap-5">
+          {AUTOMATIONS.map((item) => (
+            <Reveal key={item.type} className="min-w-0">
+              <article className="landing-card flex h-full min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgb(16_24_40/0.05)] sm:p-6">
+                <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.15em] text-primary-600"><span>Connected workflow</span><span className="text-slate-400">{item.number}</span></div>
+                <WorkflowVisual type={item.type} />
+                <h3 className="mt-5 text-lg font-semibold tracking-tight text-slate-900">{item.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">{item.text}</p>
+              </article>
+            </Reveal>
+          ))}
+        </div>
+        <Reveal className="mt-5">
+          <div className="rounded-2xl border border-primary-100 bg-primary-50/60 p-5 sm:flex sm:items-center sm:gap-6 sm:p-6">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary-600"><IconQr className="size-5" /></div>
+            <div className="mt-3 min-w-0 sm:mt-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary-700">Attendance · In development</p>
+              <h3 className="mt-1 text-base font-semibold text-slate-900">Working toward stronger anti-proxy attendance</h3>
+              <p className="mt-1 text-sm leading-relaxed text-slate-600">QR check-in exists today. We’re exploring a professional solution to prevent a CR from marking someone else present or a student from checking in for another person. These extra safeguards are not live yet.</p>
+            </div>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
 
 /* =========================== STATS BAND ============================ *
  *  Immediate numbers — no per-frame counting or scroll observers.
@@ -555,10 +629,10 @@ function PhoneDelivery() {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary-600">Instant delivery</p>
             <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Posted once. Delivered everywhere.</h2>
             <p className="mt-4 max-w-md text-slate-600">
-              The moment your CR posts, every student in the section sees it — announcements, files, attendance and marks, without a single forwarded message.
+              Your section has one place for announcements, files, attendance and marks, without relying on forwarded messages.
             </p>
             <div className="mt-6 flex flex-wrap gap-2.5">
-              {['No forwarding', 'No missed messages', 'Read receipts'].map((chip) => (
+              {['One place for updates', 'Files alongside posts', 'Read receipts'].map((chip) => (
                 <span key={chip} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700">
                   <IconCheck className="size-3.5 text-emerald-500" /> {chip}
                 </span>
@@ -663,7 +737,7 @@ const FAQS = [
   { q: 'Who can post content?', a: 'Only the CR of your section. Students get a clean, read-only view of everything the CR publishes — announcements, notes, assignments, timetable, attendance and marks.' },
   { q: 'How do I get an account?', a: 'Your admin creates the academic structure and issues accounts. CRs and students activate with a one-time code sent to their email — no one can self-register into your section.' },
   { q: 'Which files can be shared?', a: 'Virtually everything a class needs — PDF, Word, PowerPoint, Excel, images, archives and more, up to 10 MB per file, stored securely in the cloud.' },
-  { q: 'How does QR attendance work?', a: 'Your CR opens an attendance session and a QR code appears. Students scan it from their portal — presence is verified instantly and recorded against the session.' },
+  { q: 'How does QR attendance work?', a: 'Today, your CR opens a QR session and students check in from their portal. We are designing stronger checks against proxy attendance; that solution is not live yet.' },
   { q: 'Is it free?', a: 'Yes — completely free for your class. No ads, no upsells, no data selling.' },
 ];
 
@@ -719,7 +793,7 @@ function FinalCta() {
               Move your class off WhatsApp — <span className="text-sky-200">today.</span>
             </h2>
             <p className="relative mx-auto mt-4 max-w-xl text-blue-100">
-              Your admin and CR already have accounts. Sign in and see your section organized.
+              Have an account from your admin or CR? Sign in to see your section organized.
             </p>
             <Link
               to="/login"
@@ -765,12 +839,40 @@ function Footer() {
 
 /* =========================== PAGE ================================== */
 export default function Landing() {
+  const rootRef = useRef(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    if (!('IntersectionObserver' in window)
+      || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      || navigator.connection?.saveData
+      || /(^|-)2g$/.test(navigator.connection?.effectiveType || '')) {
+      root.classList.add('landing-low-motion');
+      return undefined;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      for (const { target, isIntersecting } of entries) {
+        if (target.classList.contains('landing-reveal')) {
+          if (isIntersecting) {
+            target.classList.add('landing-shown');
+            observer.unobserve(target);
+          }
+        } else {
+          target.classList.toggle('landing-active', isIntersecting);
+        }
+      }
+    }, { rootMargin: '100px 0px 100px 0px', threshold: 0 });
+    root.querySelectorAll('main section, .landing-reveal').forEach((node) => observer.observe(node));
+    root.classList.add('landing-motion-enabled');
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className="landing-fast min-h-dvh bg-white text-slate-900 antialiased">
+    <div ref={rootRef} className="landing-fast min-h-dvh bg-white text-slate-900 antialiased">
       <Navbar />
       <main>
         <Hero />
         <Features />
+        <ConnectedWorkflows />
         <Workflow />
         <PhoneDelivery />
         <FileMarquee />

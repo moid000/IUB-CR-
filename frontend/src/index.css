@@ -300,10 +300,93 @@ body {
   .focus-highlight { animation-duration: 8s; }
 }
 
-/* Public landing: keep feature visuals but never run background animation loops.
-   The old phone/mock/feature keyframes kept painting while off-screen; on
-   low-end phones this competed with scrolling and taps. The static states
-   also respect users who prefer reduced motion. Scoped: portal/auth unaffected. */
-.landing-fast [class*="animate-"] {
-  animation: none !important;
+/* Landing-only motion: a single observer marks nearby sections. Offscreen loops
+   are paused; content is readable even without JS, on slow connections and with
+   reduced motion. Only transform/opacity are animated on mobile. */
+@keyframes landing-rise {
+  from { opacity: .86; transform: translate3d(0, 9px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
+.landing-fast.landing-motion-enabled .landing-hero-in {
+  animation: landing-rise .28s ease-out both;
+}
+.landing-fast.landing-motion-enabled .landing-reveal:not(.landing-shown) {
+  opacity: .85;
+  transform: translate3d(0, 9px, 0);
+}
+.landing-fast.landing-motion-enabled .landing-reveal {
+  transition: opacity .24s ease-out, transform .24s ease-out;
+}
+.landing-fast.landing-motion-enabled main section:not(.landing-active) [class*="animate-"] {
+  animation-play-state: paused !important;
+}
+.landing-fast .landing-card {
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .landing-fast .landing-card:hover {
+    transform: translate3d(0, -4px, 0);
+    box-shadow: 0 15px 32px -20px rgb(37 99 235 / .27);
+  }
+}
+.landing-fast .landing-preview {
+  margin-top: 1.25rem;
+  min-width: 0;
+  min-height: 136px;
+  padding: 1rem;
+  border: 1px solid rgb(226 232 240);
+  border-radius: .75rem;
+  background: linear-gradient(145deg, rgb(248 250 252), rgb(255 255 255));
+}
+.landing-fast .landing-preview-top {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  color: rgb(37 99 235);
+  font-size: .7rem;
+  font-weight: 700;
+}
+.landing-fast .landing-preview-pill {
+  max-width: 100%;
+  border: 1px solid rgb(219 234 254);
+  border-radius: 999px;
+  padding: .35rem .55rem;
+  color: rgb(29 78 216);
+  background: rgb(239 246 255);
+  font-size: .65rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* The old bars animated height, forcing layout; scaleY is composite-only. */
+@keyframes landing-bar { 50% { transform: scaleY(.55); } }
+.landing-fast .animate-bar-1,
+.landing-fast .animate-bar-2,
+.landing-fast .animate-bar-3 { animation-name: landing-bar; transform-origin: bottom; }
+/* The old traveling dots animated left (layout every frame). */
+.landing-fast .animate-dot-travel { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .landing-fast [class*="animate-"], .landing-fast .landing-hero-in {
+    animation: none !important;
+  }
+  .landing-fast .landing-reveal, .landing-fast .landing-card { transition: none !important; }
+}
+
+/* Restrained mobile-first product detail: each preview settles once as its
+   section appears. No perpetual transform layer or scroll listener. */
+.landing-fast .landing-hero-glow {
+  width: min(420px, 80vw);
+  aspect-ratio: 1;
+  background: radial-gradient(circle, rgb(191 219 254 / .45), transparent 72%);
+}
+.landing-fast.landing-motion-enabled .landing-active .landing-preview,
+.landing-fast.landing-motion-enabled .landing-active .landing-hero-feed > div {
+  animation: landing-rise .3s ease-out both;
+}
+.landing-fast.landing-motion-enabled .landing-active .landing-hero-feed > div:nth-child(2) { animation-delay: .06s; }
+.landing-fast.landing-motion-enabled .landing-active .landing-hero-feed > div:nth-child(3) { animation-delay: .12s; }
+@media (prefers-reduced-motion: reduce) {
+  .landing-fast .landing-preview, .landing-fast .landing-hero-feed > div { animation: none !important; }
+}
+
+/* Slow links / Save-Data: all marketing content remains visible, no loops. */
+.landing-fast.landing-low-motion [class*="animate-"] { animation: none !important; }
