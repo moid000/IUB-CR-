@@ -181,6 +181,8 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
   const [textAnswer, setTextAnswer] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [saveSuccess, setSaveSuccess] = useState(null);
+  const [saveWarning, setSaveWarning] = useState(false);
   const [pending, setPending] = useState([]); // files chosen BEFORE the first submit
   const [removingFileId, setRemovingFileId] = useState(null);
   const [pendingNotice, setPendingNotice] = useState(null);
@@ -216,6 +218,8 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
   const submit = async (e) => {
     e.preventDefault();
     setSaveError(null);
+    setSaveSuccess(null);
+    setSaveWarning(false);
     const hasPriorFiles = (submission?.files?.length ?? 0) > 0;
     const files = [...pending]; // snapshot
     if (!textAnswer.trim() && !hasPriorFiles && files.length === 0) {
@@ -245,10 +249,12 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
         setSubmission(sub);
         const doneCount = files.length - failures.length;
         setAfterUpload({ done: doneCount, failed: failures.length });
-        if (failures.length === 0) onSaved(`Assignment submitted with ${files.length} file${files.length === 1 ? '' : 's'}.`);
-        else onSaved('Assignment submitted — some files could not be attached.');
+        setSaveWarning(failures.length > 0);
+        setSaveSuccess(failures.length === 0
+          ? `Assignment submitted with ${files.length} file${files.length === 1 ? '' : 's'}.`
+          : 'Assignment submitted, but some files could not be attached. Retry the failed files below.');
       } else {
-        onSaved(isNew ? 'Assignment submitted.' : 'Submission updated.');
+        setSaveSuccess(isNew ? 'Assignment submitted successfully.' : 'Submission updated successfully.');
       }
     } catch (err) {
       setSaveError(err);
@@ -301,8 +307,15 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
     await studentApi.files.confirm({ parentType: 'submission', parentId, result });
   };
 
+  const closeDetail = () => {
+    // Only show the page-level flash after the dialog closes: while the modal
+    // is open that flash is hidden behind the backdrop and times out unseen.
+    if (saveSuccess && !saveWarning) onSaved(saveSuccess);
+    onClose();
+  };
+
   return (
-    <Modal open onClose={onClose} title="Assignment" className="sm:max-w-2xl">
+    <Modal open onClose={closeDetail} title="Assignment" className="sm:max-w-2xl">
       {loading ? (
         <div className="space-y-4" role="status"><Skeleton className="h-6 w-3/4 rounded" /><SkeletonText lines={5} /></div>
       ) : loadError && !assignment ? (
@@ -382,7 +395,7 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
                   id="submission-answer"
                   rows={4}
                   value={textAnswer}
-                  onChange={(e) => setTextAnswer(e.target.value)}
+                  onChange={(e) => { setTextAnswer(e.target.value); setSaveSuccess(null); }}
                   placeholder="Type your answer here…"
                   className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-colors hover:border-slate-300 focus:border-primary-500"
                   aria-describedby={saveError ? 'submission-error' : undefined}
@@ -396,8 +409,8 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
                   api={studentApi.files}
                   existing={submission.files ?? []}
                   label="Attach files to your submission"
-                  onAttached={refreshSubmission}
-                  onRemoved={refreshSubmission}
+                  onAttached={() => { refreshSubmission(); setSaveWarning(false); setSaveSuccess('File attached to your submission.'); }}
+                  onRemoved={() => { refreshSubmission(); setSaveWarning(false); setSaveSuccess('File removed from your submission.'); }}
                 />
               ) : (
                 <div>
@@ -434,6 +447,10 @@ function AssignmentDetail({ assignmentId, initialAssignment, onClose, onSaved })
                     ? `${afterUpload.failed} file${afterUpload.failed === 1 ? '' : 's'} could not be attached — retry below.`
                     : `${afterUpload.done} file${afterUpload.done === 1 ? '' : 's'} attached.`}
                 </p>
+              )}
+
+              {saveSuccess && (
+                <Alert variant={saveWarning ? 'warning' : 'success'} role="status" aria-live="polite">{saveSuccess}</Alert>
               )}
 
               {saveError && (
