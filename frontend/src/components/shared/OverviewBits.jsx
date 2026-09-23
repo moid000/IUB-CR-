@@ -7,6 +7,8 @@ import { IconCalendar, IconArrowRight, IconBell, IconClipboard, IconMegaphone } 
 import { usePkNow } from './TimetableDay.jsx';
 import { fmtRoom, fmtTime } from '../../admin/format.js';
 import { api } from '../../api/client.js';
+import TeacherConfirmationStatus from './TeacherConfirmationStatus.jsx';
+import useTeacherConfirmationRefresh from '../../hooks/useTeacherConfirmationRefresh.js';
 
 /**
  * Shared mobile-first dashboard building blocks (Student + CR Overview):
@@ -36,6 +38,9 @@ export function useOverviewData(path, fetchOverview) {
     // fetchOverview is a stable module function (studentApi.overview / crApi.overview)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
+  useTeacherConfirmationRefresh(snap?.todayClasses, () => {
+    fetchOverview().then((res) => { if (res?.data) { setSnap(res.data); setFailed(false); } }).catch(() => {});
+  }, path.startsWith('/api/cr/') ? 60000 : 0);
   return { snap, loaded: snap !== null, failed };
 }
 
@@ -129,6 +134,7 @@ function ClassRow({ c, focusTo }) {
         <p className={`mt-0.5 truncate text-xs ${past ? 'text-slate-400' : 'text-slate-500'}`}>
           {c.subject?.code}{c.room ? ` · Room ${fmtRoom(c.room)}` : ''}
         </p>
+        <div className="mt-1.5"><TeacherConfirmationStatus confirmation={c.teacherConfirmation} compact /></div>
       </div>
       {ongoing ? (
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">

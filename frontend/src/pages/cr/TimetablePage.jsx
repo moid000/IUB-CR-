@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import useTeacherConfirmationRefresh from '../../hooks/useTeacherConfirmationRefresh.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { crApi } from '../../api/cr.js';
 import { useAdminQuery, useFlash } from '../../admin/hooks.js';
@@ -121,7 +122,7 @@ export default function TimetablePage() {
     () => crApi.timetable.list({ date, status: 'active', limit: 100 }), [date],
     () => crApi.timetable.cachedList({ date, status: 'active', limit: 100 })
   );
-  const { items: todaySlots, loading: todayLoading } = useAdminQuery(
+  const { items: todaySlots, loading: todayLoading, reload: reloadToday } = useAdminQuery(
     () => crApi.timetable.list({ date: today, status: 'active', limit: 100 }), [],
     () => crApi.timetable.cachedList({ date: today, status: 'active', limit: 100 })
   );
@@ -131,6 +132,8 @@ export default function TimetablePage() {
     [items]
   );
   useFocusHighlight(slots);
+  useTeacherConfirmationRefresh(slots, reload, 60000);
+  useTeacherConfirmationRefresh(todaySlots, reloadToday, 60000);
 
   if (!section) return <NoSection />;
 

@@ -5,6 +5,7 @@ import { auditFromReq } from '../utils/audit.js';
 import * as v from '../utils/validators.js';
 import { parsePagination, paginationMeta } from '../utils/pagination.js';
 import { broadcastToSectionGroup, timetableMessage, timetableCopyMessage } from './whatsappGroupService.js';
+import { queueTeacherConfirmation, dispatchTeacherConfirmation, requestTeacherConfirmation } from './teacherConfirmationService.js';
 
 /**
  * Timetable (Step 7) — DAILY class slots (one specific calendar date each).
@@ -130,11 +131,12 @@ async function createEntry(req, sectionId) {
     entityId: doc._id, section: doc.section,
     after: { date, startTime, endTime, subject: String(subject) },
   });
+  await requestTeacherConfirmation(doc, req.user);
   await broadcastToSectionGroup(doc.section, await timetableMessage({
     verb: 'added', sectionId: doc.section, subjectId: subject,
     date, startTime, endTime, room,
   }));
-  return doc;
+  return publicEntry(await Timetable.findById(doc._id));
 }
 
 export function createTimetableAdmin(req) {
@@ -169,24 +171,30 @@ export async function copyTimetableCr(req) {
   if (!source.length) throw new ApiError(400, `No active classes found on ${fromDate} to copy`);
 
   let copied = 0;
+  const queued = [];
   const skipped = [];
   for (const slot of source) {
     const conflict = await Timetable.findOne(
       overlapFilter({ section: req.user.section, date: toDate, startTime: slot.startTime, endTime: slot.endTime })
     );
     if (conflict) { skipped.push({ startTime: slot.startTime, endTime: slot.endTime }); continue; }
-    await Timetable.create({
+    const created = await Timetable.create({
       section: req.user.section, subject: slot.subject, date: toDate,
       startTime: slot.startTime, endTime: slot.endTime, room: slot.room,
       createdBy: req.user._id, status: 'active',
     });
     copied += 1;
+    try { if (await queueTeacherConfirmation(created, req.user)) queued.push(created._id); }
+    catch (err) { console.error('[teacher confirmation copy]', err.message); }
   }
 
   await auditFromReq(req, {
     action: 'timetable.copy', entityType: 'timetable', section: req.user.section,
     before: null, after: { fromDate, toDate, copied, skipped: skipped.length },
   });
+  // Send the first few immediately. Remaining copied slots are safely queued
+  // for the existing 5-minute external pinger (no additional cron job).
+  await Promise.allSettled(queued.slice(0, 3).map((id) => dispatchTeacherConfirmation(id)));
   if (copied > 0) {
     await broadcastToSectionGroup(req.user.section, timetableCopyMessage({ copied, fromDate, toDate }));
   }
@@ -228,7 +236,8 @@ async function listEntries(filter, query) {
         { $unwind: { path: '$createdBy', preserveNullAndEmptyArrays: true } },
         { $project: {
           section: 1, subject: { name: 1, code: 1 }, date: 1, startTime: 1, endTime: 1,
-          room: 1, status: 1, createdBy: { name: 1 }, createdAt: 1, updatedAt: 1,
+          room: 1, status: 1, teacherConfirmation: { status: '$teacherConfirmation.status', sentAt: '$teacherConfirmation.sentAt', respondedAt: '$teacherConfirmation.respondedAt' },
+          createdBy: { name: 1 }, createdAt: 1, updatedAt: 1,
         } },
       ],
       total: [{ $count: 'count' }],
@@ -271,11 +280,24 @@ async function populateDoc(doc) {
   return doc;
 }
 
+// A response must never leak the one-time WhatsApp reference or teacher phone.
+// Both list and single-slot APIs expose only display-safe confirmation fields.
+function publicEntry(doc) {
+  const entry = doc.toObject();
+  const confirmation = entry.teacherConfirmation;
+  entry.teacherConfirmation = {
+    status: confirmation?.status ?? 'none',
+    sentAt: confirmation?.sentAt ?? null,
+    respondedAt: confirmation?.respondedAt ?? null,
+  };
+  return entry;
+}
+
 export async function getTimetableAdmin(req) {
   const id = v.assertObjectId(req.params.id, 'timetable entry id');
   const doc = await Timetable.findById(id);
   if (!doc) throw new ApiError(404, 'Timetable entry not found');
-  return populateDoc(doc);
+  return publicEntry(await populateDoc(doc));
 }
 
 async function findOwnEntry(req) {
@@ -287,11 +309,11 @@ async function findOwnEntry(req) {
 }
 
 export async function getTimetableCr(req) {
-  return populateDoc(await findOwnEntry(req));
+  return publicEntry(await populateDoc(await findOwnEntry(req)));
 }
 
 export async function getTimetableStudent(req) {
-  return populateDoc(await findOwnEntry(req));
+  return publicEntry(await populateDoc(await findOwnEntry(req)));
 }
 
 /* -------------------------------- updates ------------------------------- */
@@ -343,6 +365,10 @@ async function applyUpdate(req, doc, { scoped }) {
   const endTime = fields.endTime ?? doc.endTime;
   assertRange(startTime, endTime);
 
+  const confirmationChanged = String(targetSection) !== String(doc.section) ||
+    String(fields.subject ?? doc.subject) !== String(doc.subject) ||
+    date !== doc.date || startTime !== doc.startTime || endTime !== doc.endTime ||
+    (fields.room !== undefined && fields.room !== doc.room);
   const before = { date: doc.date, startTime: doc.startTime, endTime: doc.endTime };
   const updated = await withSectionLock(targetSection, async (tx) => {
     const conflict = await Timetable.findOne(
@@ -359,11 +385,12 @@ async function applyUpdate(req, doc, { scoped }) {
     entityId: doc._id, section: doc.section, before,
     after: { date, startTime, endTime },
   });
+  if (confirmationChanged) await requestTeacherConfirmation(updated, req.user);
   await broadcastToSectionGroup(updated.section, await timetableMessage({
     verb: 'rescheduled', sectionId: updated.section, subjectId: updated.subject,
     date: updated.date, startTime: updated.startTime, endTime: updated.endTime, room: updated.room,
   }));
-  return updated;
+  return publicEntry(await Timetable.findById(updated._id));
 }
 
 export async function updateTimetableAdmin(req) {
@@ -392,7 +419,7 @@ async function archiveEntry(req, doc) {
     verb: 'cancelled', sectionId: doc.section, subjectId: doc.subject,
     date: doc.date, startTime: doc.startTime, endTime: doc.endTime, room: doc.room,
   }));
-  return doc;
+  return publicEntry(doc);
 }
 
 /** Hard delete — attendance sessions reference the section, not the slot, so removal is safe. */

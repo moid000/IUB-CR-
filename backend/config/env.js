@@ -27,6 +27,7 @@ export const env = {
     token: process.env.ULTRAMSG_TOKEN,
     apiUrl: process.env.ULTRAMSG_API_URL || 'https://api.ultramsg.com',
     sweepSecret: process.env.DEADLINE_SWEEP_SECRET,
+    webhookSecret: process.env.ULTRAMSG_WEBHOOK_SECRET,
     // trial watchdog (cron-job.org pings /api/whatsapp/watchdog hourly)
     dashboardEmail: process.env.ULTRAMSG_DASHBOARD_EMAIL,
     dashboardPassword: process.env.ULTRAMSG_DASHBOARD_PASSWORD,

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Input } from '../ui/Input.jsx';
 import { IconChevronLeft, IconChevronRight } from '../icons.jsx';
 import { fmtRoom, fmtTime } from '../../admin/format.js';
+import TeacherConfirmationStatus from './TeacherConfirmationStatus.jsx';
 
 /**
  * Shared mobile-first timetable building blocks (Student + CR pages).
@@ -240,6 +241,7 @@ export function SlotTimeline({ slots, isToday, now, renderActions }) {
                   </span>
                 )}
               </div>
+              <div className="mt-2.5"><TeacherConfirmationStatus confirmation={s.teacherConfirmation} /></div>
               {renderActions && <div className="mt-2.5">{renderActions(s)}</div>}
             </div>
           </li>

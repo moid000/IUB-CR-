@@ -61,6 +61,7 @@ production Atlas database is never touched by automated tests.
 | BREVO_API_KEY | later | OTP transactional email |
 | CLOUDINARY_* | later | signed direct uploads |
 | CORS_ORIGIN | no | local dev only; same-origin in production |
+| ULTRAMSG_WEBHOOK_SECRET | teacher confirmation | Random 32-byte hex secret in Vercel Production only. Must match the `key` parameter in the UltraMsg received-message webhook URL. |
 
 Secrets live only in Vercel environment variables — never in Git, never in
 frontend code, never in API responses.
@@ -69,3 +70,9 @@ frontend code, never in API responses.
 
 Vercel project: `iub_cr_lms`. Pushing to `main` deploys; `vercel deploy --prod`
 also works. Health check: `GET /api/health`.
+
+## Teacher class confirmation (UltraMsg, no Base44 runtime)
+
+When a CR/GR adds or materially reschedules an upcoming class, the linked subject teacher gets a WhatsApp message identifying the actual department, semester, section, class, time, and CR/GR. Reply with `YES <reference>` or `NO <reference>` (the message includes its unique reference). A plain YES/NO cannot be safely attributed when that teacher has more than one class. The reply updates only that active timetable slot and is visible to students and representatives as confirmed/unavailable. Past classes and subjects without linked teachers never trigger a message.
+
+Production UltraMsg instance settings: Webhook URL `https://iubcr.vercel.app/api/whatsapp/teacher-reply?key=<ULTRAMSG_WEBHOOK_SECRET>`; enable **Webhook on Received** only. Keep other webhook switches/settings unchanged. Set `ULTRAMSG_WEBHOOK_SECRET` as a Vercel Production *secret*, never in Git. The incoming route validates the secret, instance, sender, reference, event type, and linked teacher. Older replies after rescheduling, archiving or unlinking are ignored. Gateway failures never roll back a timetable edit; the existing cron-job.org deadline-sweep ping retries queued/failed confirmation sends up to three times. There is no Base44 data store, workflow or automation involved.

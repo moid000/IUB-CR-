@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { runDeadlineSweep } from '../services/deadlineSweepService.js';
 import { runWatchdog } from '../services/ultramsgWatchdogService.js';
+import { dispatchPendingTeacherConfirmations, handleTeacherReply } from '../services/teacherConfirmationService.js';
 
 /**
  * External pinger endpoints (cron-job.org hits this every ~5 minutes).
@@ -38,7 +39,13 @@ const handle = async (req, res, next) => {
   try {
     assertSweepSecret(req);
     const report = await runDeadlineSweep();
-    res.json({ success: true, data: report });
+    // Reuse the owner's existing cron-job.org ping; a confirmation retry must
+    // never block or change the assignment deadline sweep result.
+    const teacherConfirmations = await dispatchPendingTeacherConfirmations().catch((err) => {
+      console.error('[teacher confirmation sweep]', err.message);
+      return { error: true };
+    });
+    res.json({ success: true, data: { ...report, teacherConfirmations } });
   } catch (err) {
     next(err);
   }
@@ -64,5 +71,19 @@ const watchdogHandle = async (req, res, next) => {
 
 router.get('/watchdog', watchdogHandle);
 router.post('/watchdog', watchdogHandle);
+
+/** UltraMsg inbound replies. Secret lives ONLY in Vercel and in the gateway's
+ * webhook URL, separate from the existing cron secret. Invalid/unrelated
+ * messages are acknowledged silently; no WhatsApp auto-reply spam. */
+router.post('/teacher-reply', async (req, res, next) => {
+  try {
+    const expected = env.whatsapp.webhookSecret;
+    if (!expected) throw new ApiError(503, 'Teacher reply webhook is not configured');
+    const given = req.get('x-webhook-secret') || req.query.key;
+    if (!given || !constantTimeEqual(given, expected)) throw new ApiError(401, 'Invalid webhook secret');
+    const updated = await handleTeacherReply(req.body);
+    res.json({ success: true, data: { updated } });
+  } catch (err) { next(err); }
+});
 
 export default router;

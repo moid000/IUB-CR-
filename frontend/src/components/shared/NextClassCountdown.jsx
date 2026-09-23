@@ -62,7 +62,7 @@ export default function NextClassCountdown({ slots, loading = false, className =
   const live = useMemo(() => pktNow(), [tick]);
 
   const todaySlots = useMemo(
-    () => (slots ?? []).filter((s) => s.date === today)
+    () => (slots ?? []).filter((s) => s.date === today && s.teacherConfirmation?.status !== 'declined')
       .sort((a, b) => a.startTime.localeCompare(b.startTime)),
     [slots, today]
   );
@@ -153,7 +153,7 @@ export default function NextClassCountdown({ slots, loading = false, className =
       </>
     );
   } else if (todaySlots.length === 0) {
-    body = <p className="text-sm text-slate-500">No classes scheduled for today yet — your CR updates the timetable.</p>;
+    body = <p className="text-sm text-slate-500">{slots?.some((s) => s.date === today && s.teacherConfirmation?.status === 'declined') ? 'No upcoming classes: the teacher is unavailable. Check the timetable.' : 'No classes scheduled for today yet — your CR updates the timetable.'}</p>;
   } else {
     body = <p className="text-sm text-slate-500">All of today's classes are done.</p>;
   }

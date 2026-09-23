@@ -35,11 +35,30 @@ const timetableSchema = new Schema(
     room: { type: String, trim: true },
     createdBy: { type: ObjectId, ref: 'User', required: true },
     status: { type: String, enum: ['active', 'archived'], default: 'active' },
+    // Teacher reply is tied to THIS slot and THIS schedule revision. A copied or
+    // rescheduled class gets its own reference so old replies cannot confirm it.
+    teacherConfirmation: {
+      type: new Schema({
+        status: { type: String, enum: ['none', 'queued', 'sending', 'awaiting', 'confirmed', 'declined', 'failed'], default: 'none' },
+        code: { type: String },
+        teacher: { type: ObjectId, ref: 'Teacher' },
+        requestedBy: { type: ObjectId, ref: 'User' },
+        phone: { type: String },
+        attempts: { type: Number, default: 0 },
+        nextAttemptAt: { type: Date },
+        sentAt: { type: Date },
+        respondedAt: { type: Date },
+        replyId: { type: String },
+      }, { _id: false }),
+      default: () => ({ status: 'none' }),
+    },
   },
   { timestamps: true }
 );
 
 timetableSchema.index({ section: 1, date: 1, startTime: 1 });
 timetableSchema.index({ section: 1, status: 1 });
+timetableSchema.index({ 'teacherConfirmation.code': 1 }, { unique: true, partialFilterExpression: { 'teacherConfirmation.code': { $type: 'string' } } });
+timetableSchema.index({ 'teacherConfirmation.status': 1, 'teacherConfirmation.nextAttemptAt': 1 });
 
 export default mongoose.model('Timetable', timetableSchema);

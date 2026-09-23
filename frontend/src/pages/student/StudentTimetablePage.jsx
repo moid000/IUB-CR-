@@ -10,6 +10,7 @@ import { NoSection } from '../../student/NoSection.jsx';
 import NextClassCountdown from '../../components/shared/NextClassCountdown.jsx';
 import { DayNav, SlotTimeline, TimelineSkeleton, usePkNow, pktToday, prettyDate } from '../../components/shared/TimetableDay.jsx';
 import { IconCalendar } from '../../components/icons.jsx';
+import useTeacherConfirmationRefresh from '../../hooks/useTeacherConfirmationRefresh.js';
 
 /**
  * Student timetable — read-only DAILY wall-clock slots in Pakistan time.
@@ -29,7 +30,7 @@ export default function StudentTimetablePage() {
     () => studentApi.timetable.list({ date, status: 'active', page: 1, limit: 100 }), [date],
     () => studentApi.timetable.cachedList({ date, status: 'active', page: 1, limit: 100 })
   );
-  const { items: todaySlots, loading: todayLoading } = useAdminQuery(
+  const { items: todaySlots, loading: todayLoading, reload: reloadToday } = useAdminQuery(
     () => studentApi.timetable.list({ date: today, status: 'active', page: 1, limit: 100 }), [],
     () => studentApi.timetable.cachedList({ date: today, status: 'active', page: 1, limit: 100 })
   );
@@ -40,6 +41,8 @@ export default function StudentTimetablePage() {
   );
 
   useFocusHighlight(slots);
+  useTeacherConfirmationRefresh(slots, reload);
+  useTeacherConfirmationRefresh(todaySlots, reloadToday);
 
   if (!section) return <NoSection />;
 
