@@ -50,7 +50,7 @@ const cr = session();
 const student = session();
 const webhook = (body, key = 'fake-webhook-secret') => admin('POST', `/api/whatsapp/teacher-reply?key=${key}`, body);
 const incoming = (text, from = '923001112233@c.us') => ({ event_type: 'message_received', instanceId: 'test-instance',
-  data: { id: `incoming-${Math.random()}`, from, body: text, fromMe: false, type: 'chat' } });
+  data: { id: `incoming-${Math.random()}`, from, body: text, fromMe: false, type: 'chat', time: Math.floor(Date.now() / 1000) } });
 
 let section, subject, teacher, created;
 test('fixture: CR, student, section and linked teacher', async () => {
@@ -94,11 +94,11 @@ test('create sends one concise dynamic-class message and exposes pending status 
   assert.equal(single.json.data.teacherConfirmation.phone, undefined);
 });
 
-test('invalid secret, wrong number, unrelated data and plain YES never change status', async () => {
+test('invalid secret, wrong number and unrelated data never change status', async () => {
   const code = (await Timetable.findById(created)).teacherConfirmation.code;
   assert.equal((await webhook(incoming(`YES ${code}`), 'wrong')).status, 401);
   assert.equal((await webhook(incoming(`YES ${code}`, '923001112234@c.us'))).json.data.updated, false);
-  assert.equal((await webhook(incoming('YES'))).json.data.updated, false);
+  assert.equal((await webhook(incoming('YES', '923001112234@c.us'))).json.data.updated, false);
   assert.equal((await webhook({ ...incoming(`YES ${code}`), instanceId: 'different' })).json.data.updated, false);
   assert.equal((await Timetable.findById(created)).teacherConfirmation.status, 'awaiting');
 });
@@ -137,6 +137,39 @@ test('copy gets its OWN independent reference, old slot response cannot affect c
   assert.equal(copied.teacherConfirmation.status, 'awaiting');
 });
 
+test('a single awaiting request accepts natural YES or NO from its teacher', async () => {
+  const yesSlot = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-06', startTime: '10:00', endTime: '11:00' });
+  // Copied 2099-01-04 is still awaiting from a previous test: close it first.
+  const oldPending = await Timetable.findOne({ section, date: '2099-01-04' });
+  assert.equal((await webhook(incoming(`YES ${oldPending.teacherConfirmation.code}`))).json.data.updated, true);
+  assert.equal((await webhook(incoming('Yes'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(yesSlot.json.data._id)).teacherConfirmation.status, 'confirmed');
+  const noSlot = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-06', startTime: '12:00', endTime: '13:00' });
+  assert.equal((await webhook(incoming('NO'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(noSlot.json.data._id)).teacherConfirmation.status, 'declined');
+});
+
+test('bare reply cannot guess between two classes or confirm a newer request from an old event', async () => {
+  const a = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-07', startTime: '10:00', endTime: '11:00' });
+  const b = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-08', startTime: '10:00', endTime: '11:00' });
+  assert.equal((await webhook(incoming('YES'))).json.data.updated, false);
+  assert.equal((await Timetable.findById(a.json.data._id)).teacherConfirmation.status, 'awaiting');
+  assert.equal((await Timetable.findById(b.json.data._id)).teacherConfirmation.status, 'awaiting');
+  const one = await Timetable.findById(a.json.data._id);
+  assert.equal((await webhook(incoming(`YES ${one.teacherConfirmation.code}`))).json.data.updated, true);
+  const stale = incoming('YES');
+  stale.data.time = Math.floor(new Date((await Timetable.findById(b.json.data._id)).teacherConfirmation.sentAt).getTime() / 1000) - 120;
+  assert.equal((await webhook(stale)).json.data.updated, false);
+  assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(b.json.data._id)).teacherConfirmation.status, 'confirmed');
+  const millisecondsSlot = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-10', startTime: '10:00', endTime: '11:00' });
+  const millis = incoming('YES');
+  delete millis.data.time;
+  millis.data.timestamp = Date.now(); // provider chat-history format
+  assert.equal((await webhook(millis)).json.data.updated, true);
+  assert.equal((await Timetable.findById(millisecondsSlot.json.data._id)).teacherConfirmation.status, 'confirmed');
+});
+
 test('gateway failure never cancels creation; existing external sweep safely retries it', async () => {
   failNext = true;
   const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-05', startTime: '10:00', endTime: '11:00' });
@@ -168,7 +201,7 @@ test('past class backfills do not disturb teachers', async () => {
 test('unknown subject teacher means no message, and archived slot ignores a late answer', async () => {
   await Teacher.deleteOne({ _id: teacher._id });
   const count = sent.length;
-  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-06', startTime: '10:00', endTime: '11:00' });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-09', startTime: '10:00', endTime: '11:00' });
   assert.equal(r.status, 200);
   assert.equal(sent.length, count);
   assert.equal((await Timetable.findById(r.json.data._id)).teacherConfirmation.status, 'none');

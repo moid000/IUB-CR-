@@ -12,9 +12,9 @@ const fmtTime = (time) => {
   return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
 };
 
-/** A short per-revision reference is mandatory: plain YES is ambiguous when
- * one teacher has multiple classes, and a delayed duplicate could confirm
- * the wrong slot. The private sender number must also match the linked teacher. */
+/** A short per-revision reference disambiguates teachers with multiple pending
+ * classes. Plain YES/NO is accepted only for one timely request from that
+ * same linked teacher phone. */
 export function buildTeacherMessage({ section, department, teacher, subject, author, slot, code }) {
   const day = fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`));
   const authorRole = author?.role === 'gr' ? 'GR' : author?.role === 'cr' ? 'CR' : 'Admin';
@@ -109,32 +109,50 @@ export async function dispatchPendingTeacherConfirmations() {
 
 /** UltraMsg official webhook payload: {event_type,instanceId,data:{id,from,
  * type,body,fromMe}}. Caller authenticates the webhook with an independent
- * URL secret. Only an exact answer + reference + matching teacher number can
- * change an ACTIVE slot. Duplicate/replayed/late replies are no-ops. */
+ * URL secret. Exact references select a slot; plain YES/NO requires one
+ * pending slot and a message timestamp after its send. Duplicate/replayed/
+ * late replies are no-ops. */
 export async function handleTeacherReply(payload) {
   if (payload?.event_type !== 'message_received' ||
       String(payload?.instanceId ?? '').replace(/^instance/i, '') !==
         String(env.whatsapp.instanceId ?? '').replace(/^instance/i, '') ||
       payload?.data?.fromMe !== false || payload?.data?.type !== 'chat') return false;
-  const match = /^\s*(YES|NO)\s+([A-F0-9]{10})\s*[.!]?\s*$/i.exec(String(payload.data.body ?? ''));
-  if (!match) return false;
+  const body = String(payload.data.body ?? '').trim();
+  const exact = /^(YES|NO)\s+([A-F0-9]{10})\s*[.!]?$/i.exec(body);
+  const plain = /^(YES|NO)\s*[.!]?$/i.exec(body);
+  if (!exact && !plain) return false;
   const sender = String(payload.data.from ?? '').split('@')[0].replace(/\D/g, '');
   if (!sender || !payload.data.id) return false;
-  // A teacher who was unlinked or whose number changed must not be able to
-  // approve a class from an obsolete request, even if their old phone and
-  // private reference still match the WhatsApp message.
-  const slot = await Timetable.findOne({ status: 'active', 'teacherConfirmation.code': match[2].toUpperCase(),
-    'teacherConfirmation.phone': sender }).select('section subject teacherConfirmation.teacher').lean();
+  let slot;
+  if (exact) {
+    slot = await Timetable.findOne({ status: 'active', 'teacherConfirmation.code': exact[2].toUpperCase(),
+      'teacherConfirmation.phone': sender }).select('section subject teacherConfirmation').lean();
+  } else {
+    // A bare YES/NO has no class identifier: accept it ONLY when the teacher
+    // has exactly one awaiting request. The provider message time also must
+    // postdate that request; old/replayed answers must not confirm a new slot.
+    const rawTime = Number(payload.data.time ?? payload.data.timestamp);
+    const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime; // seconds in webhook, millis in some chat histories
+    if (!Number.isFinite(epoch) || epoch < 1_500_000_000 || epoch > Date.now() / 1000 + 300) return false;
+    const replyTime = new Date(epoch * 1000);
+    const matches = await Timetable.find({ status: 'active', 'teacherConfirmation.phone': sender,
+      'teacherConfirmation.status': 'awaiting',
+      'teacherConfirmation.sentAt': { $lte: new Date(replyTime.getTime() + 10_000) },
+    }).limit(2).select('section subject teacherConfirmation').lean();
+    if (matches.length !== 1 || !matches[0].teacherConfirmation.sentAt ||
+        new Date(matches[0].teacherConfirmation.sentAt).getTime() > replyTime.getTime() + 10_000) return false;
+    slot = matches[0];
+  }
   if (!slot?.teacherConfirmation?.teacher) return false;
   const linked = await Teacher.exists({ _id: slot.teacherConfirmation.teacher,
     section: slot.section, subject: slot.subject, whatsapp: sender });
   if (!linked) return false;
   const updated = await Timetable.findOneAndUpdate({
-    status: 'active', 'teacherConfirmation.code': match[2].toUpperCase(),
+    _id: slot._id, status: 'active', 'teacherConfirmation.code': slot.teacherConfirmation.code,
     'teacherConfirmation.phone': sender,
-    'teacherConfirmation.status': { $in: ['sending', 'awaiting', 'failed'] },
+    'teacherConfirmation.status': exact ? { $in: ['sending', 'awaiting', 'failed'] } : 'awaiting',
   }, { $set: {
-    'teacherConfirmation.status': match[1].toUpperCase() === 'YES' ? 'confirmed' : 'declined',
+    'teacherConfirmation.status': (exact || plain)[1].toUpperCase() === 'YES' ? 'confirmed' : 'declined',
     'teacherConfirmation.respondedAt': new Date(),
     'teacherConfirmation.replyId': String(payload.data.id).slice(0, 200),
   } }, { new: true }).select('_id').lean();
