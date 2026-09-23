@@ -101,7 +101,7 @@ export default function AdminLayout() {
   const sidebarBodyProps = {};
 
   return (
-    <div className="min-h-dvh bg-slate-50">
+    <div className="min-h-dvh overflow-x-hidden bg-slate-50">
       {/* ---- Desktop sidebar rail ---- */}
       <aside
         className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-slate-200/80 bg-white transition-[width] duration-200 lg:flex

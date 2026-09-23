@@ -156,7 +156,7 @@ export default function CrLayout() {
   const sectionLabel = section ? `${section.department?.name ?? ''} ${section.name}`.trim() : null;
 
   return (
-    <div className="min-h-dvh bg-slate-50">
+    <div className="min-h-dvh overflow-x-hidden bg-slate-50">
       {/* ---- Desktop sidebar rail ---- */}
       <aside
         className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200/80 bg-white lg:flex"
