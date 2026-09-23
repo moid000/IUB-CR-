@@ -15,7 +15,7 @@ const StaggerItem = Reveal;
 import {
   IconGrid, IconUserSquare, IconGraduation, IconMegaphone, IconFileText,
   IconClipboard, IconQr, IconCheckCircle, IconMenu, IconX,
-  IconArrowRight, IconPlus, IconBell, IconClock, IconCheck, IconBuilding,
+  IconArrowRight, IconPlus, IconBell, IconClock, IconCheck, IconBuilding, IconShield,
 } from '../components/icons.jsx';
 
 /* ------------------------------------------------------------------ *
@@ -799,30 +799,49 @@ function TrustNotice() {
     <section aria-label="About Tri3M and your data" className="relative py-14 lg:py-16">
       <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8">
         <Reveal>
-          <div className="landing-card rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_1px_2px_rgb(16_24_40/0.05)] sm:p-8">
-            <div className="flex items-center gap-3">
-              <span className="relative grid size-9 place-items-center rounded-xl bg-primary-50 text-primary-600">
+          <div className="landing-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgb(16_24_40/0.05)]">
+            {/* Header strip — icon badge + eyebrow/heading, matches the rest of the site's section headers. */}
+            <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-6 py-5 sm:px-8">
+              <span className="relative grid size-10 shrink-0 place-items-center rounded-xl bg-primary-50 text-primary-600">
                 <IconBuilding className="size-5" />
                 <span className="animate-live-pulse absolute -right-1 -top-1 size-2.5 rounded-full bg-primary-500 ring-2 ring-white" aria-hidden="true" />
               </span>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">An independent, student-built class tool</h2>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary-600">About Tri3M</p>
+                <h2 className="mt-0.5 text-base font-bold tracking-tight text-slate-900 sm:text-lg">An independent, student-built class tool</h2>
+              </div>
             </div>
-            <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
+
+            <div className="space-y-3 px-6 py-6 text-sm leading-relaxed text-slate-600 sm:px-8">
               <p>
                 Tri3M is a software tool built for class representatives (CRs) and group representatives (GRs), so they can manage
                 their sections in a disciplined, time-saving way. It is <span className="font-semibold text-slate-900">not an official or registered
-                product of the Islamia University of Bahawalpur (IUB)</span>, and it is not run, prompted, promoted or endorsed by the
+                product of the Islamia University of Bahawalpur (IUB)</span>, and it is not run, promoted or endorsed by the
                 university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher. It should not be taken as a
                 university or HOD initiative in any form.
               </p>
               <p>
                 Tri3M is represented by the students of the AI Department, Semester&nbsp;2, Section&nbsp;3M. Student data is
                 <span className="font-semibold text-slate-900"> never leaked or shared under any circumstances</span>, and is
-                <span className="font-semibold text-slate-900"> never used for advertising</span>. Full details are in our{' '}
-                <Link to="/privacy" className="font-medium text-primary-600 transition-colors hover:text-primary-700">Privacy Policy</Link>
-                {' '}and{' '}
-                <Link to="/terms" className="font-medium text-primary-600 transition-colors hover:text-primary-700">Terms &amp; Conditions</Link>.
+                <span className="font-semibold text-slate-900"> never used for advertising</span>.
               </p>
+            </div>
+
+            {/* Footer strip — proper legal-link row instead of inline text links. */}
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-6 py-4 sm:px-8">
+              <span className="text-xs font-semibold text-slate-500">Full details:</span>
+              <Link
+                to="/privacy"
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
+              >
+                <IconShield className="size-3.5" /> Privacy Policy
+              </Link>
+              <Link
+                to="/terms"
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
+              >
+                <IconFileText className="size-3.5" /> Terms &amp; Conditions
+              </Link>
             </div>
           </div>
         </Reveal>

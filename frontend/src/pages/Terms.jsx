@@ -15,7 +15,7 @@ const SECTIONS = [
       'By accessing or using Tri3M ("the Service"), you agree to be bound by these Terms & Conditions. If you do not agree, please do not use the Service.',
       'The Service is provided for student class sections and is operated on behalf of the section admin and class representative (CR).',
       'Tri3M is built for class representatives (CRs) and group representatives (GRs), so they can manage their sections in a disciplined, time-saving way.',
-      'Tri3M is an independent, student-built software. It is not an official or registered product of the Islamia University of Bahawalpur (IUB), and it is not run, prompted, promoted or endorsed by the university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher — it should not be taken as a university or HOD initiative in any form. Tri3M is represented by the students of the AI Department, Semester 2, Section 3M, and exists to help class representatives (CRs) and group representatives (GRs) manage their sections in a disciplined, time-saving way.',
+      'Tri3M is an independent, student-built software. It is not an official or registered product of the Islamia University of Bahawalpur (IUB), and it is not run, promoted or endorsed by the university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher — it should not be taken as a university or HOD initiative in any form. Tri3M is represented by the students of the AI Department, Semester 2, Section 3M, and exists to help class representatives (CRs) and group representatives (GRs) manage their sections in a disciplined, time-saving way.',
     ],
   },
   {
