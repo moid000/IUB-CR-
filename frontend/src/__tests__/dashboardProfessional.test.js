@@ -17,7 +17,9 @@ describe('student and CR dashboards share professional information hierarchy', (
       expect(code).toContain('title="Today"');
       expect(code).toContain('title="Latest"');
       expect(code).toContain('lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]');
-      expect(code).toContain('lg:grid-cols-2');
+      expect(code).toContain('grid-cols-[minmax(0,1fr)]');
+      expect(code).toContain('lg:grid-cols-[repeat(2,minmax(0,1fr))]');
+      expect((code.match(/<Card className="min-w-0 h-full p-5 sm:p-6">/g) || []).length).toBe(2);
       expect(code).toContain('wideMobile');
       expect(code).not.toContain('Stagger');
       expect(code).not.toContain('FadeIn');

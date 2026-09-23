@@ -86,8 +86,8 @@ export default function StudentOverview() {
 
       <section aria-label="Latest updates">
         <DashboardSectionHeader title="Latest" description="Upcoming deadlines and recent section announcements." />
-        <div className="grid items-stretch gap-4 lg:grid-cols-2">
-          <Card className="h-full p-5 sm:p-6">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-stretch gap-4 lg:grid-cols-[repeat(2,minmax(0,1fr))]">
+          <Card className="min-w-0 h-full p-5 sm:p-6">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-900">Upcoming assignments</h3>
               <Link to="/student/assignments" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
@@ -112,7 +112,7 @@ export default function StudentOverview() {
             </div>
           </Card>
 
-          <Card className="h-full p-5 sm:p-6">
+          <Card className="min-w-0 h-full p-5 sm:p-6">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-900">Recent announcements</h3>
               <Link to="/student/announcements" className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
