@@ -83,7 +83,9 @@ test('create sends one concise dynamic-class message and exposes pending status 
   assert.match(sent[0].body, /Tri3M Class Agent.*Developed by the students of AI Dept, Semester 2, Section 3M/);
   assert.doesNotMatch(sent[0].body.split('\n')[0], /AI Dept|Section 3M/);
   const code = (await Timetable.findById(created)).teacherConfirmation.code;
-  assert.match(sent[0].body, new RegExp(`YES ${code}.*NO ${code}`));
+  assert.match(sent[0].body, /Reply \*YES\* or \*NO\*\./);
+  assert.match(sent[0].body, new RegExp(`YES ${code}.*NO ${code}`, 's'));
+  assert.match(sent[0].body, /\n\n/); // blank-line spacing between sections for readability
   const crList = await cr('GET', '/api/cr/timetable?date=2099-01-03&status=active');
   const studentList = await student('GET', '/api/student/timetable?date=2099-01-03&status=active');
   assert.equal(crList.json.data[0].teacherConfirmation.status, 'awaiting');

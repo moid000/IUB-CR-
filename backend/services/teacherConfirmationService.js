@@ -20,8 +20,11 @@ export function buildTeacherMessage({ section, department, teacher, subject, aut
   const authorRole = author?.role === 'gr' ? 'GR' : author?.role === 'cr' ? 'CR' : 'Admin';
   return [
     `*${clean(department?.name)} · Semester ${section.semester} · Section ${clean(section.name, 25)}*`,
+    '',
     `Hello ${clean(teacher.name)}, your *${clean(subject.name)}* class is scheduled for *${day}, ${fmtTime(slot.startTime)}–${fmtTime(slot.endTime)}*. Added by ${clean(author?.name)} (${authorRole}).`,
-    `Will you take this class? Reply *YES ${code}* or *NO ${code}*.`,
+    '',
+    'Will you take this class? Reply *YES* or *NO*.',
+    `_(Only if you have more than one pending request, reply YES ${code} or NO ${code} instead.)_`,
     '',
     '_Tri3M Class Agent · Your reply updates the student timetable. Developed by the students of AI Dept, Semester 2, Section 3M._',
   ].join('\n');
