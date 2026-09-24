@@ -20,8 +20,8 @@ self.addEventListener('push', (event) => {
     await self.registration.showNotification(data.title, {
       body: data.body,
       tag: data.tag,
-      icon: `${self.location.origin}/logo-192.png`,
-      badge: `${self.location.origin}/logo-64.png`,
+      icon: new URL('logo-192.png', self.registration.scope).href,
+      badge: new URL('logo-64.png', self.registration.scope).href,
       data: { url: data.url },
     });
   })());
