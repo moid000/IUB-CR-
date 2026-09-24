@@ -71,19 +71,26 @@ test('fixture: CR, student, section and linked teacher', async () => {
 });
 
 test('create sends one concise dynamic-class message and exposes pending status on both portals', async () => {
-  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-03', startTime: '10:00', endTime: '11:00' });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-03', startTime: '10:00', endTime: '11:00', room: 'Room 12' });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   created = r.json.data._id;
   assert.equal(r.json.data.teacherConfirmation.code, undefined);
   assert.equal(r.json.data.teacherConfirmation.status, 'awaiting');
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, teacher.whatsapp);
-  assert.match(sent[0].body, /Computer Science · Semester 4 · Section 4B/);
-  assert.match(sent[0].body, /Data Structures.*Alex Representative \(CR\)/);
-  assert.match(sent[0].body, /Tri3M Class Agent.*Developed by the students of AI Dept, Semester 2, Section 3M/);
+  assert.equal(sent[0].body.split('\n')[0], '*Tri3M Class Agent*');
+  assert.match(sent[0].body, /AI-Powered Class Management Assistant/);
+  assert.match(sent[0].body, /Assalam-o-Alaikum Respected \*Dr Test\*/,);
+  assert.match(sent[0].body, /I am \*Alex Representative\*, CR of \*4B\*\./);
+  assert.match(sent[0].body, /🎓 Department: \*Computer Science\*/);
+  assert.match(sent[0].body, /📚 Semester: \*4\*/);
+  assert.match(sent[0].body, /🏫 Section: \*4B\*/);
+  assert.match(sent[0].body, /Your \*Data Structures\* lecture is scheduled for /);
+  assert.match(sent[0].body, /📍 Room 12/);
+  assert.match(sent[0].body, /Please reply \*YES\* or \*NO\*\./);
+  assert.match(sent[0].body, /— Tri3M Class Agent\nDeveloped by the students of the AI Department, IUB\nSemester 2 • Section 3M/);
   assert.doesNotMatch(sent[0].body.split('\n')[0], /AI Dept|Section 3M/);
   const code = (await Timetable.findById(created)).teacherConfirmation.code;
-  assert.match(sent[0].body, /Reply \*YES\* or \*NO\*\./);
   assert.doesNotMatch(sent[0].body, new RegExp(code)); // reference code stays private, never printed in the message
   assert.match(sent[0].body, /\n\n/); // blank-line spacing between sections for readability
   const crList = await cr('GET', '/api/cr/timetable?date=2099-01-03&status=active');
@@ -110,6 +117,12 @@ test('matching teacher YES confirms exactly one slot; duplicate and wrong reply 
   assert.equal((await webhook(incoming(`YES ${code}`))).json.data.updated, true);
   assert.equal((await webhook(incoming(`NO ${code}`))).json.data.updated, false);
   assert.equal((await student('GET', '/api/student/timetable?date=2099-01-03&status=active')).json.data[0].teacherConfirmation.status, 'confirmed');
+  // Every YES/NO answer now triggers a varied thank-you with the portal link.
+  assert.equal(sent[1].to, teacher.whatsapp);
+  assert.match(sent[1].body, /iubcr\.vercel\.app/);
+  assert.match(sent[1].body, /\*Dr Test\*/);
+  assert.match(sent[1].body, /confirmed/i);
+  assert.match(sent[1].body, /— Tri3M Class Agent/);
 });
 
 test('material reschedule sends a new ref; old reply is rejected, new NO marks unavailable', async () => {
@@ -119,7 +132,7 @@ test('material reschedule sends a new ref; old reply is rejected, new NO marks u
   assert.equal(r.json.data.teacherConfirmation.code, undefined);
   const current = (await Timetable.findById(created)).teacherConfirmation.code;
   assert.notEqual(current, before);
-  assert.equal(sent.length, 2);
+  assert.equal(sent.length, 3); // create + YES thank-you + rescheduled ref
   assert.equal((await webhook(incoming(`YES ${before}`))).json.data.updated, false);
   assert.equal((await webhook(incoming(`NO ${current}`))).json.data.updated, true);
   assert.equal((await Timetable.findById(created)).teacherConfirmation.status, 'declined');
@@ -132,7 +145,7 @@ test('copy gets its OWN independent reference, old slot response cannot affect c
   const r = await cr('POST', '/api/cr/timetable/copy', { fromDate: '2099-01-03', toDate: '2099-01-04' });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(r.json.data.copied, 1);
-  assert.equal(sent.length, 3);
+  assert.equal(sent.length, 5); // create + YES thanks + rescheduled ref + NO thanks + copy
   const copied = await Timetable.findOne({ section, date: '2099-01-04' });
   const original = await Timetable.findById(created);
   assert.notEqual(copied.teacherConfirmation.code, original.teacherConfirmation.code);
@@ -222,6 +235,23 @@ test('unknown subject teacher means no message, and archived slot ignores a late
   const copied = await Timetable.findOne({ section, date: '2099-01-04' });
   await cr('POST', `/api/cr/timetable/${copied._id}/archive`);
   assert.equal((await webhook(incoming(`YES ${copied.teacherConfirmation.code}`))).json.data.updated, false);
+});
+
+test('thank-you follow-ups rotate through a pool and always carry the portal link', async () => {
+  const { buildFollowUpMessage } = await import('../backend/services/teacherConfirmationService.js');
+  const ctx = { teacher: 'Dr Test', subject: 'Data Structures', section: '4B', day: 'Sun, 3 Jan 2099', time: '10:00 AM – 11:00 AM' };
+  const yes = new Set(Array.from({ length: 40 }, () => buildFollowUpMessage('yes', ctx)));
+  const no = new Set(Array.from({ length: 40 }, () => buildFollowUpMessage('no', ctx)));
+  assert.ok(yes.size >= 3, `YES pool should rotate across variants (got ${yes.size})`);
+  assert.ok(no.size >= 3, `NO pool should rotate across variants (got ${no.size})`);
+  for (const body of [...yes, ...no]) {
+    assert.match(body, /iubcr\.vercel\.app/);
+    assert.match(body, /Tri3M Class Agent/);
+    assert.match(body, /\*Dr Test\*/);
+    assert.match(body, /\*Data Structures\*/);
+  }
+  for (const body of yes) assert.match(body, /confirmed/i);
+  for (const body of no) assert.match(body, /not confirmed|not left waiting/);
 });
 
 test.after(async () => {

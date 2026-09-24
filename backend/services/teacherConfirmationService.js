@@ -7,6 +7,17 @@ const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 3; // existing external 5-minute pinger, no new jobs or Base44 usage
 const fmtDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' });
 const clean = (value, max = 65) => String(value ?? '').replace(/[\r\n\t*_~]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+const bold = (value, max = 65) => `*${clean(value, max)}*`;
+const PORTAL_URL = process.env.APP_URL || 'https://iubcr.vercel.app';
+
+/** PKT-relative label so the greeting line never lies about the day. */
+const relativeDay = (dateStr) => {
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const diff = Math.round((new Date(`${dateStr}T12:00:00Z`).getTime() - new Date(`${todayStr}T12:00:00Z`).getTime()) / 86_400_000);
+  if (diff === 0) return 'today';
+  if (diff === 1) return 'tomorrow';
+  return `on ${fmtDate.format(new Date(`${dateStr}T12:00:00+05:00`)).split(',')[0]}`;
+};
 const fmtTime = (time) => {
   const [hours, minutes] = time.split(':').map(Number);
   return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
@@ -17,16 +28,124 @@ const fmtTime = (time) => {
  * same linked teacher phone. */
 export function buildTeacherMessage({ section, department, teacher, subject, author, slot, code }) {
   const day = fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`));
-  const authorRole = author?.role === 'gr' ? 'GR' : author?.role === 'cr' ? 'CR' : 'Admin';
+  const authorRole = author?.role === 'gr' ? 'GR' : author?.role === 'admin' ? 'Admin' : 'CR';
+  const room = clean(slot.room, 40);
   return [
-    `*${clean(department?.name)} · Semester ${section.semester} · Section ${clean(section.name, 25)}*`,
+    '*Tri3M Class Agent*',
+    'AI-Powered Class Management Assistant',
     '',
-    `Hello ${clean(teacher.name)}, your *${clean(subject.name)}* class is scheduled for *${day}, ${fmtTime(slot.startTime)}–${fmtTime(slot.endTime)}*. Added by ${clean(author?.name)} (${authorRole}).`,
+    `Assalam-o-Alaikum Respected ${bold(teacher.name)},`,
     '',
-    'Will you take this class? Reply *YES* or *NO*.',
+    `I am ${bold(author?.name)}, ${authorRole} of ${bold(section.name, 25)}.`,
     '',
-    '_Tri3M Class Agent · Your reply updates the student timetable. Developed by the students of AI Dept, Semester 2, Section 3M._',
+    `🎓 Department: ${bold(department?.name)}`,
+    `📚 Semester: ${bold(String(section.semester))}`,
+    `🏫 Section: ${bold(section.name, 25)}`,
+    '',
+    `Your ${bold(subject.name)} lecture is scheduled for ${relativeDay(slot.date)}:`,
+    '',
+    `📅 ${day} | 🕐 ${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}${room ? ` | 📍 ${room}` : ''}`,
+    '',
+    'Kindly confirm whether you will be conducting the lecture.',
+    '',
+    'Please reply *YES* or *NO*.',
+    '',
+    'Thank you for your cooperation.',
+    'JazakAllah Khair.',
+    '',
+    '— Tri3M Class Agent',
+    'Developed by the students of the AI Department, IUB',
+    'Semester 2 • Section 3M',
   ].join('\n');
+}
+
+/** Thank-you pools: a teacher who confirms week after week must never read the
+ * same acknowledgement twice. One variant is picked at random per answer; all
+ * stay brief, professional, and end with the student-visible portal link. */
+const FOLLOW_UP_POOLS = {
+  yes: [
+    ({ teacher, subject, section, day, time }) => [
+      `JazakAllah Khair, ${bold(teacher)}! ✅`,
+      '',
+      `Your ${bold(subject)} lecture on ${day} (${time}) is marked *confirmed* — students of ${bold(section, 25)} have been informed.`,
+      '',
+      `Portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day }) => [
+      `Thank you for confirming, ${bold(teacher)}! ✅`,
+      '',
+      `${bold(section, 25)} students can now see your ${bold(subject)} class on ${day} as *confirmed*.`,
+      '',
+      `View the live class status: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day, time }) => [
+      `Much appreciated, ${bold(teacher)}! 🌟`,
+      '',
+      `Your ${bold(subject)} lecture (${day}, ${time}) is confirmed in the portal — ${bold(section, 25)} students have been notified.`,
+      '',
+      `Tri3M portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day }) => [
+      `Confirmed — thank you, ${bold(teacher)}! ✅`,
+      '',
+      `Students of ${bold(section, 25)} will see your ${bold(subject)} class as confirmed for ${day}.`,
+      '',
+      `Check class status anytime: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+  ],
+  no: [
+    ({ teacher, subject, section, day, time }) => [
+      `Thank you for letting us know, ${bold(teacher)}. 🙏`,
+      '',
+      `Your ${bold(subject)} lecture on ${day} (${time}) is marked *not confirmed* — students of ${bold(section, 25)} have been informed.`,
+      '',
+      `Portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day }) => [
+      `Received, thank you ${bold(teacher)}. 🙏`,
+      '',
+      `We have updated your ${bold(subject)} class for ${day} so ${bold(section, 25)} students are not left waiting.`,
+      '',
+      `View the updated timetable: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day, time }) => [
+      `Understood, thank you for the quick reply, ${bold(teacher)}. 🙏`,
+      '',
+      `The ${bold(subject)} class (${day}, ${time}) now shows as *not confirmed* for ${bold(section, 25)} students.`,
+      '',
+      `Tri3M portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day }) => [
+      `Noted with thanks, ${bold(teacher)}. 🙏`,
+      '',
+      `Students of ${bold(section, 25)} will see the ${day} ${bold(subject)} class as *not confirmed* — no one is left waiting.`,
+      '',
+      `Check class status anytime: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+  ],
+};
+
+/** Random pick from the pool; exported for tests. kind is 'yes' or 'no'. */
+export function buildFollowUpMessage(kind, ctx) {
+  const pool = FOLLOW_UP_POOLS[kind === 'yes' ? 'yes' : 'no'];
+  const template = pool[Math.floor(Math.random() * pool.length)];
+  return template(ctx);
 }
 
 /** Queue one request for a newly created or materially changed slot. Missing
@@ -158,7 +277,7 @@ export async function handleTeacherReply(payload) {
   let slot;
   if (exact) {
     slot = await Timetable.findOne({ status: 'active', 'teacherConfirmation.code': exact[2].toUpperCase(),
-      'teacherConfirmation.phone': sender }).select('section subject teacherConfirmation').lean();
+      'teacherConfirmation.phone': sender }).select('section subject date startTime endTime teacherConfirmation').lean();
   } else {
     // A bare YES/NO has no class identifier: accept it ONLY when the teacher
     // has exactly one awaiting request. The provider message time also must
@@ -170,7 +289,7 @@ export async function handleTeacherReply(payload) {
     const matches = await Timetable.find({ status: 'active', 'teacherConfirmation.phone': sender,
       'teacherConfirmation.status': 'awaiting',
       'teacherConfirmation.sentAt': { $lte: new Date(replyTime.getTime() + 10_000) },
-    }).limit(2).select('section subject teacherConfirmation').lean();
+    }).limit(2).select('section subject date startTime endTime teacherConfirmation').lean();
     if (matches.length !== 1 || !matches[0].teacherConfirmation.sentAt ||
         new Date(matches[0].teacherConfirmation.sentAt).getTime() > replyTime.getTime() + 10_000) return false;
     slot = matches[0];
@@ -189,6 +308,26 @@ export async function handleTeacherReply(payload) {
     'teacherConfirmation.replyId': String(payload.data.id).slice(0, 200),
   } }, { new: true }).select('_id').lean();
   if (updated) {
+    // Thank the teacher with a randomly rotated variant (never the same
+    // acknowledgement twice) and hand them the student-visible portal link.
+    // Best-effort: a gateway hiccup never blocks the next class question.
+    try {
+      const answer = (exact || plain)[1].toUpperCase();
+      const [sectionDoc, subjectDoc, teacherDoc] = await Promise.all([
+        Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
+        Subject.findById(slot.subject).select('name').lean(),
+        Teacher.findById(slot.teacherConfirmation.teacher).select('name').lean(),
+      ]);
+      if (teacherDoc) {
+        await sendText(sender, buildFollowUpMessage(answer === 'YES' ? 'yes' : 'no', {
+          teacher: teacherDoc.name,
+          subject: subjectDoc?.name,
+          section: sectionDoc?.name,
+          day: fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`)),
+          time: `${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}`,
+        }));
+      }
+    } catch (err) { console.error('[teacher follow-up]', err.message); }
     // The answer frees the queue: ask the teacher's next pending class now,
     // so the conversation stays one simple YES/NO question at a time.
     try {
