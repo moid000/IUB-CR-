@@ -151,19 +151,31 @@ test('a single awaiting request accepts natural YES or NO from its teacher', asy
   assert.equal((await Timetable.findById(noSlot.json.data._id)).teacherConfirmation.status, 'declined');
 });
 
-test('bare reply cannot guess between two classes or confirm a newer request from an old event', async () => {
+test('two pending classes queue one-by-one so a plain YES/NO stays unambiguous', async () => {
   const a = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-07', startTime: '10:00', endTime: '11:00' });
+  const sentAfterA = sent.length;
   const b = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-08', startTime: '10:00', endTime: '11:00' });
-  assert.equal((await webhook(incoming('YES'))).json.data.updated, false);
+  // Second class waits behind the first: no second message, no ambiguity.
+  assert.equal(sent.length, sentAfterA);
   assert.equal((await Timetable.findById(a.json.data._id)).teacherConfirmation.status, 'awaiting');
+  assert.equal((await Timetable.findById(b.json.data._id)).teacherConfirmation.status, 'queued');
+  // Teacher answers the ONE question they were asked: plain YES is enough.
+  assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(a.json.data._id)).teacherConfirmation.status, 'confirmed');
+  // The answer freed the queue: the second class question went out immediately.
   assert.equal((await Timetable.findById(b.json.data._id)).teacherConfirmation.status, 'awaiting');
-  const one = await Timetable.findById(a.json.data._id);
-  assert.equal((await webhook(incoming(`YES ${one.teacherConfirmation.code}`))).json.data.updated, true);
+  // A plain NO then decides the second class on its own.
+  assert.equal((await webhook(incoming('NO'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(b.json.data._id)).teacherConfirmation.status, 'declined');
+});
+
+test('an old reply-time cannot confirm a newer request; millisecond timestamps still work', async () => {
+  const c = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-09', startTime: '10:00', endTime: '11:00' });
   const stale = incoming('YES');
-  stale.data.time = Math.floor(new Date((await Timetable.findById(b.json.data._id)).teacherConfirmation.sentAt).getTime() / 1000) - 120;
+  stale.data.time = Math.floor(new Date((await Timetable.findById(c.json.data._id)).teacherConfirmation.sentAt).getTime() / 1000) - 120;
   assert.equal((await webhook(stale)).json.data.updated, false);
   assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
-  assert.equal((await Timetable.findById(b.json.data._id)).teacherConfirmation.status, 'confirmed');
+  assert.equal((await Timetable.findById(c.json.data._id)).teacherConfirmation.status, 'confirmed');
   const millisecondsSlot = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-10', startTime: '10:00', endTime: '11:00' });
   const millis = incoming('YES');
   delete millis.data.time;
@@ -203,7 +215,7 @@ test('past class backfills do not disturb teachers', async () => {
 test('unknown subject teacher means no message, and archived slot ignores a late answer', async () => {
   await Teacher.deleteOne({ _id: teacher._id });
   const count = sent.length;
-  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-09', startTime: '10:00', endTime: '11:00' });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-11', startTime: '10:00', endTime: '11:00' });
   assert.equal(r.status, 200);
   assert.equal(sent.length, count);
   assert.equal((await Timetable.findById(r.json.data._id)).teacherConfirmation.status, 'none');

@@ -63,10 +63,30 @@ export async function dispatchTeacherConfirmation(slotId) {
     'teacherConfirmation.status': { $in: ['queued', 'failed'] },
     'teacherConfirmation.attempts': { $lt: MAX_ATTEMPTS },
     'teacherConfirmation.nextAttemptAt': { $lte: new Date() },
-  }, { $set: { 'teacherConfirmation.status': 'sending' }, $inc: { 'teacherConfirmation.attempts': 1 } }, { new: true }).lean();
+  }, { $set: { 'teacherConfirmation.status': 'sending', 'teacherConfirmation.claimedAt': new Date() }, $inc: { 'teacherConfirmation.attempts': 1 } }, { new: true }).lean();
   if (!slot) return false;
   const confirmation = slot.teacherConfirmation;
   try {
+    // ONE QUESTION AT A TIME per teacher phone. A bare YES/NO carries no
+    // class identifier, so two awaiting requests for the same phone would
+    // make every plain reply ambiguous (owner rule: the teacher only ever
+    // types YES or NO, never a reference code). The earlier claim wins;
+    // later requests re-queue and go out the moment the teacher answers.
+    // A concurrent sending claim blocks only briefly so a crashed mid-flight
+    // send can never jam the queue forever.
+    const busy = await Timetable.exists({
+      status: 'active', _id: { $ne: slot._id }, 'teacherConfirmation.phone': confirmation.phone,
+      $or: [
+        { 'teacherConfirmation.status': 'awaiting' },
+        { 'teacherConfirmation.status': 'sending', 'teacherConfirmation.claimedAt': { $gt: new Date(Date.now() - 10 * 60_000), $lt: confirmation.claimedAt } },
+      ],
+    });
+    if (busy) {
+      await Timetable.updateOne({ _id: slot._id, 'teacherConfirmation.code': confirmation.code, 'teacherConfirmation.status': 'sending' },
+        { $set: { 'teacherConfirmation.status': 'queued', 'teacherConfirmation.nextAttemptAt': new Date() },
+          $inc: { 'teacherConfirmation.attempts': -1 } }); // waiting behind another class is not a failed attempt
+      return false;
+    }
     const [section, subject, teacher, author] = await Promise.all([
       Section.findById(slot.section).populate('department', 'name').lean(),
       Subject.findById(slot.subject).lean(),
@@ -104,8 +124,18 @@ export async function dispatchPendingTeacherConfirmations() {
     status: 'active', 'teacherConfirmation.status': { $in: ['queued', 'failed'] },
     'teacherConfirmation.attempts': { $lt: MAX_ATTEMPTS },
     'teacherConfirmation.nextAttemptAt': { $lte: new Date() },
-  }).sort({ 'teacherConfirmation.nextAttemptAt': 1 }).limit(BATCH_SIZE).select('_id').lean();
-  const results = await Promise.allSettled(pending.map((slot) => dispatchTeacherConfirmation(slot._id)));
+  }).sort({ 'teacherConfirmation.nextAttemptAt': 1 }).limit(BATCH_SIZE).select('_id teacherConfirmation.phone').lean();
+  // A bare YES/NO is only unambiguous when the teacher has one open question:
+  // dispatch at most one per phone per pass. The queue advances immediately
+  // on each teacher answer; the external pinger catches anything left behind.
+  const seen = new Set();
+  const batch = pending.filter((slot) => {
+    const phone = slot.teacherConfirmation?.phone;
+    if (!phone || seen.has(phone)) return false;
+    seen.add(phone);
+    return true;
+  });
+  const results = await Promise.allSettled(batch.map((slot) => dispatchTeacherConfirmation(slot._id)));
   return { configured: true, processed: results.filter((r) => r.status === 'fulfilled' && r.value).length };
 }
 
@@ -158,6 +188,17 @@ export async function handleTeacherReply(payload) {
     'teacherConfirmation.respondedAt': new Date(),
     'teacherConfirmation.replyId': String(payload.data.id).slice(0, 200),
   } }, { new: true }).select('_id').lean();
+  if (updated) {
+    // The answer frees the queue: ask the teacher's next pending class now,
+    // so the conversation stays one simple YES/NO question at a time.
+    try {
+      const next = await Timetable.findOne({ status: 'active', 'teacherConfirmation.phone': sender,
+        'teacherConfirmation.status': { $in: ['queued', 'failed'] },
+        'teacherConfirmation.attempts': { $lt: MAX_ATTEMPTS },
+      }).sort({ 'teacherConfirmation.nextAttemptAt': 1 }).select('_id').lean();
+      if (next) await dispatchTeacherConfirmation(next._id);
+    } catch { /* best-effort: the external pinger retries anything missed */ }
+  }
   return Boolean(updated);
 }
 

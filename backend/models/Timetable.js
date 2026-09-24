@@ -46,6 +46,7 @@ const timetableSchema = new Schema(
         phone: { type: String },
         attempts: { type: Number, default: 0 },
         nextAttemptAt: { type: Date },
+        claimedAt: { type: Date },
         sentAt: { type: Date },
         respondedAt: { type: Date },
         replyId: { type: String },
