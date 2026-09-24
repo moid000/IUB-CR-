@@ -748,7 +748,7 @@ const FAQS = [
   { q: 'Which files can be shared?', a: 'Virtually everything a class needs — PDF, Word, PowerPoint, Excel, images, archives and more, up to 10 MB per file, stored securely in the cloud.' },
   { q: 'How does QR attendance work?', a: 'Today, your CR opens a QR session and students check in from their portal. We are designing stronger checks against proxy attendance; that solution is not live yet.' },
   { q: 'Is it free?', a: 'Yes — completely free for your class. No ads, no upsells, no data selling.' },
-  { q: 'Is this an official university service?', a: 'No. Tri3M is an independent, student-built tool — not an official, registered product of the Islamia University of Bahawalpur, and not promoted or endorsed by the university, its administration, or the Chairman of the AI Department. It is represented by the students of the AI Department, Semester 2, Section 3M, purely to help CRs and GRs manage their sections efficiently. Student data is never leaked and never used for ads.' },
+  { q: 'Is this an official university service?', a: 'No. Tri3M is an independent, student-built tool — not an official, registered product of the Islamia University of Bahawalpur, and not promoted or endorsed by the university or its administration. It is represented by the students of the AI Department, Semester 2, Section 3M, purely to help CRs and GRs manage their sections efficiently. Student data is never leaked and never used for ads.' },
 ];
 
 function FaqItem({ q, a, open, onToggle }) {
@@ -819,8 +819,8 @@ function TrustNotice() {
                 Tri3M is a software tool built for class representatives (CRs) and group representatives (GRs), so they can manage
                 their sections in a disciplined, time-saving way. It is <span className="font-semibold text-slate-900">not an official or registered
                 product of the Islamia University of Bahawalpur (IUB)</span>, and it is not run, promoted or endorsed by the
-                university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher. It should not be taken as a
-                university or HOD initiative in any form.
+                university or its administration. It is a small, independent effort by students — built with respect and
+                gratitude for our teachers and our institution — simply to make daily class coordination easier.
               </p>
               <p>
                 Tri3M is represented by the students of the AI Department, Semester&nbsp;2, Section&nbsp;3M. Student data is

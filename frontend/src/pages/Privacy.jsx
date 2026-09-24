@@ -16,7 +16,7 @@ const SECTIONS = [
     h: '1. Who we are & scope',
     p: [
       'Tri3M ("the Service") is a class portal for student sections — organized by department, session and class. This policy explains what data the Service collects, why, and how it is handled.',
-      'Tri3M is an independent, student-built software. It is not an official or registered product of the Islamia University of Bahawalpur (IUB), and it is not run, promoted or endorsed by the university, its administration, or the Chairman of the AI Department, Prof. Dr. Najia Saher — it should not be taken as a university or HOD initiative in any form. Tri3M is represented by the students of the AI Department, Semester 2, Section 3M, and exists to help class representatives (CRs) and group representatives (GRs) manage their sections in a disciplined, time-saving way.',
+      'Tri3M is an independent, student-built software. It is not an official or registered product of the Islamia University of Bahawalpur (IUB), and it is not run, promoted or endorsed by the university or its administration. Tri3M is represented by the students of the AI Department, Semester 2, Section 3M, and exists to help class representatives (CRs) and group representatives (GRs) manage their sections in a disciplined, time-saving way.',
     ],
   },
   {
