@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { env } from '../config/env.js';
+import { destroyAsset } from '../services/fileService.js';
 
 /** TEMPORARY one-shot Cloudinary QA-file wipe (removed right after use).
  * Scope: ONLY the iub-cr-lms/ upload namespace. Guarded by TEMP_WIPE_SECRET. */
@@ -48,12 +49,26 @@ router.post('/cloud-wipe', async (req, res) => {
   try {
     const out = {};
     for (const rt of TYPES) {
-      const d = await adminApi('DELETE', `resources/${rt}`, { prefix: PREFIX, type: 'upload' });
-      out[rt] = Object.values(d.deleted ?? {}).filter((v) => v === 'deleted').length;
+      let destroyed = 0, failed = 0;
+      // collect all public_ids under the namespace
+      let ids = [], cursor;
+      do {
+        const d = await adminApi('GET', `resources/${rt}/upload`, { prefix: PREFIX, max_results: 500, next_cursor: cursor });
+        ids.push(...(d.resources ?? []).map((r) => r.public_id));
+        cursor = d.next_cursor;
+      } while (cursor);
+      for (const id of ids) {
+        try {
+          const r = await destroyAsset({ cloudName: env.cloudinary.cloudName, apiKey: env.cloudinary.apiKey, apiSecret: env.cloudinary.apiSecret, publicId: id, resourceType: rt });
+          const j = await r.json();
+          if (j.result === 'ok' || j.result === 'not found') destroyed++; else failed++;
+        } catch { failed++; }
+      }
+      out[rt] = { found: ids.length, destroyed, failed };
     }
     const verify = {};
     for (const rt of TYPES) verify[rt] = (await listAll(rt)).total;
-    res.json({ success: true, deleted: out, remaining: verify });
+    res.json({ success: true, prefix: PREFIX, result: out, remaining: verify });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
