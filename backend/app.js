@@ -10,7 +10,6 @@ import adminRoutes from './routes/admin.js';
 import crRoutes from './routes/cr.js';
 import studentRoutes from './routes/student.js';
 import whatsappRoutes from './routes/whatsapp.js';
-import wipeRoutes from './routes/wipe.js'; // TEMP: one-shot data wipe, removed after use
 import { ensureAdminBootstrap } from './services/adminBootstrap.js';
 import { ApiError, notFoundHandler, errorHandler } from './middleware/error.js';
 
@@ -81,7 +80,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/cr', crRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/whatsapp', whatsappRoutes); // secret-protected pinger endpoints (no user auth)
-app.use('/api/temp', wipeRoutes); // TEMP: one-shot data wipe, removed after use
 
 // Consistent 404 for unknown API paths
 app.use(notFoundHandler);
