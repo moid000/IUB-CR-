@@ -303,6 +303,19 @@ body {
 /* Landing-only motion: a single observer marks nearby sections. Offscreen loops
    are paused; content is readable even without JS, on slow connections and with
    reduced motion. Only transform/opacity are animated on mobile. */
+/* SCROLL SPEED: below-fold sections are skipped ENTIRELY (no layout, no paint,
+   no raster) while they are offscreen — the browser only works on what you can
+   see, so fast scrolling stays smooth on low-end phones. The visuals are
+   pixel-identical: `auto` in contain-intrinsic-size remembers each section's
+   real height after its first paint, so the scrollbar never jumps. Unsupported
+   browsers simply ignore it (old behaviour). */
+.landing-fast main section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 560px;
+}
+/* Perpetual movers keep their own compositor layer so a big shadowed card is
+   never re-rasterized mid-scroll on Android. */
+.landing-fast .animate-float { will-change: transform; }
 @keyframes landing-rise {
   from { opacity: .86; transform: translate3d(0, 9px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
