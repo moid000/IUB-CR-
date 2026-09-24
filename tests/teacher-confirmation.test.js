@@ -85,7 +85,7 @@ test('create sends one concise dynamic-class message and exposes pending status 
   assert.match(sent[0].body, /🎓 Department: \*Computer Science\*/);
   assert.match(sent[0].body, /📚 Semester: \*4\*/);
   assert.match(sent[0].body, /🏫 Section: \*4B\*/);
-  assert.match(sent[0].body, /Your \*Data Structures\* lecture is scheduled for /);
+  assert.match(sent[0].body, /Your \*Data Structures\* lecture is scheduled on Sat:/);
   assert.match(sent[0].body, /📍 Room 12/);
   assert.match(sent[0].body, /Please reply \*YES\* or \*NO\*\./);
   assert.match(sent[0].body, /— Tri3M Class Agent\nDeveloped by the students of the AI Department, IUB\nSemester 2 • Section 3M/);

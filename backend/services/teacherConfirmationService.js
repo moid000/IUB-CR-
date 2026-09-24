@@ -14,8 +14,8 @@ const PORTAL_URL = process.env.APP_URL || 'https://iubcr.vercel.app';
 const relativeDay = (dateStr) => {
   const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const diff = Math.round((new Date(`${dateStr}T12:00:00Z`).getTime() - new Date(`${todayStr}T12:00:00Z`).getTime()) / 86_400_000);
-  if (diff === 0) return 'today';
-  if (diff === 1) return 'tomorrow';
+  if (diff === 0) return 'for today';
+  if (diff === 1) return 'for tomorrow';
   return `on ${fmtDate.format(new Date(`${dateStr}T12:00:00+05:00`)).split(',')[0]}`;
 };
 const fmtTime = (time) => {
@@ -42,7 +42,7 @@ export function buildTeacherMessage({ section, department, teacher, subject, aut
     `📚 Semester: ${bold(String(section.semester))}`,
     `🏫 Section: ${bold(section.name, 25)}`,
     '',
-    `Your ${bold(subject.name)} lecture is scheduled for ${relativeDay(slot.date)}:`,
+    `Your ${bold(subject.name)} lecture is scheduled ${relativeDay(slot.date)}:`,
     '',
     `📅 ${day} | 🕐 ${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}${room ? ` | 📍 ${room}` : ''}`,
     '',
