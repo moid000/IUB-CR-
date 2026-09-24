@@ -15,12 +15,10 @@ const guarded = (req) => {
 };
 
 async function adminApi(method, path, params = {}) {
-  const p = { ...params, timestamp: Math.floor(Date.now() / 1000) };
-  const toSign = Object.keys(p).filter((k) => p[k] !== undefined && p[k] !== '' && !['file', 'api_key', 'resource_type', 'cloud_name', 'next_cursor', 'keep_original', 'raw_convert'].includes(k)).sort().map((k) => `${k}=${p[k]}`).join('&');
-  const signature = crypto.createHash('sha1').update(`${toSign}${env.cloudinary.apiSecret}`).digest('hex');
   const url = new URL(`https://api.cloudinary.com/v1_1/${env.cloudinary.cloudName}/${path}`);
-  Object.entries({ ...p, api_key: env.cloudinary.apiKey, signature }).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url, { method });
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const auth = Buffer.from(`${env.cloudinary.apiKey}:${env.cloudinary.apiSecret}`).toString('base64');
+  const res = await fetch(url, { method, headers: { Authorization: `Basic ${auth}` } });
   if (!res.ok) throw new Error(`Cloudinary ${res.status}: ${await res.text()}`);
   return res.json();
 }
