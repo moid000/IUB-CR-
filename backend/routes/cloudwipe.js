@@ -15,7 +15,7 @@ const guarded = (req) => {
 
 async function adminApi(method, path, params = {}) {
   const url = new URL(`https://api.cloudinary.com/v1_1/${env.cloudinary.cloudName}/${path}`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v); });
   const auth = Buffer.from(`${env.cloudinary.apiKey}:${env.cloudinary.apiSecret}`).toString('base64');
   const res = await fetch(url, { method, headers: { Authorization: `Basic ${auth}` } });
   if (!res.ok) throw new Error(`Cloudinary ${res.status}: ${(await res.text()).slice(0, 200)}`);
