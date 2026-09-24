@@ -17,6 +17,7 @@ import {
   IconClipboard, IconQr, IconCheckCircle, IconMenu, IconX,
   IconArrowRight, IconPlus, IconBell, IconClock, IconCheck, IconBuilding, IconShield,
 } from '../components/icons.jsx';
+import { InstallButton } from '../components/shared/InstallButton.jsx';
 
 /* ------------------------------------------------------------------ *
  *  Landing — the public face of Tri3M.
@@ -281,6 +282,7 @@ function Hero() {
               >
                 Explore features
               </button>
+              <InstallButton />
             </div>
             <p className="mt-4 text-xs text-slate-500">
               Free for every section · Accounts are issued by your admin or CR

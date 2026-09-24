@@ -26,6 +26,21 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
 }
 
+// Capture the browser's install prompt at boot — the PWA install event can
+// fire before the lazy Landing chunk mounts. Shared with InstallButton via
+// window so no event is lost to chunk-loading timing.
+if (typeof window !== 'undefined' && !window.__tri3mInstallPrompt) {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    window.__tri3mInstallPrompt = e;
+    window.dispatchEvent(new CustomEvent('tri3m:installprompt'));
+  });
+  window.addEventListener('appinstalled', () => {
+    window.__tri3mInstallPrompt = null;
+    window.__tri3mInstalled = true;
+  });
+}
+
 // Self-heal stale-deploy chunk failures (owner screenshot 2026-09-22:
 // "This page couldn't load" + "Try again" doing nothing). Every page is
 // lazy()-loaded; after we ship a new build, a tab that's been open since
