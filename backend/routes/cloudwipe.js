@@ -29,6 +29,7 @@ router.get('/cloud-counts', async (req, res) => {
     let total = 0, cursor, samples = [];
     do {
       const d = await adminApi('GET', 'resources', { prefix: PREFIX, type: 'upload', max_results: 500, next_cursor: cursor });
+      if (!Array.isArray(d.resources)) { res.json({ success: false, debug: d, env: { cloud: env.cloudinary.cloudName, keyLen: (env.cloudinary.apiKey || '').length, secretLen: (env.cloudinary.apiSecret || '').length } }); return; }
       total += d.resources.length;
       samples.push(...d.resources.slice(0, 5).map((r) => r.public_id));
       cursor = d.next_cursor;
