@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../ui/Button.jsx';
-import { IconBell, IconClock } from '../icons.jsx';
+import { IconBell, IconClock, IconMapPin } from '../icons.jsx';
 import { fmtRoom, fmtTime, fmtDuration } from '../../admin/format.js';
 
 /**
@@ -49,6 +49,23 @@ function slotPoints(slot) {
 
 function fmtCountdown(ms) {
   return fmtDuration(ms);
+}
+
+/** Small rounded-pill fact chip — wraps its own text instead of forcing
+ *  the row wider than the card, so a long CR-typed room string never
+ *  breaks the layout (it just wraps onto a second line inside the pill). */
+function MetaChip({ icon: Icon, children, tone = 'neutral' }) {
+  const toneCls = tone === 'amber'
+    ? 'bg-white/70 text-amber-800 ring-1 ring-amber-200'
+    : tone === 'emerald'
+      ? 'bg-white/70 text-emerald-700 ring-1 ring-emerald-200'
+      : 'bg-slate-100 text-slate-600';
+  return (
+    <span className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium ${toneCls}`}>
+      <Icon className="size-3 shrink-0" />
+      <span className="break-words">{children}</span>
+    </span>
+  );
 }
 
 export default function NextClassCountdown({ slots, loading = false, className = '' }) {
@@ -114,42 +131,63 @@ export default function NextClassCountdown({ slots, loading = false, className =
   } else if (state.mode === 'ongoing') {
     body = (
       <>
-        <div className="flex items-center gap-2">
-          <span className="relative flex shrink-0 size-2.5">
-            <span className="absolute inline-flex size-full rounded-full bg-emerald-400 opacity-75 lg:animate-ping" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
+        <div className="flex items-center gap-3">
+          <span className="relative grid size-9 shrink-0 place-items-center rounded-full bg-emerald-100">
+            <span className="relative flex size-2.5">
+              <span className="absolute inline-flex size-full rounded-full bg-emerald-400 opacity-75 lg:animate-ping" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
+            </span>
           </span>
-          <p className="min-w-0 break-words text-sm font-semibold text-slate-900">
-            {name(state.slot)} is in progress{state.slot.room ? ` — Room ${fmtRoom(state.slot.room)}` : ''}
-          </p>
+          <div className="min-w-0">
+            <p className="truncate break-words text-sm font-semibold text-slate-900">{name(state.slot)}</p>
+            <p className="text-xs font-medium text-emerald-600">In progress · {fmtCountdown(state.end - live)} left</p>
+          </div>
         </div>
-        <p className="mt-1 break-words text-xs text-slate-500">Ends at {fmtTime(state.slot.endTime)} · {fmtCountdown(state.end - live)} left</p>
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <MetaChip icon={IconClock} tone="emerald">Ends {fmtTime(state.slot.endTime)}</MetaChip>
+          {state.slot.room && <MetaChip icon={IconMapPin} tone="emerald">{fmtRoom(state.slot.room)}</MetaChip>}
+        </div>
       </>
     );
   } else if (state.mode === 'upcoming' && state.start - live <= ALERT_WINDOW_MS) {
     body = (
       <>
-        <div className="flex items-start justify-between gap-2">
-          <p className="inline-flex min-w-0 items-center gap-1.5 break-words text-sm font-semibold text-amber-900">
-            <IconBell className="size-4 shrink-0 [@media(hover:hover)]:animate-pulse" />
-            {name(state.slot)}
-          </p>
-          <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">30-min alert</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
+              <IconBell className="size-4 [@media(hover:hover)]:animate-pulse" />
+            </span>
+            <p className="min-w-0 truncate break-words text-sm font-semibold text-amber-900">{name(state.slot)}</p>
+          </div>
+          <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700">30 min left</span>
         </div>
-        <div className="mt-2 flex items-baseline gap-1.5">
-          <span className="font-mono text-2xl font-bold leading-none text-amber-900">{fmtCountdown(state.start - live)}</span>
+        <div className="mt-3 flex items-baseline gap-1.5">
+          <span className="font-mono text-3xl font-bold leading-none tracking-tight text-amber-900">{fmtCountdown(state.start - live)}</span>
           <span className="text-xs font-medium text-amber-700">until start</span>
         </div>
-        <p className="mt-2 break-words text-xs text-amber-800/80">
-          Starts {fmtTime(state.slot.startTime)} · ends {fmtTime(state.slot.endTime)}{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}
-        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <MetaChip icon={IconClock} tone="amber">{fmtTime(state.slot.startTime)}–{fmtTime(state.slot.endTime)}</MetaChip>
+          {state.slot.room && <MetaChip icon={IconMapPin} tone="amber">{fmtRoom(state.slot.room)}</MetaChip>}
+        </div>
       </>
     );
   } else if (state.mode === 'upcoming') {
     body = (
       <>
-        <p className="text-sm font-semibold text-slate-900">Next class: {name(state.slot)} at {fmtTime(state.slot.startTime)}</p>
-        <p className="mt-1 break-words text-xs text-slate-500">{fmtCountdown(state.start - live)} to go{state.slot.room ? ` · Room ${fmtRoom(state.slot.room)}` : ''}</p>
+        <div className="flex items-center gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">
+            <IconClock className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate break-words text-sm font-semibold text-slate-900">{name(state.slot)}</p>
+            <p className="text-xs text-slate-500">At {fmtTime(state.slot.startTime)} · {fmtCountdown(state.start - live)} to go</p>
+          </div>
+        </div>
+        {state.slot.room && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <MetaChip icon={IconMapPin}>{fmtRoom(state.slot.room)}</MetaChip>
+          </div>
+        )}
       </>
     );
   } else if (todaySlots.length === 0) {
@@ -165,13 +203,13 @@ export default function NextClassCountdown({ slots, loading = false, className =
       aria-label="Next class countdown"
       className={`h-full min-w-0 rounded-2xl border p-5 shadow-soft ${
         isAlert
-          ? 'border-amber-300 bg-amber-50'
+          ? 'border-amber-200 bg-amber-50/70'
           : state.mode === 'ongoing'
             ? 'border-emerald-200 bg-emerald-50/60'
             : 'border-slate-200/80 bg-white'
       } ${className}`}
     >
-      <div className="mb-1 flex items-center justify-between gap-2">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
           <IconClock className="size-3.5" /> Today · {todayLabel}
         </h3>

@@ -8,7 +8,7 @@ import { BottomTabBar } from '../components/layout/BottomTabBar.jsx';
 import { AccountMenu } from '../components/layout/AccountMenu.jsx';
 import {
   IconGrid, IconBuilding, IconCalendar, IconLayers, IconUserSquare,
-  IconGraduation, IconBook, IconMenu, IconLogout, IconChevronsLeft,
+  IconGraduation, IconBook, IconMenu, IconLogout, IconChevronsLeft, IconShield,
 } from '../components/icons.jsx';
 
 /**
@@ -38,6 +38,10 @@ const NAV_GROUPS = [
       { to: '/admin/crs', label: 'Class Reps (CR & GR)', icon: IconUserSquare },
       { to: '/admin/students', label: 'Students', icon: IconGraduation },
     ],
+  },
+  {
+    label: 'System',
+    items: [{ to: '/admin/administration', label: 'Administration', icon: IconShield }],
   },
 ];
 

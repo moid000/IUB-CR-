@@ -17,8 +17,16 @@ const router = Router();
 // Every admin route requires an authenticated, active, admin account
 router.use(protect, adminOnly);
 
-// Danger zone — full system wipe (type DELETE to confirm in the dialog)
+// Danger zone — full system wipe. NO UI button exists anymore (removed
+// 2026-09-25): this endpoint alone can wipe data, and ONLY when BOTH
+// verification codes are supplied — one emailed to the administration
+// email, one sent to its WhatsApp number (see administrationService.js).
+router.post('/wipe-all/request-codes', ctl.requestWipeCodes);
 router.post('/wipe-all', ctl.wipeAllData);
+
+// Administration profile (owner's contact details for the dual verification)
+router.get('/administration/profile', ctl.getAdminProfile);
+router.put('/administration/profile', ctl.updateAdminProfile);
 
 // Departments
 router.post('/departments', ctl.createDepartment);

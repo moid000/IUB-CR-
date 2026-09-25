@@ -37,6 +37,7 @@ const CrsPage = lazy(() => import('./pages/admin/CrsPage.jsx'));
 const AdminStudentsPage = lazy(() => import('./pages/admin/StudentsPage.jsx'));
 const AdminSubjectsPage = lazy(() => import('./pages/admin/SubjectsPage.jsx'));
 const AdminNotFound = lazy(() => import('./pages/admin/AdminNotFound.jsx'));
+const AdministrationPage = lazy(() => import('./pages/admin/AdministrationPage.jsx'));
 
 const CrLayout = lazy(() => import('./cr/CrLayout.jsx'));
 const CrOverview = lazy(() => import('./pages/cr/CrOverview.jsx'));
@@ -165,6 +166,7 @@ export default function App() {
               <Route path="crs" element={<RouteErrorBoundary><CrsPage /></RouteErrorBoundary>} />
               <Route path="students" element={<RouteErrorBoundary><AdminStudentsPage /></RouteErrorBoundary>} />
               <Route path="subjects" element={<RouteErrorBoundary><AdminSubjectsPage /></RouteErrorBoundary>} />
+              <Route path="administration" element={<RouteErrorBoundary><AdministrationPage /></RouteErrorBoundary>} />
               <Route path="*" element={<RouteErrorBoundary><AdminNotFound /></RouteErrorBoundary>} />
             </Route>
 

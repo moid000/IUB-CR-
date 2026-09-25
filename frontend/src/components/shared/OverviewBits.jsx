@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Card } from '../ui/Card.jsx';
 import { Badge } from '../ui/Badge.jsx';
 import { MiniEmpty } from '../ui/MiniEmpty.jsx';
-import { IconCalendar, IconArrowRight, IconBell, IconClipboard, IconMegaphone } from '../icons.jsx';
+import { IconCalendar, IconArrowRight, IconBell, IconClipboard, IconMegaphone, IconMapPin } from '../icons.jsx';
 import { usePkNow } from './TimetableDay.jsx';
 import { fmtRoom, fmtTime } from '../../admin/format.js';
 import { api } from '../../api/client.js';
@@ -131,9 +131,24 @@ function ClassRow({ c, focusTo }) {
       </div>
       <div className="min-w-0 flex-1">
         <p className={`truncate text-sm font-medium ${past ? 'text-slate-400' : 'text-slate-800'}`}>{c.subject?.name ?? 'Class'}</p>
-        <p className={`mt-0.5 truncate text-xs ${past ? 'text-slate-400' : 'text-slate-500'}`}>
-          {c.subject?.code}{c.room ? ` · Room ${fmtRoom(c.room)}` : ''}
-        </p>
+        {(() => {
+          // Skip the code when it just repeats the subject name shown above
+          // ("AI" · "AI") — that read as a confusing duplicate, not real info.
+          const code = c.subject?.code;
+          const showCode = code && code.trim().toLowerCase() !== (c.subject?.name ?? '').trim().toLowerCase();
+          if (!showCode && !c.room) return null;
+          return (
+            <p className={`mt-1 flex min-w-0 items-center gap-1 truncate text-xs ${past ? 'text-slate-400' : 'text-slate-500'}`}>
+              {showCode && <span className="shrink-0">{code}</span>}
+              {showCode && c.room && <span className="shrink-0 text-slate-300">·</span>}
+              {c.room && (
+                <span className="inline-flex min-w-0 items-center gap-0.5 truncate">
+                  <IconMapPin className="size-3 shrink-0" /> <span className="truncate">{fmtRoom(c.room)}</span>
+                </span>
+              )}
+            </p>
+          );
+        })()}
         <div className="mt-1.5"><TeacherConfirmationStatus confirmation={c.teacherConfirmation} compact /></div>
       </div>
       {ongoing ? (

@@ -45,7 +45,12 @@ export function formatDateTimeNoYear(value) {
  *  strip a redundant leading "Room" so the UI never shows "Room Room 12". */
 export function fmtRoom(room) {
   if (!room) return '';
-  return String(room).trim().replace(/^rooms?\s*[-–:.]?\s*/i, '');
+  return String(room)
+    .trim()
+    .replace(/^rooms?\s*[-–:.]?\s*/i, '')
+    .replace(/\s+/g, ' ')          // collapse accidental double spaces
+    .replace(/\s+([,.;])/g, '$1')  // "-1.57 ,BBA" -> "-1.57,BBA" (typo tolerance, same words)
+    .replace(/,(?=\S)/g, ', ');    // "-1.57,BBA" -> "-1.57, BBA" (readable spacing after commas)
 }
 
 /** "13:00" -> "1:00 PM" — slots are stored 24h "HH:MM"; users read 12-hour. */

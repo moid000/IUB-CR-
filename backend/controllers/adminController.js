@@ -5,6 +5,7 @@ import noteSvc from '../services/noteService.js';
 import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
 import * as attendanceSvc from '../services/attendanceService.js';
+import * as adminProfileSvc from '../services/administrationService.js';
 
 /**
  * Admin API — every route sits behind protect + adminOnly (see routes/admin.js).
@@ -107,3 +108,8 @@ export const deleteNoteAdmin = wrap(noteSvc.deleteAdmin);
 export const precreateCr = wrap(svc.precreateCr);
 
 export const wipeAllData = wrap(svc.wipeAllData);
+
+// Administration profile + protected data deletion (dual verification)
+export const getAdminProfile = wrap(adminProfileSvc.getAdminProfile);
+export const updateAdminProfile = wrap(adminProfileSvc.updateAdminProfile);
+export const requestWipeCodes = wrap(adminProfileSvc.requestWipeCodes);

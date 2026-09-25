@@ -8,12 +8,10 @@ import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
-import { ConfirmDialog } from '../../components/admin/controls.jsx';
 import { Button } from '../../components/ui/Button.jsx';
-import { Input } from '../../components/ui/Input.jsx';
 import {
   IconBuilding, IconCalendar, IconLayers, IconUserSquare, IconGraduation, IconBook,
-  IconPlus, IconUserPlus, IconArrowRight, IconAlert, IconTrash,
+  IconPlus, IconUserPlus, IconArrowRight, IconAlert,
 } from '../../components/icons.jsx';
 
 /** One metric card — real API counts only, never invented statistics. */
@@ -40,11 +38,6 @@ function MetricCard({ icon: Icon, label, value, sub, to }) {
 
 export default function AdminOverview() {
   const { user } = useAuth();
-  const [wipeOpen, setWipeOpen] = useState(false);
-  const [wipeText, setWipeText] = useState('');
-  const [wipeBusy, setWipeBusy] = useState(false);
-  const [wipeError, setWipeError] = useState(null);
-  const [wipeDone, setWipeDone] = useState(null);
 
   // Real data only — unpaginated reference lists + count-only paginated calls
   const { items: departments, loading: ld, error: ed } = useAdminQuery(() => adminApi.departments.list({}), []);
@@ -59,22 +52,6 @@ export default function AdminOverview() {
   const pendingCrs = crs.filter((c) => c.registrationStatus === 'pending');
   const unassignedCrs = crs.filter((c) => !(c.section?._id ?? c.section));
 
-  const confirmWipe = async () => {
-    if (wipeText.trim() !== 'DELETE') return;
-    setWipeBusy(true); setWipeError(null);
-    try {
-      const res = await adminApi.system.wipeAll();
-      setWipeDone(res?.deleted ?? {});
-      setWipeOpen(false);
-      setWipeText('');
-      // Give the admin a moment to read the summary, then refresh all counts.
-      setTimeout(() => window.location.reload(), 2600);
-    } catch (err) {
-      setWipeError(err);
-    } finally {
-      setWipeBusy(false);
-    }
-  };
 
   const cards = [
     {
@@ -200,12 +177,6 @@ export default function AdminOverview() {
               Add a subject
             </Link>
           </div>
-          {wipeDone && (
-            <Alert variant="success" className="mt-4">
-              System wiped — {Object.entries(wipeDone).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing to delete'}.
-              Reloading…
-            </Alert>
-          )}
           {pendingCrs.length > 0 && (
             <Alert variant="warning" className="mt-4">
               <p className="flex items-start gap-2">
@@ -218,62 +189,6 @@ export default function AdminOverview() {
         </section>
       </div>
 
-      {/* Danger zone — full system wipe */}
-      <section
-        aria-label="Danger zone"
-        className="mt-6 rounded-2xl border border-red-200 bg-red-50/40 p-5"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-red-100 text-red-600">
-              <IconTrash className="size-4.5" />
-            </span>
-            <div>
-              <h2 className="text-sm font-semibold text-red-800">Danger zone — Delete all data</h2>
-              <p className="mt-1 max-w-2xl text-xs text-red-700/80">
-                Permanently deletes every department, session, section, subject, CR and student account
-                (with all their announcements, assignments, notes, marks, timetable and files).
-                Only admin accounts and audit logs survive. This cannot be undone.
-              </p>
-            </div>
-          </div>
-          <Button variant="danger" onClick={() => { setWipeOpen(true); setWipeText(''); setWipeError(null); }}>
-            Delete all data
-          </Button>
-        </div>
-      </section>
-
-      <ConfirmDialog
-        open={wipeOpen}
-        onClose={() => { if (!wipeBusy) { setWipeOpen(false); setWipeText(''); } }}
-        title="Delete EVERYTHING?"
-        confirmLabel="Yes, delete everything"
-        onConfirm={confirmWipe}
-        busy={wipeBusy}
-        error={wipeError}
-        danger
-        disabled={wipeText.trim() !== 'DELETE'}
-        body={
-          <div className="space-y-3">
-            <p className="text-sm text-slate-600">
-              This removes <span className="font-medium text-slate-800">all departments, sessions, sections, subjects,
-              CR and student accounts</span> and every piece of content they own. Uploaded files are also deleted
-              from cloud storage. Your admin account stays.
-            </p>
-            <label className="block text-sm font-medium text-slate-700" htmlFor="wipe-confirm">
-              Type <span className="font-bold tracking-widest text-red-600">DELETE</span> to confirm
-            </label>
-            <Input
-              id="wipe-confirm"
-              value={wipeText}
-              onChange={(e) => setWipeText(e.target.value)}
-              placeholder="DELETE"
-              autoComplete="off"
-              disabled={wipeBusy}
-            />
-          </div>
-        }
-      />
     </>
   );
 }

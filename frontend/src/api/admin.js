@@ -55,9 +55,10 @@ export const adminApi = {
     archive: (id) => api.post(`/api/admin/subjects/${id}/archive`),
     delete: (id) => api.del(`/api/admin/subjects/${id}`), // hard delete; blocked while notes/assignments/timetable/assessments exist
   },
-  system: {
-    // Full wipe: departments, sessions, sections, subjects, CR/student accounts
-    // and ALL their content. Admin accounts + audit logs survive.
-    wipeAll: () => api.post('/api/admin/wipe-all', { confirm: 'DELETE' }),
+  administration: {
+    // Owner/administration profile — the contact pair every data deletion is
+    // gated behind (a wipe now requires codes emailed AND WhatsApped here).
+    getProfile: () => api.get('/api/admin/administration/profile'),
+    updateProfile: (body) => api.put('/api/admin/administration/profile', body), // { name?, email, whatsapp }
   },
 };

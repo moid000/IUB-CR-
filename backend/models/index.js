@@ -19,3 +19,5 @@ export { default as Otp } from './Otp.js';
 export { default as PushSubscription } from './PushSubscription.js';
 export { default as AuditLog } from './AuditLog.js';
 export { default as WatchdogState } from './WatchdogState.js';
+export { default as AdminProfile } from './AdminProfile.js';
+export { default as WipeVerification } from './WipeVerification.js';

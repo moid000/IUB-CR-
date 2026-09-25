@@ -11,12 +11,15 @@ const PURPOSE_SUBJECTS = {
   'gr-activation': 'Your GR activation code',
   'student-activation': 'Your student account activation code',
   'password-reset': 'Your password reset code',
+  'wipe': 'Data deletion verification code',
 };
 
 function otpText(name, otp, purpose) {
   const what = purpose === 'password-reset'
     ? 'reset your password'
-    : 'activate your account';
+    : purpose === 'wipe'
+      ? 'authorize the permanent deletion of Tri3M data'
+      : 'activate your account';
   return (
     `Hi ${name || 'there'},\n\n` +
     `Your verification code is: ${otp}\n\n` +

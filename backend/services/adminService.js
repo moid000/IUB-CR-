@@ -8,6 +8,8 @@ import { destroyAttachmentMetas } from './fileService.js';
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
+import { WipeVerification } from '../models/index.js';
+import { verifyAndConsumeWipeCodes } from './administrationService.js';
 import * as v from '../utils/validators.js';
 
 /** Runs fn inside a MongoDB transaction with automatic rollback on any throw. */
@@ -733,6 +735,16 @@ export async function wipeAllData(req) {
     throw new ApiError(400, 'Type DELETE to confirm the wipe.');
   }
 
+  // OWNER-MANDATED PROTECTION: a wipe NEVER runs on words alone — even a
+  // genuine admin request (or a prompt an AI agent misunderstood) is dead
+  // here unless BOTH verification codes are presented: the one emailed to
+  // the administration email AND the one sent to its WhatsApp number.
+  // Codes are verified and CONSUMED (single use) before anything is deleted.
+  await verifyAndConsumeWipeCodes({
+    emailCode: req.body?.emailCode,
+    waCode: req.body?.waCode,
+  });
+
   // Collect Cloudinary attachments first — after the wipe the metadata is gone.
   const [annDocs, noteDocs, assignDocs, subDocs, people] = await Promise.all([
     Announcement.find().select('files').lean(),
@@ -764,6 +776,7 @@ export async function wipeAllData(req) {
       departments: await wipe(Department, {}),
       crAndStudentAccounts: await wipe(User, { role: { $ne: 'admin' } }),
       pendingOtps: await wipe(Otp, {}),
+      pendingWipeCodes: await wipe(WipeVerification, {}),
     };
   });
 
