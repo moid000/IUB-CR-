@@ -303,15 +303,15 @@ body {
 /* Landing-only motion: a single observer marks nearby sections. Offscreen loops
    are paused; content is readable even without JS, on slow connections and with
    reduced motion. Only transform/opacity are animated on mobile. */
-/* SCROLL SPEED: below-fold sections are skipped ENTIRELY (no layout, no paint,
-   no raster) while they are offscreen — the browser only works on what you can
-   see, so fast scrolling stays smooth on low-end phones. The visuals are
-   pixel-identical: `auto` in contain-intrinsic-size remembers each section's
-   real height after its first paint, so the scrollbar never jumps. Unsupported
-   browsers simply ignore it (old behaviour). */
+/* SCROLL SMOOTHNESS: every section is laid out and painted ONCE at load.
+   content-visibility: auto was removed on purpose — rendering a section
+   on demand mid-scroll forces a big layout+paint burst in a single frame
+   (a visible hitch on low-end phones) and, until each section renders the
+   first time, its 560px height estimate keeps changing the scrollbar length,
+   so fast scrolling felt rubbery. With everything pre-rendered, scrolling is
+   pure compositing — the smoothest possible path. Visuals are unchanged. */
 .landing-fast main section {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 560px;
+  contain: layout;
 }
 /* Perpetual movers keep their own compositor layer so a big shadowed card is
    never re-rasterized mid-scroll on Android. */
