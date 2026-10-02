@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../components/AuthLayout.jsx';
 import { Button } from '../components/ui/Button.jsx';
@@ -13,6 +13,43 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const STEPS = ['Email', 'Confirm details', 'Verify code', 'Set password'];
 
 const ROLE_LABEL = { cr: 'Class Representative', gr: 'General Representative', student: 'Student' };
+
+/* ------------------------------------------------------------------ *
+ * RESUME SUPPORT (owner request, 2026-10-02): mobile browsers routinely
+ * discard a backgrounded tab (the user switches to Gmail to read the
+ * activation code) and reload the page from scratch on return, which
+ * restarted the wizard at the email step. The wizard now mirrors its
+ * position into sessionStorage (tab-scoped, survives reloads, cleared
+ * on completion and when the tab closes) and rebuilds itself from that
+ * snapshot on mount. The flow itself is unchanged — same steps, same
+ * rules, same server logic. A half-written/inconsistent snapshot is
+ * ignored, so resume can never put a user in a broken state.
+ * ------------------------------------------------------------------ */
+const OTP_TTL_MIN = 10;
+const RESEND_COOLDOWN_S = 60;
+
+function activationSaveKey(role) {
+  return `tri3m:activate:${role}`;
+}
+
+/** Returns one consistent snapshot, or null when nothing usable is saved. */
+function loadActivationSave(role) {
+  try {
+    const raw = sessionStorage.getItem(activationSaveKey(role));
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    const step = Number(s.step);
+    if (step === 0) return { step: 0, email: typeof s.email === 'string' ? s.email : '' };
+    if (!Number.isInteger(step) || step < 1 || step > 3) return null; // success (4) is never persisted
+    if (typeof s.email !== 'string' || !s.email) return null;
+    if (!s.profile || typeof s.profile !== 'object') return null;
+    if (step === 2 && !Number(s.otpSentAt)) return null;
+    if (step === 3 && !s.activationToken) return null;
+    return { step, email: s.email, profile: s.profile, otpSentAt: s.otpSentAt || null, activationToken: s.activationToken || null };
+  } catch {
+    return null; // private mode / storage disabled → resume simply doesn't apply
+  }
+}
 
 /** Pre-created identity summary — lets the account holder confirm the admin/CR set them up correctly before they choose a password. */
 function ConfirmDetailsStep({ profile, role, onContinue, onBack, busy }) {
@@ -79,19 +116,54 @@ export default function ActivatePage({ role }) {
   const roleLabel = role.toUpperCase();
   const navigate = useNavigate();
 
-  const [step, setStep] = useState(0);
-  const [email, setEmail] = useState('');
+  // Resume support: rebuild the wizard from the saved snapshot on mount.
+  const [saved] = useState(() => loadActivationSave(role));
+  const [step, setStep] = useState(saved?.step ?? 0);
+  const [email, setEmail] = useState(saved?.email ?? '');
   const [otp, setOtp] = useState('');
-  const [activationToken, setActivationToken] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const [activationToken, setActivationToken] = useState(saved?.activationToken ?? null);
+  const [profile, setProfile] = useState(saved?.profile ?? null);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
 
   const [fieldError, setFieldError] = useState(null);
   const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
+  const [notice, setNotice] = useState(() => {
+    if (!saved || saved.step < 1) return null;
+    const parts = ['Welcome back — we picked up right where you left off.'];
+    if (saved.step === 2 && saved.otpSentAt && (Date.now() - saved.otpSentAt) > OTP_TTL_MIN * 60 * 1000) {
+      parts.push('Your code may have expired — request a new one.');
+    }
+    return parts.join(' ');
+  });
   const [loading, setLoading] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  const [otpSentAt, setOtpSentAt] = useState(saved?.otpSentAt ?? null);
+  const [cooldown, setCooldown] = useState(() => {
+    if (saved?.step !== 2 || !saved.otpSentAt) return 0;
+    return Math.max(0, RESEND_COOLDOWN_S - Math.floor((Date.now() - saved.otpSentAt) / 1000));
+  });
+
+  // Mirror the wizard position into sessionStorage on every change, so a
+  // tab discard → full reload resumes instead of restarting from zero.
+  useEffect(() => {
+    try {
+      if (step >= 1 && step <= 3) {
+        sessionStorage.setItem(activationSaveKey(role), JSON.stringify({ step, email, profile, activationToken, otpSentAt }));
+      } else if (step === 0 && email) {
+        sessionStorage.setItem(activationSaveKey(role), JSON.stringify({ step: 0, email }));
+      } else {
+        sessionStorage.removeItem(activationSaveKey(role)); // fresh start or activation finished
+      }
+    } catch { /* storage unavailable — flow still works, just without resume */ }
+  }, [role, step, email, profile, activationToken, otpSentAt]);
+
+  // A cooldown restored from a snapshot still needs its live countdown.
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setInterval(() => setCooldown((c) => { if (c <= 1) { clearInterval(t); return 0; } return c - 1; }), 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // client-side mirror of the backend's 60s resend cooldown
   const startCooldown = () => {
@@ -130,6 +202,7 @@ export default function ActivatePage({ role }) {
       setNotice(`We sent a 6-digit code to ${email}. It expires in 10 minutes.`);
       setStep(2);
       setOtp('');
+      setOtpSentAt(Date.now());
       startCooldown();
     } catch (err) {
       setError(err?.message || 'Unable to send the code right now. Please try again.');
@@ -145,6 +218,7 @@ export default function ActivatePage({ role }) {
       const res = await authApi.verifyActivationOtp(role, email.trim(), otp);
       setActivationToken(res?.activationToken ?? null);
       setNotice(null);
+      setOtpSentAt(null);
       setStep(3); // set password
     } catch (err) {
       setError(err?.message || 'That code is invalid or has expired.');
@@ -161,6 +235,7 @@ export default function ActivatePage({ role }) {
       const res = await authApi.requestActivationOtp(role, email.trim());
       setNotice(res?.message || 'A new code has been sent if your account is eligible.');
       setOtp('');
+      setOtpSentAt(Date.now());
       startCooldown();
     } catch (err) {
       setError(err?.message || 'Unable to resend right now. Please try again.');
@@ -178,6 +253,15 @@ export default function ActivatePage({ role }) {
       await authApi.setActivationPassword(role, activationToken, password);
       setStep(4); // success state
     } catch (err) {
+      if (err?.status === 401) {
+        // The 15-minute single-use verification token expired (e.g. the user
+        // was away too long). Restart cleanly instead of leaving a dead end.
+        try { sessionStorage.removeItem(activationSaveKey(role)); } catch { /* ignore */ }
+        setStep(0); setEmail(''); setProfile(null); setActivationToken(null);
+        setPassword(''); setConfirm('');
+        setError('Your verification window expired. Please start again — it only takes a minute.');
+        return;
+      }
       setError(err?.message || 'Unable to set your password. Please try again.');
     } finally {
       setLoading(false);
