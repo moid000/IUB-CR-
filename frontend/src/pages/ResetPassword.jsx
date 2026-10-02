@@ -4,7 +4,6 @@ import { AuthLayout } from '../components/AuthLayout.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { Input } from '../components/ui/Input.jsx';
 import { PasswordInput } from '../components/ui/PasswordInput.jsx';
-import { PasswordChecklist, passwordMeetsPolicy } from '../components/ui/PasswordChecklist.jsx';
 import { Alert } from '../components/ui/Alert.jsx';
 import { OtpInput } from '../components/ui/OtpInput.jsx';
 import { authApi } from '../api/auth.js';
@@ -31,7 +30,7 @@ export default function ResetPassword() {
     e.preventDefault();
     if (!EMAIL_RE.test(email.trim())) { setError('Enter a valid email address.'); return; }
     if (otp.length !== 6) { setError('Enter the 6-digit code from your email.'); return; }
-    if (!passwordMeetsPolicy(password)) { setError('Password does not meet the requirements below.'); return; }
+    if (!password) { setError('Please enter a password.'); return; }
     if (password !== confirm) { setError('Passwords do not match.'); return; }
     setError(null); setLoading(true);
     try {
@@ -112,7 +111,6 @@ export default function ResetPassword() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-        <PasswordChecklist password={password} />
         <PasswordInput
           label="Confirm new password"
           autoComplete="new-password"
@@ -124,7 +122,7 @@ export default function ResetPassword() {
         <Button
           type="submit"
           loading={loading}
-          disabled={!EMAIL_RE.test(email.trim()) || otp.length !== 6 || !passwordMeetsPolicy(password) || password !== confirm}
+          disabled={!EMAIL_RE.test(email.trim()) || otp.length !== 6 || !password || password !== confirm}
           className="w-full"
           size="lg"
         >

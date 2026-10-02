@@ -4,7 +4,6 @@ import { AuthLayout } from '../components/AuthLayout.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { Input } from '../components/ui/Input.jsx';
 import { PasswordInput } from '../components/ui/PasswordInput.jsx';
-import { PasswordChecklist, passwordMeetsPolicy } from '../components/ui/PasswordChecklist.jsx';
 import { Alert } from '../components/ui/Alert.jsx';
 import { OtpInput } from '../components/ui/OtpInput.jsx';
 import { authApi } from '../api/auth.js';
@@ -172,7 +171,7 @@ export default function ActivatePage({ role }) {
 
   const setPasswordSubmit = async (e) => {
     e.preventDefault();
-    if (!passwordMeetsPolicy(password)) { setError('Password does not meet the requirements below.'); return; }
+    if (!password) { setError('Please enter a password.'); return; }
     if (password !== confirm) { setError('Passwords do not match.'); return; }
     setError(null); setLoading(true);
     try {
@@ -198,7 +197,7 @@ export default function ActivatePage({ role }) {
       maxWidth="max-w-md"
       footer={
         step === 4 ? (
-          <p>Think of a strong password you can remember — you'll use it every sign in.</p>
+          <p>Choose a password you can remember — you'll use it every sign in.</p>
         ) : (
           <p>
             Already activated?{' '}
@@ -292,7 +291,6 @@ export default function ActivatePage({ role }) {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-          <PasswordChecklist password={password} />
           <PasswordInput
             label="Confirm password"
             autoComplete="new-password"
@@ -301,7 +299,7 @@ export default function ActivatePage({ role }) {
             error={confirm && password !== confirm ? 'Passwords do not match' : null}
             required
           />
-          <Button type="submit" loading={loading} disabled={!passwordMeetsPolicy(password) || password !== confirm} className="w-full" size="lg">
+          <Button type="submit" loading={loading} disabled={!password || password !== confirm} className="w-full" size="lg">
             Set password & activate
           </Button>
         </form>

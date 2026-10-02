@@ -21,23 +21,15 @@ export function assertEmail(value, field = 'email') {
 }
 
 /**
- * ONE centralized strong password validator used by every flow that sets a
- * password (CR activation, student activation, password reset). 8+ chars
- * with upper, lower, digit and special character — consistent everywhere.
+ * ONE centralized password validator used by every flow that sets a
+ * password (CR/GR/student activation, password reset, change password).
+ * Owner decision (2026-10-02): NO complexity rules — any password,
+ * weak or strong, is accepted. Only sanity bounds remain: it must be a
+ * non-empty string of at most 128 chars. bcrypt hashing is unchanged.
  */
 export function assertPassword(value, field = 'password') {
-  if (typeof value !== 'string' || value.length < 8 || value.length > 128) {
-    throw new ApiError(400, `${field} must be 8–128 characters`);
-  }
-  const checks = [
-    [/[a-z]/, 'a lowercase letter'],
-    [/[A-Z]/, 'an uppercase letter'],
-    [/[0-9]/, 'a number'],
-    [/[^A-Za-z0-9]/, 'a special character'],
-  ];
-  const missing = checks.filter(([re]) => !re.test(value)).map(([, label]) => label);
-  if (missing.length) {
-    throw new ApiError(400, `${field} must include ${missing.join(', ')}`);
+  if (typeof value !== 'string' || value.length < 1 || value.length > 128) {
+    throw new ApiError(400, `${field} must be 1–128 characters`);
   }
   return value;
 }

@@ -83,9 +83,8 @@ test('C2. wrong current password → 401, password unchanged', async () => {
   assert.ok(await bcrypt.compare(OLD, doc.password), 'original password still valid');
 });
 
-test('C3. weak new password → 400 (policy enforced)', async () => {
-  assert.equal((await stu.api('POST', '/api/auth/change-password', { currentPassword: OLD, newPassword: 'short' })).status, 400);
-  assert.equal((await stu.api('POST', '/api/auth/change-password', { currentPassword: OLD, newPassword: 'nodigits!!A' })).status, 400);
+test('C3. empty new password → 400 (complexity rules removed per owner: any non-empty password is accepted)', async () => {
+  assert.equal((await stu.api('POST', '/api/auth/change-password', { currentPassword: OLD, newPassword: '' })).status, 400);
   assert.equal((await stu.api('POST', '/api/auth/change-password', { currentPassword: OLD, newPassword: undefined })).status, 400);
 });
 

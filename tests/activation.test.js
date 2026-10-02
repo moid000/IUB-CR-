@@ -278,8 +278,9 @@ test('CR password setup activates the account and CR can login', async () => {
   assert.equal(v.status, 200);
   const token = v.json.activationToken;
 
-  // weak password rejected — and does NOT burn the token
-  const weak = await cr.api('POST', '/api/auth/cr/set-password', { activationToken: token, password: 'weakpass' });
+  // empty password rejected — and does NOT burn the token
+  // (complexity rules removed per owner: any non-empty password is accepted)
+  const weak = await cr.api('POST', '/api/auth/cr/set-password', { activationToken: token, password: '' });
   assert.equal(weak.status, 400);
 
   // (14) expired activation token rejected
@@ -290,8 +291,8 @@ test('CR password setup activates the account and CR can login', async () => {
   const exp = await cr.api('POST', '/api/auth/cr/set-password', { activationToken: expired, password: 'CrStrong123!' });
   assert.equal(exp.status, 401);
 
-  // (15) valid token + strong password → activated
-  const set = await cr.api('POST', '/api/auth/cr/set-password', { activationToken: token, password: 'CrStrong123!' });
+  // (15) valid token + WEAK password → activated (policy removed per owner)
+  const set = await cr.api('POST', '/api/auth/cr/set-password', { activationToken: token, password: 'weakpass' });
   assert.equal(set.status, 200);
   // hash-leak regression: response must NOT contain the user document
   assert.ok(!('password' in (set.json ?? {})) && !('role' in (set.json ?? {})), 'no user doc / hash in set-password response');
@@ -306,8 +307,8 @@ test('CR password setup activates the account and CR can login', async () => {
   const again = await cr.api('POST', '/api/auth/cr/set-password', { activationToken: token, password: 'OtherStrong456!' });
   assert.equal(again.status, 409, 'account already activated');
 
-  // (16) activated CR can login
-  const login = await cr.api('POST', '/api/auth/login', { email: crEmail, password: 'CrStrong123!' });
+  // (16) activated CR can login with the weak password
+  const login = await cr.api('POST', '/api/auth/login', { email: crEmail, password: 'weakpass' });
   assert.equal(login.status, 200);
   const me = await cr.api('GET', '/api/auth/me');
   assert.equal(me.status, 200);
