@@ -4,6 +4,41 @@ import { env } from '../config/env.js';
 import { isConfigured, sendText } from './whatsappService.js';
 
 const MAX_ATTEMPTS = 3;
+
+/* Owner request (2026-10-02): teachers sometimes answer with a sentence
+ * ("yes betha ma aaon ga") instead of a bare YES/NO — the agent used to
+ * stay silent and the question went nowhere. Unrecognized replies from a
+ * teacher with an open question now get ONE polite reminder that this is
+ * an AI agent which reads only a plain YES or NO. Throttled so repeated
+ * messages never spam, and it never answers, re-queues or retries the
+ * underlying question. */
+const HINT_COOLDOWN_MS = 2 * 60 * 1000;
+
+const HINT_POOLS = [
+  "I'm an AI agent and can only read a plain *YES* or *NO* — I couldn't understand your last message.",
+  "I'm an automated assistant, so I understand only a plain *YES* or *NO* reply.",
+  "I'm an AI agent and I received your message, but I can act only on a plain *YES* or *NO*.",
+  "I'm an AI assistant, not a person — I can read only a plain *YES* or *NO* from you.",
+];
+
+/** Random pick so repeated reminders never read identical. Exported for tests. */
+export function buildHintMessage(teacherName) {
+  const line = HINT_POOLS[Math.floor(Math.random() * HINT_POOLS.length)];
+  return [
+    '*Tri3M Class Agent*',
+    'AI-Powered Class Management Assistant',
+    '',
+    `Assalam-o-Alaikum Respected *${teacherName || 'Teacher'}*!`,
+    '',
+    line,
+    '',
+    'Please reply just *YES* if you will take the class, or *NO* if you cannot — that updates the class status for your students right away.',
+    '',
+    '— Tri3M Class Agent',
+    'Developed by the students of the AI Department, IUB',
+    'Semester 2 • Section 3M',
+  ].join('\n');
+}
 const BATCH_SIZE = 3; // existing external 5-minute pinger, no new jobs or Base44 usage
 const fmtDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' });
 const clean = (value, max = 65) => String(value ?? '').replace(/[\r\n\t*_~]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -258,11 +293,40 @@ export async function dispatchPendingTeacherConfirmations() {
   return { configured: true, processed: results.filter((r) => r.status === 'fulfilled' && r.value).length };
 }
 
+/* An unrecognized reply from a teacher who has an open question gets one
+ * only-YES-or-NO reminder (throttled to one per HINT_COOLDOWN_MS per phone,
+ * recorded on the awaiting slot). Stray messages from anyone else — group
+ * chatter, strangers, stale replays — stay completely ignored, and the
+ * open question itself is never answered, retried or re-queued by a hint.
+ * Returns true so the webhook knows the message was handled (no retry). */
+async function hintTeacherReply(sender, payload) {
+  const rawTime = Number(payload.data.time ?? payload.data.timestamp);
+  const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime;
+  if (!Number.isFinite(epoch) || epoch < 1_500_000_000 || epoch > Date.now() / 1000 + 300) return false;
+  const replyTime = new Date(epoch * 1000);
+  const slot = await Timetable.findOneAndUpdate({
+    status: 'active',
+    'teacherConfirmation.phone': sender,
+    'teacherConfirmation.status': 'awaiting',
+    'teacherConfirmation.sentAt': { $lte: new Date(replyTime.getTime() + 10_000) },
+    $or: [{ 'teacherConfirmation.hintedAt': null }, { 'teacherConfirmation.hintedAt': { $lt: new Date(Date.now() - HINT_COOLDOWN_MS) } }],
+  }, { $set: { 'teacherConfirmation.hintedAt': new Date() } })
+    .select('teacherConfirmation.teacher').lean();
+  if (!slot) return false; // no open question for this phone — silence
+  try {
+    const teacherDoc = slot.teacherConfirmation?.teacher
+      ? await Teacher.findById(slot.teacherConfirmation.teacher).select('name').lean() : null;
+    await sendText(sender, buildHintMessage(teacherDoc?.name));
+  } catch (err) { console.error('[teacher hint]', err.message); } // best-effort
+  return true;
+}
+
 /** UltraMsg official webhook payload: {event_type,instanceId,data:{id,from,
  * type,body,fromMe}}. Caller authenticates the webhook with an independent
  * URL secret. Exact references select a slot; plain YES/NO requires one
  * pending slot and a message timestamp after its send. Duplicate/replayed/
- * late replies are no-ops. */
+ * late replies are no-ops; other replies from a teacher with an open
+ * question get a polite only-YES-or-NO reminder. */
 export async function handleTeacherReply(payload) {
   if (payload?.event_type !== 'message_received' ||
       String(payload?.instanceId ?? '').replace(/^instance/i, '') !==
@@ -271,9 +335,9 @@ export async function handleTeacherReply(payload) {
   const body = String(payload.data.body ?? '').trim();
   const exact = /^(YES|NO)\s+([A-F0-9]{10})\s*[.!]?$/i.exec(body);
   const plain = /^(YES|NO)\s*[.!]?$/i.exec(body);
-  if (!exact && !plain) return false;
   const sender = String(payload.data.from ?? '').split('@')[0].replace(/\D/g, '');
   if (!sender || !payload.data.id) return false;
+  if (!exact && !plain) return hintTeacherReply(sender, payload);
   let slot;
   if (exact) {
     slot = await Timetable.findOne({ status: 'active', 'teacherConfirmation.code': exact[2].toUpperCase(),

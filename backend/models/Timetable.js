@@ -50,6 +50,7 @@ const timetableSchema = new Schema(
         sentAt: { type: Date },
         respondedAt: { type: Date },
         replyId: { type: String },
+        hintedAt: { type: Date }, // last only-YES-or-NO reminder sent to this teacher
       }, { _id: false }),
       default: () => ({ status: 'none' }),
     },

@@ -254,6 +254,64 @@ test('thank-you follow-ups rotate through a pool and always carry the portal lin
   for (const body of no) assert.match(body, /not confirmed|not left waiting/);
 });
 
+test('unrecognized replies get a polite only-YES-or-NO hint; the question stays open and confirmable', async () => {
+  // clean slate: earlier tests deleted the Teacher doc and left an awaiting
+  // slot whose teacher ref dangles — close it directly and restore the teacher.
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const crDoc = await User.findOne({ email: 'cr-teacher@test.local' });
+  await Teacher.create({ name: 'Dr Test', subject, section, whatsapp: '923001112233', createdBy: crDoc._id });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-12', startTime: '09:00', endTime: '10:00', room: 'Room 9' });
+  const slotId = r.json.data._id;
+  const code = (await Timetable.findById(slotId)).teacherConfirmation.code;
+  const sentBefore = sent.length;
+  const before = (await Timetable.findById(slotId)).teacherConfirmation;
+
+  // "yes betha ma aaon ga" — a real answer, but not a bare YES/NO
+  const hint = await webhook(incoming('yes betha ma aaon ga'));
+  assert.equal(hint.json.data.updated, true); // handled — the teacher is no longer left in silence
+  assert.equal(sent.length, sentBefore + 1);
+  assert.equal(sent.at(-1).to, teacher.whatsapp);
+  assert.match(sent.at(-1).body, /I'm an (AI|automated) (agent|assistant)/);
+  assert.match(sent.at(-1).body, /plain \*YES\* or \*NO\*/);
+  assert.match(sent.at(-1).body, /Assalam-o-Alaikum Respected \*Dr Test\*/);
+  assert.match(sent.at(-1).body, /— Tri3M Class Agent\nDeveloped by the students of the AI Department, IUB/);
+  const after = (await Timetable.findById(slotId)).teacherConfirmation;
+  assert.equal(after.status, 'awaiting'); // a hint never answers the question
+  assert.equal(after.attempts, before.attempts); // and never consumes a retry
+
+  // an immediate second unrecognized reply is throttled — no hint spam
+  assert.equal((await webhook(incoming('g hain ma aaon ga'))).json.data.updated, false);
+  assert.equal(sent.length, sentBefore + 1);
+
+  // the teacher can still answer normally right after the hint
+  assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+
+  // once the question is resolved, further chatter gets no auto-reply
+  assert.equal((await webhook(incoming('ok theek ha'))).json.data.updated, false);
+  assert.equal(sent.length, sentBefore + 2); // only the thank-you follow-up was added
+});
+
+test('unrecognized replies from strangers or group numbers never trigger a hint', async () => {
+  const sentBefore = sent.length;
+  assert.equal((await webhook(incoming('yes betha ma aaon ga', '923009990011@c.us'))).json.data.updated, false);
+  assert.equal((await webhook(incoming('hello', '120363abc@g.us'))).json.data.updated, false);
+  assert.equal(sent.length, sentBefore); // nothing sent to anyone
+});
+
+test('hint reminders rotate through a pool so repeats never read identical', async () => {
+  const { buildHintMessage } = await import('../backend/services/teacherConfirmationService.js');
+  const pool = new Set(Array.from({ length: 40 }, () => buildHintMessage('Dr Test')));
+  assert.ok(pool.size >= 3, `hint pool should rotate across variants (got ${pool.size})`);
+  for (const body of pool) {
+    assert.match(body, /plain \*YES\* or \*NO\*/);
+    assert.match(body, /\*Dr Test\*/);
+    assert.match(body, /reply just \*YES\* if you will take the class, or \*NO\* if you cannot/);
+    assert.match(body, /— Tri3M Class Agent\nDeveloped by the students of the AI Department, IUB\nSemester 2 • Section 3M/);
+  }
+});
+
 test.after(async () => {
   globalThis.fetch = realFetch;
   await new Promise((resolve) => server.close(resolve));
