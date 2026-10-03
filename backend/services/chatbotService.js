@@ -227,9 +227,9 @@ const SYSTEM_PROMPT = `You are Tri3M, the class assistant bot inside the student
 RULES:
 1. Reply in the SAME language and script the student used. Roman Urdu question -> Roman Urdu answer. English -> English. Never switch languages mid-answer.
 2. Be SHORT — WhatsApp style, under ~450 characters. Use *bold* for subjects and times. No markdown headers.
-3. Use ONLY the provided JSON data. NEVER invent class times, room numbers, note titles, names or deadlines. If the data doesn't answer the question, say you don't have that in your records — do NOT tell them to check a portal or website and do NOT send any link.
+3. Use ONLY the provided JSON data. NEVER invent class times, room numbers, note titles, names or deadlines. If the data doesn't answer the question, tell them to ask their CR — the CR will guide them. NEVER say "check the portal", never mention any portal or website, never send any link.
 4. You help with EVERYTHING in the data: timetable (today/upcoming), subjects, teachers (name, subject, designation), announcements, the CR and GR, the class students list (name + roll number), notes and assignment deadlines.
-5. PRIVACY (strict): NEVER share anyone's phone number, email or other personal contact detail, even if asked. Student questions are answered with NAME and ROLL NUMBER only. Marks, fees and other sections' data are also out of scope — say you can't share that here.
+5. PRIVACY (strict): NEVER share anyone's phone number, email or other personal contact detail. If asked for any personal info, refuse politely in the asker's language — "ye personal information hai, main share nahi kar sakta, apne CR se poochein". Student roster questions are answered with NAME and ROLL NUMBER only. Marks, fees and other sections' data are also out of scope — refuse the same way.
 6. Timetable questions: give the asked day's classes with time, subject, room and teacher-confirmation status. If the asked day has NO class, say plainly "aaj koi class nahi" (in the asker's language) and, if tomorrow has classes, list tomorrow's. NEVER say "check the portal" or send a website link.
 7. Notes questions: name the exact note titles from the data. If the student wants note FILES, also fill "send_note_titles" with those exact titles (max 3) — the system will deliver the actual files after your text. Only list titles that appear in "noteFileIndex" with hasFiles=true. If the wanted notes have no files, say so.
 8. NO EMOJIS in your reply — plain text only (no folded-hands, no handshake, none at all).
@@ -313,11 +313,19 @@ export function buildFallbackReply(question, data) {
   const timetable = data.timetable ?? [];
   const todaySlots = timetable.filter((s) => s.date === today);
   const tomorrowSlots = timetable.filter((s) => s.date !== today).slice(0, 4);
+  // personal info of any person: refuse FIRST (owner rule)
+  const personalMatch = /phone|number|email|e-?mail|contact|whatsapp|address|cnic|password/.test(q);
   const noteMatch = /notes?/.test(q);
   const assignMatch = /assignment|deadline|due|homework|submission/.test(q);
-  const rosterMatch = /section|cr\b|\bcr\b|\bgr\b|representative|student|classmate|batchmate|naam|name|kon|kaun|list|kithn|kitn/.test(q);
-  const ttMatch = /timetable|schedule|timing|class|time|lecture/.test(q);
+  // strict roster gate — "konsi class"/"kaun sa room" must NOT print the roster.
+  // Requires an explicit roster word; names are listed only when the question
+  // actually asks for people/names, otherwise a count/summary line is enough.
+  const rosterWord = /students?|classmate|batchmate|\bcr\b|\bgr\b|representative|section|teacher|professor|ustaad/.test(q);
+  const ttMatch = /timetable|schedule|timing|class(es)?|time|lecture|room|baje|bajay/.test(q);
 
+  if (personalMatch) {
+    return 'Ye personal information hai — main share nahi kar sakta. Aisi cheez ke liye apne CR se poochein.';
+  }
   if (noteMatch) {
     const subj = (data.subjects ?? []).find((s) => s.name && q.includes(String(s.name).toLowerCase()));
     const list = subj ? (data.noteFileIndex ?? []).filter((n) => n.subject === subj.name) : (data.noteFileIndex ?? []);
@@ -331,26 +339,37 @@ export function buildFallbackReply(question, data) {
     const lines = upcoming.slice(0, 5).map((a) => `- ${a.subject} — ${a.title} (due ${a.deadline})`);
     return ['*Upcoming deadlines*', '', ...lines].join('\n');
   }
-  if (rosterMatch) {
+  if (rosterWord) {
     const parts = [];
-    parts.push(`*Section:* ${data.section ?? ''}${data.department ? ` — ${data.department}` : ''}${data.semester ? `, semester ${data.semester}` : ''}`);
-    if (data.cr) parts.push(`*CR:* ${data.cr}`);
-    if (data.gr && data.gr !== 'Not set yet') parts.push(`*GR:* ${data.gr}`);
+    if (/section/.test(q)) parts.push(`*Section:* ${data.section ?? ''}${data.department ? ` — ${data.department}` : ''}${data.semester ? `, semester ${data.semester}` : ''}`);
+    if (/\bcr\b|representative/.test(q) && data.cr) parts.push(`*CR:* ${data.cr}`);
+    if (/\bgr\b/.test(q) && data.gr && data.gr !== 'Not set yet') parts.push(`*GR:* ${data.gr}`);
+    const wantsNames = /list|naam|name|kon|kaun/.test(q); // 'kitny/kitne' → count only
     const students = (data.students ?? []).slice(0, 20);
-    if (/kon|kaun|name|naam|list|kithn|kitn/.test(q) && students.length) {
-      parts.push(`*Class students (${students.length}):*`);
-      students.forEach((s) => parts.push(`- ${s.name}${s.rollNo ? ` (${s.rollNo})` : ''}`));
-    } else if (students.length) {
-      parts.push(`*Students:* is class me ${students.length} students add hain. Naam list ke liye "class ke students kaun kaun hain" poochein.`);
+    if (/students?|classmate|batchmate/.test(q) && students.length) {
+      if (wantsNames) {
+        parts.push(`*Class students (${students.length}):*`);
+        students.forEach((s) => parts.push(`- ${s.name}${s.rollNo ? ` (${s.rollNo})` : ''}`));
+      } else {
+        parts.push(`*Students:* is class me ${students.length} students add hain.`);
+      }
     }
     const teachers = (data.teachers ?? []).slice(0, 6);
     if (/teacher|professor|ustaad/.test(q) && teachers.length) {
       parts.push('*Teachers:*');
       teachers.forEach((t) => parts.push(`- ${t.name}${t.subject ? ` — ${t.subject}` : ''}${t.designation ? ` (${t.designation})` : ''}`));
     }
-    return parts.join('\n');
+    if (parts.length) return parts.join('\n');
+    // roster word present but nothing matched (e.g. no students yet) → fall through
   }
-  if (ttMatch || todaySlots.length) {
+  if (ttMatch) {
+    if (/kal|tomorrow|next|agle/.test(q)) {
+      if (tomorrowSlots.length) {
+        const lines = tomorrowSlots.map((s) => `- ${s.day}: ${s.time} — *${s.subject}*${s.room ? ` | ${s.room}` : ''}`);
+        return ['*Agli classes*', '', ...lines].join('\n');
+      }
+      return 'Abhi koi upcoming class schedule nahi mili. Details ke liye apne CR se poochein.';
+    }
     if (!todaySlots.length) {
       if (tomorrowSlots.length) {
         const lines = tomorrowSlots.map((s) => `- ${s.day}: ${s.time} — *${s.subject}*${s.room ? ` | ${s.room}` : ''}`);
@@ -361,7 +380,7 @@ export function buildFallbackReply(question, data) {
     const lines = todaySlots.map((s) => `- ${s.time} — *${s.subject}*${s.room ? ` | ${s.room}` : ''} (${s.status})`);
     return ['*Aaj ki classes*', '', ...lines].join('\n');
   }
-  return 'Salam! Main *Tri3M* hoon — class se related koi bhi sawal pooch sakte hain: "aj ki class timing?", "notes?", "assignment deadline?", "section me kaun kaun students hain?", "CR kaun hai?"';
+  return 'Ye mere paas nahi hai — apne CR se poochein, woh guide kar dein ge. Main class ke timetable, notes, assignments, section, CR/GR aur students ke sawalon ka jawab de sakta hoon.';
 }
 
 /* ------------------------------------------------------------------ */

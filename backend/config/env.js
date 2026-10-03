@@ -44,7 +44,7 @@ export const env = {
   chatbot: {
     enabled: (process.env.WHATSAPP_CHATBOT_ENABLED || '').trim().toLowerCase() === 'true',
     googleApiKey: process.env.GOOGLE_API_KEY,
-    model: process.env.CHATBOT_GEMINI_MODEL || 'gemini-2.5-flash',
+    model: process.env.CHATBOT_GEMINI_MODEL || 'gemini-3.8-flash', // 2.5-flash was retired by Google (404 for new users)
   },
 };
 

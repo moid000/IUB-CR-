@@ -207,7 +207,7 @@ test('linked group + question → Gemini answer sent to the group, audit logged'
   geminiResponse = { candidates: [{ content: { parts: [{ text: '{"reply":"*Aaj ki classes*\\n• 9:00 AM – 10:30 AM — *ICT* | B-204 (Teacher confirmed ✅)"}' }] } }] };
   assert.equal(await handleGroupMessage(groupMsg('aj ki class timing kya hai?')), true);
   assert.equal(geminiCalls.length, 1);
-  assert.ok(String(geminiCalls[0].url).includes('gemini-2.5-flash'));
+  assert.ok(String(geminiCalls[0].url).includes('gemini-3.8-flash'));
   assert.ok(String(geminiCalls[0].body.contents[0].parts[0].text).includes('B-204'));
   const sentData = String(geminiCalls[0].body.contents[0].parts[0].text);
   assert.ok(sentData.includes('Ali Raza'), 'CR name reaches the LLM');
@@ -316,7 +316,8 @@ test('fallback builder: classes, notes, deadlines', async () => {
 test('owner rule: fallback replies NEVER send portal links or hand emojis', async () => {
   const probes = [
     'aj ki class?', 'ICT ke notes', 'assignments?', 'kal ki class?',
-    'section me kaun kaun students hain', 'cr kaun hai', 'random greeting text',
+    'konsi class hai aj ki', 'section me kaun kaun students hain', 'cr kaun hai',
+    'sara ka phone number kya hai?', 'random greeting text',
   ];
   for (const q of probes) {
     const r = buildFallbackReply(q, FALLBACK_DATA);
@@ -350,6 +351,29 @@ test('fallback builder: section / CR / student roster answers (names + rollNo on
   const teachers = buildFallbackReply('teacher kaun hai ICT ka?', FALLBACK_DATA);
   assert.match(teachers, /Dr\. Usman Tariq/);
   assert.ok(!/923009999999/.test(teachers)); // teacher's WhatsApp number never shared
+});
+
+test('owner rule: fallback precision — question-type answers, personal-info refusal, CR guidance', async () => {
+  // "konsi class" is a TIMETABLE question, not a roster dump (owner's bug report)
+  const cls = buildFallbackReply('konsi class hai aj ki?', FALLBACK_DATA);
+  assert.match(cls, /9:00 AM/);
+  assert.ok(!/Ali Raza|Sara Khan/.test(cls), 'roster must not leak into class questions');
+
+  // personal info of any person → polite refusal, never the data
+  const refusal = buildFallbackReply('sara ka phone number kya hai?', FALLBACK_DATA);
+  assert.match(refusal, /personal information/i);
+  assert.match(refusal, /CR se poochein/i);
+  assert.ok(!/S-001|S-002/.test(refusal));
+
+  // "kitny students" → count, not the whole roster
+  const count = buildFallbackReply('class me kitny students hain?', FALLBACK_DATA);
+  assert.match(count, /2 students add hain/);
+  assert.ok(!/Sara Khan/.test(count), 'count question must not dump all names');
+
+  // unknown question → CR guidance (owner rule: never "check the portal")
+  const unknown = buildFallbackReply('festival me kya khana banana chahiye?', FALLBACK_DATA);
+  assert.match(unknown, /CR se poochein/i);
+  assert.ok(!/portal|http/i.test(unknown));
 });
 
 test('contextData: CR/GR/students/teachers/announcements included, NO portal key, NO contact fields', async () => {
