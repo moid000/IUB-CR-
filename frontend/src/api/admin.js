@@ -61,4 +61,10 @@ export const adminApi = {
     getProfile: () => api.get('/api/admin/administration/profile'),
     updateProfile: (body) => api.put('/api/admin/administration/profile', body), // { name?, email, whatsapp }
   },
+  chatbot: {
+    // Tri3M WhatsApp group chatbot master switch (Administration section).
+    // Never returns the Gemini key — only whether one is configured.
+    get: () => api.get('/api/admin/chatbot'),
+    update: (body) => api.put('/api/admin/chatbot', body), // { enabled?, apiKey? }
+  },
 };

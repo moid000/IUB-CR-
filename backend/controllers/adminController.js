@@ -112,4 +112,6 @@ export const wipeAllData = wrap(svc.wipeAllData);
 // Administration profile + protected data deletion (dual verification)
 export const getAdminProfile = wrap(adminProfileSvc.getAdminProfile);
 export const updateAdminProfile = wrap(adminProfileSvc.updateAdminProfile);
+export const getChatbotSetting = wrap(adminProfileSvc.getChatbotSetting);
+export const updateChatbotSetting = wrap(adminProfileSvc.updateChatbotSetting);
 export const requestWipeCodes = wrap(adminProfileSvc.requestWipeCodes);

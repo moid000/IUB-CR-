@@ -6,7 +6,7 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
-import { IconShield } from '../../components/icons.jsx';
+import { IconShield, IconChatBubble } from '../../components/icons.jsx';
 
 /**
  * Administration — owner profile + data-protection overview.
@@ -17,6 +17,7 @@ import { IconShield } from '../../components/icons.jsx';
  */
 export default function AdministrationPage() {
   const { items: data, loading, error } = useAdminQuery(() => adminApi.administration.getProfile(), []);
+  const { items: botData, loading: botLoading, error: botQueryError } = useAdminQuery(() => adminApi.chatbot.get(), []);
 
   const profile = data?.configured ? data.profile : null;
 
@@ -26,6 +27,59 @@ export default function AdministrationPage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState(null);
   const [saved, setSaved] = useState(false);
+
+  // Tri3M WhatsApp chatbot master switch state
+  const [bot, setBot] = useState({ enabled: false, apiKeyConfigured: false, apiKeySource: 'none' });
+  const [botBusy, setBotBusy] = useState(false);
+  const [botError, setBotError] = useState(null);
+  const [botSaved, setBotSaved] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+
+  useEffect(() => {
+    if (botData) {
+      setBot({
+        enabled: botData.enabled === true,
+        apiKeyConfigured: botData.apiKeyConfigured === true,
+        apiKeySource: botData.apiKeySource ?? 'none',
+      });
+    }
+  }, [botData]);
+
+  const toggleBot = async () => {
+    setBotBusy(true); setBotError(null); setBotSaved(false);
+    try {
+      const res = await adminApi.chatbot.update({ enabled: !bot.enabled });
+      setBot({
+        enabled: res.enabled === true,
+        apiKeyConfigured: res.apiKeyConfigured === true,
+        apiKeySource: res.apiKeySource ?? 'none',
+      });
+      setBotSaved(true);
+    } catch (err) {
+      setBotError(err);
+    } finally {
+      setBotBusy(false);
+    }
+  };
+
+  const saveApiKey = async (e) => {
+    e.preventDefault();
+    setBotBusy(true); setBotError(null); setBotSaved(false);
+    try {
+      const res = await adminApi.chatbot.update({ apiKey: apiKeyInput.trim() });
+      setBot({
+        enabled: res.enabled === true,
+        apiKeyConfigured: res.apiKeyConfigured === true,
+        apiKeySource: res.apiKeySource ?? 'none',
+      });
+      setApiKeyInput('');
+      setBotSaved(true);
+    } catch (err) {
+      setBotError(err);
+    } finally {
+      setBotBusy(false);
+    }
+  };
 
   // Hydrate the form once the profile arrives (server is the source of truth)
   useEffect(() => {
@@ -139,6 +193,70 @@ export default function AdministrationPage() {
                 </Button>
               </div>
             </form>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft sm:p-6" aria-label="WhatsApp chatbot switch">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                <IconChatBubble className="size-4.5" />
+              </span>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">WhatsApp Chatbot (Tri3M group replies)</h2>
+                    <p className="mt-1 max-w-2xl text-xs text-slate-500">
+                      When ON, Tri3M answers students' class questions (timetable, notes, assignments) inside
+                      linked class WhatsApp groups. When OFF, the bot stays completely silent — teacher
+                      confirmations and deadline alerts are never affected.
+                    </p>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                      bot.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    <span className={`size-2 rounded-full ${bot.enabled ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                    {bot.enabled ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+
+                {(botQueryError || botError) && <Alert variant="danger" className="mt-4">{(botError || botQueryError)?.message ?? 'Could not update the chatbot switch.'}</Alert>}
+                {botSaved && <Alert variant="success" className="mt-4">Chatbot setting saved.</Alert>}
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <Button
+                    variant={bot.enabled ? 'danger' : 'primary'}
+                    onClick={toggleBot}
+                    disabled={botBusy || botLoading}
+                  >
+                    {botBusy ? 'Saving…' : bot.enabled ? 'Turn bot OFF' : 'Turn bot ON'}
+                  </Button>
+                  <p className="text-xs text-slate-400">
+                    Gemini key:{' '}
+                    {bot.apiKeyConfigured
+                      ? `configured (${bot.apiKeySource === 'panel' ? 'saved here in the panel' : 'server environment'})`
+                      : 'not set — the bot will use built-in answers only'}
+                  </p>
+                </div>
+
+                <form onSubmit={saveApiKey} className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <Input
+                    type="password"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder={bot.apiKeyConfigured ? 'Replace the Gemini key (paste a new one)' : 'Paste your Google AI Studio key (starts with AIza)'}
+                    autoComplete="off"
+                    disabled={botBusy}
+                  />
+                  <Button type="submit" variant="secondary" disabled={botBusy || !apiKeyInput.trim()}>
+                    {botBusy ? 'Saving…' : 'Save key'}
+                  </Button>
+                </form>
+                <p className="mt-1.5 text-xs text-slate-400">
+                  Optional. The key is stored server-side and never shown again. Leave empty to keep the current key.
+                </p>
+              </div>
+            </div>
           </section>
 
           <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 sm:p-6" aria-label="Data deletion protection">

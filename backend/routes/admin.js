@@ -28,6 +28,10 @@ router.post('/wipe-all', ctl.wipeAllData);
 router.get('/administration/profile', ctl.getAdminProfile);
 router.put('/administration/profile', ctl.updateAdminProfile);
 
+// Tri3M WhatsApp chatbot master switch (ON/OFF) + Gemini key, admin-only
+router.get('/chatbot', ctl.getChatbotSetting);
+router.put('/chatbot', ctl.updateChatbotSetting);
+
 // Departments
 router.post('/departments', ctl.createDepartment);
 router.get('/departments', ctl.listDepartments);

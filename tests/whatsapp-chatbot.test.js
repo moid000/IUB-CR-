@@ -44,7 +44,7 @@ const {
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf,
 } = chatbot;
 
-const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, Department, AcademicSession } = models;
+const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession } = models;
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
@@ -76,11 +76,12 @@ globalThis.fetch = async (url, opts) => {
   return realFetch(url, opts);
 };
 
-test.afterEach(() => {
+test.afterEach(async () => {
   waSent.length = 0;
   geminiCalls.length = 0;
   geminiResponse = null;
   chatbot.__resetGuards(); // fresh cooldown/hour/day budget per test
+  await ChatbotSetting.deleteMany({}); // panel switch resets to env defaults
 });
 
 const today = new Intl.DateTimeFormat('en-CA', {
@@ -308,4 +309,100 @@ test('webhook route: group message → chatbot answers; DM still goes to teacher
   });
   assert.equal(dm.status, 200);
   assert.equal(geminiCalls.length, 0); // DMs never reach the chatbot
+});
+
+
+/* -------- Administration panel ON/OFF switch (owner request) -------- */
+let adminCookie = '';
+{
+  const res = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'admin@test.local', password: 'AdminPass123!456' }),
+  });
+  assert.equal(res.status, 200, 'admin login for switch tests');
+  adminCookie = (res.headers.get('set-cookie') || '').split(';')[0];
+  assert.ok(adminCookie, 'admin cookie captured');
+}
+
+test('chatbot switch: admin route requires an admin session', async () => {
+  const res = await fetch(`${BASE}/api/admin/chatbot`);
+  assert.equal(res.status, 401);
+});
+
+test('chatbot switch: defaults mirror env (enabled + key from env) and never leak the key', async () => {
+  const res = await fetch(`${BASE}/api/admin/chatbot`, { headers: { cookie: adminCookie } });
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.data.enabled, true); // env WHATSAPP_CHATBOT_ENABLED=true in this suite
+  assert.equal(json.data.apiKeyConfigured, true);
+  assert.equal(json.data.apiKeySource, 'env');
+  assert.ok(!JSON.stringify(json).includes('test-gemini-key'), 'GET never returns the key value');
+});
+
+test('chatbot switch: panel OFF wins over env ON — bot goes fully silent', async () => {
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(put.status, 200);
+  const json = await put.json();
+  assert.equal(json.data.enabled, false);
+
+  const consumed = await handleGroupMessage(groupMsg('aj timetable kya hai?'));
+  assert.equal(consumed, false); // switch OFF → the whole branch is skipped
+  assert.equal(geminiCalls.length, 0);
+  assert.equal(waSent.length, 0);
+});
+
+test('chatbot switch: panel ON + panel key is used for Gemini (doc wins over env)', async () => {
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ enabled: true, apiKey: 'AIzaPANELkeyTEST0000000000000' }),
+  });
+  assert.equal(put.status, 200);
+  assert.equal((await put.json()).data.apiKeySource, 'panel');
+
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{"reply":"Aaj 9:00 AM — ICT"}' }] } }] };
+  const consumed = await handleGroupMessage(groupMsg('aj timetable kya hai?'));
+  assert.equal(consumed, true);
+  assert.ok(geminiCalls.length >= 1);
+  assert.match(geminiCalls[0].url, /key=AIzaPANELkeyTEST0000000000000/); // panel key, not env key
+
+  const get = await fetch(`${BASE}/api/admin/chatbot`, { headers: { cookie: adminCookie } });
+  const json = await get.json();
+  assert.equal(json.data.enabled, true);
+  assert.equal(json.data.apiKeySource, 'panel');
+  assert.ok(!JSON.stringify(json).includes('AIzaPANELkeyTEST'), 'key value never exposed');
+});
+
+test('chatbot switch: clearing the panel key falls back to the env key', async () => {
+  await (await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ apiKey: 'AIzaPANELkeyTEST0000000000000' }),
+  })).json();
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ apiKey: '' }),
+  });
+  assert.equal(put.status, 200);
+  assert.equal((await put.json()).data.apiKeySource, 'env'); // back to GOOGLE_API_KEY
+
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{"reply":"Aaj 9:00 AM — ICT"}' }] } }] };
+  await handleGroupMessage(groupMsg('aj timetable kya hai?'));
+  assert.ok(geminiCalls.length >= 1);
+  assert.match(geminiCalls[0].url, /key=test-gemini-key/); // env key again
+});
+
+test('chatbot switch: malformed keys are rejected', async () => {
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ apiKey: 'not-a-google-key' }),
+  });
+  assert.equal(put.status, 400);
 });

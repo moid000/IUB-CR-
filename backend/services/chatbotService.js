@@ -1,4 +1,4 @@
-import { Section, Subject, Note, Assignment, Timetable, ChatbotLog } from '../models/index.js';
+import { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting } from '../models/index.js';
 import { env } from '../config/env.js';
 import {
   isConfigured, sendText, sendImage, sendDocument, sendAudio, sendVideo,
@@ -16,7 +16,8 @@ import {
  * SAFETY CONTRACT (owner's #1 rule — the rest of the app must stay untouched):
  * - READ-ONLY: the bot NEVER writes to any existing record. The only thing
  *   it creates is a ChatbotLog audit entry.
- * - Master switch: WHATSAPP_CHATBOT_ENABLED must be exactly 'true'. Flip it
+ * - Master switch: the admin-panel Administration toggle (ChatbotSetting)
+ *   wins; the WHATSAPP_CHATBOT_ENABLED env var is only the boot default.
  *   off and the whole feature disappears; every other path is identical to
  *   before this file existed.
  * - Only answers in groups LINKED to a section (general or subject group).
@@ -198,8 +199,8 @@ RULES:
 
 Return ONLY JSON: { "reply": string, "send_note_titles": string[] (may be empty) }`;
 
-export async function askGemini({ question, data }) {
-  const key = env.chatbot.googleApiKey;
+export async function askGemini({ question, data, apiKey }) {
+  const key = apiKey || env.chatbot.googleApiKey;
   const model = env.chatbot.model;
   if (!key) return null;
   const controller = new AbortController();
@@ -380,11 +381,31 @@ export function __resetGuards() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Runtime master switch. The admin-panel Administration toggle is the  */
+/* live source of truth; the env var is only the boot default. Never     */
+/* throws — DB issues fall back to the env setting.                     */
+/* ------------------------------------------------------------------ */
+async function resolveRuntimeSetting() {
+  try {
+    const doc = await ChatbotSetting.findOne({ key: 'global' }).lean();
+    if (doc) {
+      return {
+        enabled: doc.enabled === true,
+        apiKey: (doc.apiKey || '').trim() || env.chatbot.googleApiKey,
+        source: 'panel',
+      };
+    }
+  } catch { /* fall through to env defaults */ }
+  return { enabled: env.chatbot.enabled, apiKey: env.chatbot.googleApiKey, source: 'env' };
+}
+
+/* ------------------------------------------------------------------ */
 /* Main entry — called by the webhook route for GROUP messages.        */
 /* NEVER throws; returns true when the message was consumed.            */
 /* ------------------------------------------------------------------ */
 export async function handleGroupMessage(payload) {
-  if (!env.chatbot.enabled) return false;
+  const setting = await resolveRuntimeSetting();
+  if (!setting.enabled) return false;
   if (!isGroupMessage(payload)) return false;
   const groupId = groupIdOf(payload);
   const data = payload?.data ?? {};
@@ -417,7 +438,7 @@ export async function handleGroupMessage(payload) {
     const dataJson = contextData(ctx);
 
     let source = 'gemini';
-    let answer = env.chatbot.googleApiKey ? await askGemini({ question, data: dataJson }) : null;
+    let answer = setting.apiKey ? await askGemini({ question, data: dataJson, apiKey: setting.apiKey }) : null;
     let sendTitles = [];
     if (answer) {
       sendTitles = answer.send_note_titles;
