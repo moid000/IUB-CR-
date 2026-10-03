@@ -52,15 +52,21 @@ export async function postForm(url, params) {
  * Sends a plain-text WhatsApp message (WhatsApp *bold* markers supported).
  * Throws ApiError on any gateway failure — callers decide retry semantics.
  */
-export async function sendText(to, body) {
+export async function sendText(to, body, mentioned = []) {
   if (!isConfigured()) {
     throw new ApiError(503, 'WhatsApp gateway is not configured');
   }
-  const { ok, status, json } = await postForm(endpoint('/messages/chat'), {
+  const form = {
     token: env.whatsapp.token,
     to,
     body,
-  });
+  };
+  // group mentions: body must contain "@<number>", mentionedIds carries the
+  // array (UltraMsg accepts it as a JSON-encoded form value)
+  if (Array.isArray(mentioned) && mentioned.length) {
+    form.mentionedIds = JSON.stringify(mentioned.map((m) => String(m).replace(/[^\d]/g, '')).filter(Boolean));
+  }
+  const { ok, status, json } = await postForm(endpoint('/messages/chat'), form);
 
   if (!ok || json?.error) {
     const detail = json?.error || `HTTP ${status}`;

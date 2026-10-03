@@ -692,7 +692,11 @@ export async function handleGroupMessage(payload) {
     }
     if (!answer || !String(answer).trim()) return true;
 
-    await sendText(groupId, String(answer).slice(0, 1200));
+    // reply @mentions the student who asked (owner rule: group chats are
+    // busy — the mention makes it obvious WHO the answer is for)
+    const asker = author && author !== selfPhone ? author : '';
+    const prefix = asker ? `@${asker} ` : '';
+    await sendText(groupId, `${prefix}${String(answer).slice(0, 1150)}`, asker ? [asker] : []);
     let sentFiles = 0;
     if (sendTitles.length) {
       const picked = pickNotesForDelivery(sendTitles, ctx.notes);

@@ -444,6 +444,22 @@ test('subjectAsked pins the subject by name, code or abbreviation', async () => 
   assert.equal(subjectAsked('kya haal hai', subjects), null);
 });
 
+test('owner feature: group reply @mentions the student who asked (busy-group clarity)', async () => {
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Aaj ICT ki class 9:00 AM hai.\",\"send_note_titles\":[]}' }] } }] };
+  assert.equal(await handleGroupMessage(groupMsg('aj ki class timing?')), true);
+  const chat = waSent.find((s) => s.kind === 'chat');
+  assert.ok(chat, 'reply sent');
+  assert.ok(chat.params.body.startsWith(`@${STUDENT} `), 'reply opens with the asker mention');
+  assert.match(chat.params.body, /9:00 AM/);
+  const mentioned = JSON.parse(chat.params.mentionedIds);
+  assert.deepEqual(mentioned, [STUDENT]);
+  // fallback replies mention too
+  geminiResponse = null;
+  assert.equal(await handleGroupMessage(groupMsg('hamare subjects kaun ke hain?')), true);
+  const chat2 = waSent.filter((s) => s.kind === 'chat').at(-1);
+  assert.ok(chat2.params.body.startsWith(`@${STUDENT} `));
+});
+
 test('owner feature: prompt carries recency rule, two-step pick, memory and the funny personality', () => {
   assert.match(SYSTEM_PROMPT, /NEWEST-first/i);
   assert.match(SYSTEM_PROMPT, /TWO-STEP PICK/);
