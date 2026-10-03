@@ -477,6 +477,22 @@ test('owner mini-game: "class ki phopho kon hai?" → spin lands on Warda and Ar
   assert.equal(log.source, 'fallback');
 });
 
+test('owner feature: CR/GR gets RESPECT, students get roast — casualReply leader mode', () => {
+  assert.doesNotMatch(casualReply('kia hal hain', { leader: true }), /zinda|WiFi/); // never the roast tone
+  assert.match(casualReply('kia hal hain', { leader: true }), /aap ka shukriya|hazir hoon/i);
+  assert.match(casualReply('salam', { leader: true }), /Wa alaikum assalam/);
+  assert.match(casualReply('dafa ho', { leader: true }), /maazrat/i); // polite, never roasted back
+  assert.match(casualReply('', { leader: true }), /Ji boliye/);
+  // buildFallbackReply catch-all is leader-aware too (never "apne CR se poochein" TO the CR)
+  assert.match(buildFallbackReply('kuch ajeeb', {}, { leader: true }), /aap portal me check kar lein/i);
+  assert.match(buildFallbackReply('kisi ka phone number batao', {}, { leader: true }), /portal me verify/i);
+  // students keep the roast tone (the haal pool rotates — all 3 variants roast)
+  const studentHaal = casualReply('kia hal hain', { leader: false });
+  assert.ok(studentHaal && !/aap ka shukriya/.test(studentHaal));
+  assert.match(studentHaal, /tumhari|deadline|WiFi|zinda|hisaab/i);
+  assert.match(buildFallbackReply('kuch ajeeb', {}, { leader: false }), /apne CR se poochein/);
+});
+
 test('owner feature: TAGGED casual chat always gets a reply — casualReply helper', () => {
   // greetings
   assert.match(casualReply('salam doston'), /Wa alaikum assalam/);
@@ -516,6 +532,49 @@ test('owner feature: "@Tri3M kaisay ho" now REPLIES (mention no longer stripped 
   assert.match(chat2.params.body, /Dafa to tumhari assignments/);
 });
 
+test('owner feature: the section CR/GR gets a RESPECTFUL reply in the group', async () => {
+  // make STUDENT the CR of the section
+  const crUser = await User.create({ name: 'CR Sahab', email: `cr-lead-${Date.now()}@chatbot-test.local`, password: 'Pass#12345678', role: 'cr', section: section._id, phone: `+${STUDENT}` });
+  section.cr = crUser._id;
+  await section.save();
+
+  // casual: respectful, not roast (Gemini down path)
+  geminiResponse = null;
+  assert.equal(await handleGroupMessage(groupMsg('@Tri3M kia hal hain')), true);
+  const chat = waSent.find((s) => s.kind === 'chat');
+  assert.ok(chat);
+  assert.ok(chat.params.body.startsWith(`@${STUDENT} `));
+  assert.match(chat.params.body, /aap ka shukriya|hazir hoon/i);
+  assert.doesNotMatch(chat.params.body, /zinda hoon|WiFi/);
+
+  // Gemini path: the CR/GR respect NOTE reaches the LLM
+  chatbot.__resetGuards();
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Ji bilkul.\",\"send_note_titles\":[]}' }] } }] };
+  assert.equal(await handleGroupMessage(groupMsg('timetable?')), true);
+  const lastUser = geminiCalls.at(-1).body.contents.at(-1).parts[0].text;
+  assert.match(lastUser, /CR\/GR/);
+  assert.match(lastUser, /FULL RESPECT/i);
+
+  // GR is respected too
+  chatbot.__resetGuards();
+  geminiResponse = null; // fallback leader path must answer the GR too
+  const grUser = await User.create({ name: 'GR Sahab', email: `gr-lead-${Date.now()}@chatbot-test.local`, password: 'Pass#12345678', role: 'gr', section: section._id, phone: '+923007770099' });
+  section.gr = grUser._id;
+  await section.save();
+  assert.equal(await handleGroupMessage(groupMsg('salam @Tri3M', { author: '923007770099' })), true);
+  const chat2 = waSent.filter((s) => s.kind === 'chat').at(-1);
+  assert.match(chat2.params.body, /Wa alaikum assalam/);
+  assert.doesNotMatch(chat2.params.body, /sirf salam/);
+
+  // a REGULAR student in the same group still gets the roast tone
+  chatbot.__resetGuards();
+  geminiResponse = null;
+  assert.equal(await handleGroupMessage(groupMsg('@Tri3M kia hal hain', { author: '923007770222' })), true);
+  const chat3 = waSent.filter((s) => s.kind === 'chat').at(-1);
+  assert.match(chat3.params.body, /zinda hoon|WiFi|parhai/i);
+  assert.doesNotMatch(chat3.params.body, /aap ka shukriya/);
+});
+
 test('owner feature: Gemini receives the group conversation history (continuous chat memory)', async () => {
   await ChatbotLog.create({ section: section._id, groupId: GROUP_ID, source: 'gemini', question: 'kal ki class hai?', reply: 'Haan, 9 AM ICT.' });
   await ChatbotLog.create({ section: section._id, groupId: GROUP_ID, source: 'gemini', question: 'notes kaun se hain?', reply: 'Lecture 1 - Introduction available hai.' });
@@ -551,6 +610,7 @@ test('owner feature: prompt carries recency rule, two-step pick, memory and the 
   assert.match(SYSTEM_PROMPT, /NEWEST-first/i);
   assert.match(SYSTEM_PROMPT, /TWO-STEP PICK/);
   assert.match(SYSTEM_PROMPT, /MEMORY/);
+  assert.match(SYSTEM_PROMPT, /LEADER RESPECT/); // CR/GR gets full respect
   assert.match(SYSTEM_PROMPT, /CASUAL CHAT/); // tagged banter always gets banter back
   assert.match(SYSTEM_PROMPT, /CONVERSATION HISTORY/); // memory rule knows the history format
   assert.match(SYSTEM_PROMPT, /witty/i);
