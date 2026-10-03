@@ -410,6 +410,13 @@ test('owner rule: teacher questions answer ONE teacher, not every teacher/subjec
   assert.match(prog, /Dr\. Ayesha Siddiqui/);
   assert.ok(!/Dr\. Usman Tariq/.test(prog));
 
+  // subjects list question answers with the list (no catch-all deflection)
+  const subs = buildFallbackReply('hamare subjects kaun ke hain?', FALLBACK_DATA);
+  assert.match(subs, /ICT/);
+  assert.match(subs, /Programming/);
+  assert.match(subs, /Artificial Intelligence/);
+  assert.match(subs, /\(AI-101\)/);
+
   // no subject named, several teachers → asks which subject (no dump)
   const vague = buildFallbackReply('teacher kaun hai?', FALLBACK_DATA);
   assert.match(vague, /3 teachers hain/);

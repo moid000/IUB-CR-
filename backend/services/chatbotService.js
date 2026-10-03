@@ -246,9 +246,10 @@ Return ONLY JSON: { "reply": string, "send_note_titles": string[] (may be empty)
 const BACKUP_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-3.1-flash-lite')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
-async function geminiCall(url, payload, apiKey) {
+async function geminiCall(url, payload, deadline = null) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const budget = deadline ? Math.max(1_000, deadline - Date.now()) : GEMINI_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), Math.min(GEMINI_TIMEOUT_MS, budget));
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -300,12 +301,12 @@ export async function askGemini({ question, data, apiKey }) {
   for (const model of models) {
     if (Date.now() > deadline) break; // never exceed the serverless budget
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-    let out = await geminiCall(url, payload, key);
+    let out = await geminiCall(url, payload, deadline);
     if (out.ok && out.parsed) return out.parsed;
     // one retry with a short backoff on transient errors (5xx/429/network)
     if (out.retryable && Date.now() + 1500 < deadline) {
       await new Promise((r) => setTimeout(r, 1200));
-      out = await geminiCall(url, payload, key);
+      out = await geminiCall(url, payload, deadline);
       if (out.ok && out.parsed) return out.parsed;
     }
     // still failing → next backup model (e.g. primary is overloaded 503)
@@ -438,6 +439,10 @@ export function buildFallbackReply(question, data) {
     }
     const lines = todaySlots.map((s) => `- ${s.time} — *${s.subject}*${s.room ? ` | ${s.room}` : ''} (${s.status})`);
     return ['*Aaj ki classes*', '', ...lines].join('\n');
+  }
+  if (/subjects?/.test(q)) {
+    const subs = (data.subjects ?? []).map((s) => `- ${s.name}${s.code ? ` (${s.code})` : ''}`);
+    if (subs.length) return ['*Class subjects*', '', ...subs].join('\n');
   }
   return 'Ye mere paas nahi hai — apne CR se poochein, woh guide kar dein ge. Main class ke timetable, notes, assignments, section, CR/GR aur students ke sawalon ka jawab de sakta hoon.';
 }
