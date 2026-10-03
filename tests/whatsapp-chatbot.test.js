@@ -41,7 +41,7 @@ const { env } = await import('../backend/config/env.js');
 const chatbot = await import('../backend/services/chatbotService.js');
 const {
   handleGroupMessage, shouldTrigger, stripMentions, parseGeminiJson,
-  buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData,
+  buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
 } = chatbot;
 
 const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
@@ -296,14 +296,22 @@ const FALLBACK_DATA = {
   timetable: [
     { date: today, day: 'today', time: '9:00 AM – 10:30 AM', subject: 'ICT', room: 'B-204', status: 'Teacher confirmed ✅' },
   ],
-  subjects: [{ name: 'ICT', code: 'ICT-101' }],
+  subjects: [
+    { name: 'ICT', code: 'ICT-101' },
+    { name: 'Programming', code: 'CS-102' },
+    { name: 'Artificial Intelligence', code: 'AI-101' },
+  ],
   noteFileIndex: [{ title: 'Lecture 1 - Introduction', subject: 'ICT', hasFiles: true }],
   assignments: [{ title: 'Assignment 1', subject: 'ICT', deadline: 'soon', past: false }],
   students: [
     { name: 'Sara Khan', rollNo: 'S-001' },
     { name: 'Bilal Ahmed', rollNo: 'S-002' },
   ],
-  teachers: [{ name: 'Dr. Usman Tariq', subject: 'ICT', designation: 'Professor' }],
+  teachers: [
+    { name: 'Dr. Usman Tariq', subject: 'ICT', designation: 'Professor' },
+    { name: 'Dr. Ayesha Siddiqui', subject: 'Programming', designation: 'Assistant Professor' },
+    { name: 'Dr. Waqar Malik', subject: 'Artificial Intelligence', designation: 'Professor' },
+  ],
   announcements: [{ title: 'Quiz next week', date: 'today' }],
 };
 
@@ -374,6 +382,39 @@ test('owner rule: fallback precision — question-type answers, personal-info re
   const unknown = buildFallbackReply('festival me kya khana banana chahiye?', FALLBACK_DATA);
   assert.match(unknown, /CR se poochein/i);
   assert.ok(!/portal|http/i.test(unknown));
+});
+
+test('owner rule: teacher questions answer ONE teacher, not every teacher/subject (professional precision)', async () => {
+  // specific subject by abbreviation "AI"
+  const ai = buildFallbackReply('AI ka teacher kon hai?', FALLBACK_DATA);
+  assert.match(ai, /Dr\. Waqar Malik/);
+  assert.ok(!/Dr\. Usman Tariq/.test(ai) && !/Dr\. Ayesha Siddiqui/.test(ai), 'other teachers must not leak');
+
+  // specific subject by full name
+  const prog = buildFallbackReply('Programming ka ustaad kaun hai?', FALLBACK_DATA);
+  assert.match(prog, /Dr\. Ayesha Siddiqui/);
+  assert.ok(!/Dr\. Usman Tariq/.test(prog));
+
+  // no subject named, several teachers → asks which subject (no dump)
+  const vague = buildFallbackReply('teacher kaun hai?', FALLBACK_DATA);
+  assert.match(vague, /3 teachers hain/);
+  assert.ok(!/Dr\. Usman Tariq/.test(vague), 'must not dump all teachers');
+
+  // explicit "sab" → full list is fine
+  const all = buildFallbackReply('sab teachers kaun kaun hain?', FALLBACK_DATA);
+  assert.match(all, /Dr\. Usman Tariq/);
+  assert.match(all, /Dr\. Waqar Malik/);
+});
+
+test('subjectAsked pins the subject by name, code or abbreviation', async () => {
+  const subjects = [
+    { name: 'Artificial Intelligence', code: 'AI-101' },
+    { name: 'ICT', code: 'ICT-101' },
+  ];
+  assert.equal(subjectAsked('AI ka teacher kon hai', subjects)?.name, 'Artificial Intelligence');
+  assert.equal(subjectAsked('artificial intelligence ki class timing', subjects)?.name, 'Artificial Intelligence');
+  assert.equal(subjectAsked('ict-101 ke notes', subjects)?.name, 'ICT');
+  assert.equal(subjectAsked('kya haal hai', subjects), null);
 });
 
 test('contextData: CR/GR/students/teachers/announcements included, NO portal key, NO contact fields', async () => {

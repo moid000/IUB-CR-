@@ -229,6 +229,7 @@ RULES:
 2. Be SHORT — WhatsApp style, under ~450 characters. Use *bold* for subjects and times. No markdown headers.
 3. Use ONLY the provided JSON data. NEVER invent class times, room numbers, note titles, names or deadlines. If the data doesn't answer the question, tell them to ask their CR — the CR will guide them. NEVER say "check the portal", never mention any portal or website, never send any link.
 4. You help with EVERYTHING in the data: timetable (today/upcoming), subjects, teachers (name, subject, designation), announcements, the CR and GR, the class students list (name + roll number), notes and assignment deadlines.
+4b. PRECISION (strict): answer EXACTLY what was asked — nothing extra. If asked about ONE subject's teacher, name ONLY that teacher ("AI ka teacher kon hai?" -> just the AI teacher, not every teacher or subject list). Give a full list ONLY when the question clearly asks for all of them ("sab teachers", "sare subjects", "poori list"). Never dump rosters, all teachers or all subjects unprompted — it reads unprofessional.
 5. PRIVACY (strict): NEVER share anyone's phone number, email or other personal contact detail. If asked for any personal info, refuse politely in the asker's language — "ye personal information hai, main share nahi kar sakta, apne CR se poochein". Student roster questions are answered with NAME and ROLL NUMBER only. Marks, fees and other sections' data are also out of scope — refuse the same way.
 6. Timetable questions: give the asked day's classes with time, subject, room and teacher-confirmation status. If the asked day has NO class, say plainly "aaj koi class nahi" (in the asker's language) and, if tomorrow has classes, list tomorrow's. NEVER say "check the portal" or send a website link.
 7. Notes questions: name the exact note titles from the data. If the student wants note FILES, also fill "send_note_titles" with those exact titles (max 3) — the system will deliver the actual files after your text. Only list titles that appear in "noteFileIndex" with hasFiles=true. If the wanted notes have no files, say so.
@@ -307,6 +308,27 @@ export function parseGeminiJson(text) {
 /* ------------------------------------------------------------------ */
 /* Keyword fallback — zero-cost answers when Gemini is unreachable     */
 /* ------------------------------------------------------------------ */
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Which subject is the question about? Matches the subject's full name
+ * ("artificial intelligence"), its code ("AI-101") or its abbreviation
+ * ("AI" from Artificial Intelligence) — so "AI ka teacher kon hai" pins
+ * down exactly one subject instead of listing every teacher.
+ */
+export function subjectAsked(question, subjects) {
+  const q = String(question ?? '').toLowerCase();
+  for (const s of subjects) {
+    const name = String(s.name ?? '').toLowerCase().trim();
+    const code = String(s.code ?? '').toLowerCase().trim();
+    const abbr = name.split(/[^a-z0-9]+/).filter(Boolean).map((w) => w[0]).join('');
+    if (name.length > 1 && q.includes(name)) return s;
+    if (code && new RegExp(`\\b${escapeRe(code)}\\b`).test(q)) return s;
+    if (abbr.length >= 2 && new RegExp(`\\b${escapeRe(abbr)}\\b`).test(q)) return s;
+  }
+  return null;
+}
+
 export function buildFallbackReply(question, data) {
   const q = String(question ?? '').toLowerCase();
   const today = pktToday();
@@ -354,10 +376,22 @@ export function buildFallbackReply(question, data) {
         parts.push(`*Students:* is class me ${students.length} students add hain.`);
       }
     }
-    const teachers = (data.teachers ?? []).slice(0, 6);
-    if (/teacher|professor|ustaad/.test(q) && teachers.length) {
-      parts.push('*Teachers:*');
-      teachers.forEach((t) => parts.push(`- ${t.name}${t.subject ? ` — ${t.subject}` : ''}${t.designation ? ` (${t.designation})` : ''}`));
+    if (/teacher|professor|ustaad/.test(q) && (data.teachers ?? []).length) {
+      const teachers = data.teachers;
+      const subj = subjectAsked(q, data.subjects ?? []);
+      const specific = subj ? teachers.filter((t) => t.subject === subj.name) : [];
+      const wantsAll = /sab|sary|sare|saare|all|poori|poora|list/.test(q);
+      if (subj && specific.length) {
+        parts.push(`*${subj.name}* ka teacher: ${specific.map((t) => `${t.name}${t.designation ? ` (${t.designation})` : ''}`).join(', ')}`);
+      } else if (teachers.length === 1) {
+        const t = teachers[0];
+        parts.push(`*${t.subject || 'Class'}* ka teacher: ${t.name}${t.designation ? ` (${t.designation})` : ''}`);
+      } else if (wantsAll) {
+        parts.push('*Teachers:*');
+        teachers.slice(0, 6).forEach((t) => parts.push(`- ${t.name}${t.subject ? ` — ${t.subject}` : ''}${t.designation ? ` (${t.designation})` : ''}`));
+      } else {
+        parts.push(`*Teachers:* is class me ${teachers.length} teachers hain. Konse subject ka teacher chahiye?`);
+      }
     }
     if (parts.length) return parts.join('\n');
     // roster word present but nothing matched (e.g. no students yet) → fall through
