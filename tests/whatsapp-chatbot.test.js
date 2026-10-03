@@ -451,11 +451,13 @@ test('owner mini-game: "class ki phopho kon hai?" → spin lands on Warda and Ar
   assert.match(g1, /Warda/);
   assert.match(g1, /Arooj/);
   assert.ok(miniGameReply('class ki phuppo kaun hai')); // spelling variant
-  // affectionate guard — every spin carries a "don't take it to heart" line
+  // roast flavor (owner update 16:31): NEVER affectionate "pyari/jaan"
+  // framing — funny badtamezi instead, still no real insult
   for (let i = 0; i < 12; i += 1) {
     const spin = miniGameReply('phopho kon hai?');
-    assert.match(spin, /(dil pe mat lena|serious na ho jao|game design)/);
-    assert.match(spin, /pyari|jaan/); // affectionate framing, never an insult
+    assert.doesNotMatch(spin, /pyari|jaan/);
+    assert.match(spin, /shitani/i); // roast framing present
+    assert.match(spin, /(fitna|investigation|track record|PhD)/i);
   }
   // unrelated questions are NOT hijacked
   assert.equal(miniGameReply('timetable kya hai aj ka'), null);
@@ -496,7 +498,9 @@ test('owner feature: prompt carries recency rule, two-step pick, memory and the 
   assert.match(SYSTEM_PROMPT, /TWO-STEP PICK/);
   assert.match(SYSTEM_PROMPT, /MEMORY/);
   assert.match(SYSTEM_PROMPT, /witty/i);
-  assert.match(SYSTEM_PROMPT, /never tease any student or teacher by name/i);
+  assert.match(SYSTEM_PROMPT, /ROAST/i); // silly questions get a funny roast
+  assert.match(SYSTEM_PROMPT, /never the person's identity/i); // roast limits hold
+  assert.doesNotMatch(SYSTEM_PROMPT, /never tease any student or teacher by name/);
   assert.match(SYSTEM_PROMPT, /EXACT title/i);
 });
 
