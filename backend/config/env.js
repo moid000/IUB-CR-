@@ -38,6 +38,14 @@ export const env = {
       .map((email) => email.trim())
       .filter(Boolean),
   },
+  // WhatsApp group chatbot (Tri3M answering students' questions inside their
+  // linked class groups). Master switch + Gemini key are BOTH required — the
+  // bot is dead silent unless WHATSAPP_CHATBOT_ENABLED is exactly 'true'.
+  chatbot: {
+    enabled: (process.env.WHATSAPP_CHATBOT_ENABLED || '').trim().toLowerCase() === 'true',
+    googleApiKey: process.env.GOOGLE_API_KEY,
+    model: process.env.CHATBOT_GEMINI_MODEL || 'gemini-2.5-flash',
+  },
 };
 
 /**

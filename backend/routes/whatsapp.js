@@ -5,6 +5,11 @@ import { ApiError } from '../middleware/error.js';
 import { runDeadlineSweep } from '../services/deadlineSweepService.js';
 import { runWatchdog } from '../services/ultramsgWatchdogService.js';
 import { dispatchPendingTeacherConfirmations, handleTeacherReply } from '../services/teacherConfirmationService.js';
+// NEW (2026-10-03): Tri3M group chatbot. handleGroupMessage is a pure
+// consumer of GROUP messages — it never throws, and returns false unless the
+// bot is enabled AND the payload is a group text message, so the teacher
+// DM flow below stays byte-for-byte identical when the bot is off.
+import { handleGroupMessage } from '../services/chatbotService.js';
 
 /**
  * External pinger endpoints (cron-job.org hits this every ~5 minutes).
@@ -81,7 +86,11 @@ router.post('/teacher-reply', async (req, res, next) => {
     if (!expected) throw new ApiError(503, 'Teacher reply webhook is not configured');
     const given = req.get('x-webhook-secret') || req.query.key;
     if (!given || !constantTimeEqual(given, expected)) throw new ApiError(401, 'Invalid webhook secret');
-    const updated = await handleTeacherReply(req.body);
+    // Group messages go to the chatbot FIRST; when it is disabled or the
+    // message is not a group message this is a no-op and the teacher flow
+    // runs exactly as before.
+    const botHandled = await handleGroupMessage(req.body);
+    const updated = botHandled ? false : await handleTeacherReply(req.body);
     res.json({ success: true, data: { updated } });
   } catch (err) { next(err); }
 });

@@ -21,3 +21,4 @@ export { default as AuditLog } from './AuditLog.js';
 export { default as WatchdogState } from './WatchdogState.js';
 export { default as AdminProfile } from './AdminProfile.js';
 export { default as WipeVerification } from './WipeVerification.js';
+export { default as ChatbotLog } from './ChatbotLog.js';
