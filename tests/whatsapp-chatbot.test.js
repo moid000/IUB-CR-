@@ -70,8 +70,9 @@ globalThis.fetch = async (url, opts) => {
   }
   if (u.includes('generativelanguage.googleapis.com')) {
     geminiCalls.push({ url: u, body: JSON.parse(opts.body) });
-    if (!geminiResponse) return new Response('{}', { status: 500 });
-    return new Response(JSON.stringify(geminiResponse), { status: 200 });
+    const resp = typeof geminiResponse === 'function' ? geminiResponse(u) : geminiResponse;
+    if (!resp) return new Response('{}', { status: 500 });
+    return new Response(JSON.stringify(resp), { status: 200 });
   }
   return realFetch(url, opts);
 };
@@ -225,14 +226,28 @@ test('linked group + question → Gemini answer sent to the group, audit logged'
   assert.match(log.question, /class timing/);
 });
 
-test('Gemini down → keyword fallback still answers (no crash, no hallucination)', async () => {
-  geminiResponse = null; // 500 from Gemini
+test('Gemini down everywhere → keyword fallback still answers (no crash, no hallucination)', async () => {
+  geminiResponse = null; // 500 from every model in the chain
   assert.equal(await handleGroupMessage(groupMsg('aj ka timetable batao?')), true);
-  assert.equal(geminiCalls.length, 1);
+  assert.ok(geminiCalls.length >= 1, 'at least one attempt made');
+  assert.ok(geminiCalls.length <= 6, 'chain stays inside the retry budget');
   assert.equal(waSent.length, 1);
   assert.match(waSent[0].params.body, /9:00 AM/);
   const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });
   assert.equal(log.source, 'fallback');
+});
+
+test('primary model overloaded (503) → backup model answers, student still gets a real reply', async () => {
+  // primary 3.8 is down; the first backup (gemini-flash-latest) answers
+  geminiResponse = (u) => u.includes('gemini-3.8-flash')
+    ? null
+    : { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Aaj ICT ki class 9:00 AM hai.\"}' }] } }] };
+  assert.equal(await handleGroupMessage(groupMsg('aj ki class timing?')), true);
+  assert.ok(geminiCalls.some((c) => String(c.url).includes('gemini-3.8-flash')), 'primary tried first');
+  assert.ok(geminiCalls.some((c) => String(c.url).includes('gemini-flash-latest')), 'backup model reached');
+  assert.ok(waSent.some((s) => s.kind === 'chat' && /9:00 AM/.test(s.params.body)));
+  const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });
+  assert.equal(log.source, 'gemini');
 });
 
 test('notes request with send_note_titles → real files delivered (max 3, never fabricated)', async () => {
