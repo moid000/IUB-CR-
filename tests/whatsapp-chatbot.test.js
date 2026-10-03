@@ -42,7 +42,7 @@ const chatbot = await import('../backend/services/chatbotService.js');
 const {
   handleGroupMessage, shouldTrigger, stripMentions, parseGeminiJson,
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
-  resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply,
+  resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply, casualReply,
 } = chatbot;
 
 const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
@@ -477,6 +477,55 @@ test('owner mini-game: "class ki phopho kon hai?" → spin lands on Warda and Ar
   assert.equal(log.source, 'fallback');
 });
 
+test('owner feature: TAGGED casual chat always gets a reply — casualReply helper', () => {
+  // greetings
+  assert.match(casualReply('salam doston'), /Wa alaikum assalam/);
+  // "dafa ho" style banter → witty comeback, never a dry refusal
+  assert.match(casualReply('dafa ho'), /Dafa to tumhari assignments/);
+  // "kaisay ho" → funny haal reply (even with a question mark)
+  const haal = casualReply('kaisay ho?');
+  assert.ok(haal);
+  assert.match(haal, /zinda|parhai|WiFi|haal|attendance/i);
+  // bare tag (empty question after stripping) → witty prompt to ask something
+  assert.match(casualReply(''), /sirf tag/);
+  // study content is NEVER hijacked by the casual branch
+  assert.equal(casualReply('aj ki class timing'), null);
+  assert.equal(casualReply('ICT ke notes do'), null);
+  assert.equal(casualReply('kuch ajeeb sa lamba message jo kisi pattern se nahi milta'), null);
+});
+
+test('owner feature: "@Tri3M kaisay ho" now REPLIES (mention no longer stripped before the trigger check)', async () => {
+  // regression: the tag was stripped before shouldTrigger, so tagged casual
+  // chat was consumed silently — the exact bug the owner reported
+  geminiResponse = null; // even with Gemini down the banter path answers
+  assert.equal(await handleGroupMessage(groupMsg('@Tri3M kaisay ho')), true);
+  const chat = waSent.find((s) => s.kind === 'chat');
+  assert.ok(chat, 'casual reply sent');
+  assert.ok(chat.params.body.startsWith(`@${STUDENT} `));
+  assert.doesNotMatch(chat.params.body, /Ye mere paas nahi hai/); // never the dry catch-all
+  assert.match(chat.params.body, /zinda|parhai|WiFi|haal|attendance/i);
+  // and the plain "dafa ho" tag gets the witty comeback
+  chatbot.__resetGuards();
+  assert.equal(await handleGroupMessage(groupMsg('@Tri3M dafa ho')), true);
+  const chat2 = waSent.filter((s) => s.kind === 'chat').at(-1);
+  assert.match(chat2.params.body, /Dafa to tumhari assignments/);
+});
+
+test('owner feature: Gemini receives the group conversation history (continuous chat memory)', async () => {
+  await ChatbotLog.create({ section: section._id, groupId: GROUP_ID, source: 'gemini', question: 'kal ki class hai?', reply: 'Haan, 9 AM ICT.' });
+  await ChatbotLog.create({ section: section._id, groupId: GROUP_ID, source: 'gemini', question: 'notes kaun se hain?', reply: 'Lecture 1 - Introduction available hai.' });
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"ok\",\"send_note_titles\":[]}' }] } }] };
+  assert.equal(await handleGroupMessage(groupMsg('timetable?')), true);
+  const lastUser = geminiCalls[0].body.contents.at(-1).parts[0].text;
+  assert.match(lastUser, /MEMORY/);
+  assert.match(lastUser, /kal ki class hai\?/); // history is passed, oldest first
+  assert.match(lastUser, /notes kaun se hain\?/);
+  assert.match(lastUser, /Lecture 1 - Introduction/);
+  const idxFirst = lastUser.indexOf('kal ki class');
+  const idxSecond = lastUser.indexOf('notes kaun se');
+  assert.ok(idxFirst >= 0 && idxSecond > idxFirst, 'oldest-first ordering');
+});
+
 test('owner feature: group reply @mentions the student who asked (busy-group clarity)', async () => {
   geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Aaj ICT ki class 9:00 AM hai.\",\"send_note_titles\":[]}' }] } }] };
   assert.equal(await handleGroupMessage(groupMsg('aj ki class timing?')), true);
@@ -497,6 +546,8 @@ test('owner feature: prompt carries recency rule, two-step pick, memory and the 
   assert.match(SYSTEM_PROMPT, /NEWEST-first/i);
   assert.match(SYSTEM_PROMPT, /TWO-STEP PICK/);
   assert.match(SYSTEM_PROMPT, /MEMORY/);
+  assert.match(SYSTEM_PROMPT, /CASUAL CHAT/); // tagged banter always gets banter back
+  assert.match(SYSTEM_PROMPT, /CONVERSATION HISTORY/); // memory rule knows the history format
   assert.match(SYSTEM_PROMPT, /witty/i);
   assert.match(SYSTEM_PROMPT, /ROAST/i); // silly questions get a funny roast
   assert.match(SYSTEM_PROMPT, /never the person's identity/i); // roast limits hold
