@@ -12,11 +12,11 @@ import { IconChatBubble, IconCheck, IconArrowPath, IconInfo } from '../../compon
 /**
  * WhatsApp class-group broadcasts.
  *
- * The section's CR/GR links ONE class WhatsApp group here. The paired Tri3M
- * number must already be a member of that group — the page lists every group
- * the number can see, the CR picks theirs. From then on, announcements,
- * assignments, notes and timetable changes are automatically posted to the
- * group. Marks are never broadcast.
+ * The section's CR/GR links ONE GENERAL class WhatsApp group here (announcements
+ * and timetable changes go to it) and may additionally link a group per SUBJECT
+ * — assignments and notes of that subject go to the subject's own group, with
+ * automatic fallback to the General group. The paired Tri3M number must already
+ * be a member of every linked group. Marks are never broadcast.
  */
 
 function StepCard({ n, title, children }) {
@@ -59,8 +59,15 @@ export default function WhatsappGroupPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirmUnlink, setConfirmUnlink] = useState(false);
+  // Subject groups (owner request 2026-10-03): assignments + notes route to
+  // the subject's own group; unlinked subjects fall back to the General group.
+  const [editingSubject, setEditingSubject] = useState(null); // subject id being linked
+  const [subjectSelected, setSubjectSelected] = useState('');
+  const [subjectSaving, setSubjectSaving] = useState(false);
+  const [confirmSubjectUnlink, setConfirmSubjectUnlink] = useState(null); // subject object
 
   const linked = cfg?.group ?? null;
+  const subjects = cfg?.subjects ?? [];
 
   useEffect(() => {
     let alive = true;
@@ -119,13 +126,56 @@ export default function WhatsappGroupPage() {
     }
   };
 
+  const saveSubjectGroup = async () => {
+    const subject = subjects.find((s) => s.id === editingSubject);
+    const group = (groups ?? []).find((g) => g.id === subjectSelected);
+    if (!subject || !group) return;
+    setSubjectSaving(true); setError('');
+    try {
+      const res = await crApi.whatsappGroup.linkSubject(subject.id, { groupId: group.id });
+      const { id: _gid, name } = res.data.group;
+      setCfg((c) => ({
+        ...c,
+        subjects: (c?.subjects ?? []).map((s) => (s.id === subject.id ? { ...s, group: res.data.group } : s)),
+      }));
+      setEditingSubject(null); setSubjectSelected('');
+      show(`WhatsApp group linked — ${subject.name} posts will now reach "${name}".`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubjectSaving(false);
+    }
+  };
+
+  const unlinkSubjectGroup = async () => {
+    const subject = confirmSubjectUnlink;
+    setConfirmSubjectUnlink(null); setError('');
+    try {
+      await crApi.whatsappGroup.unlinkSubject(subject.id);
+      setCfg((c) => ({
+        ...c,
+        subjects: (c?.subjects ?? []).map((s) => (s.id === subject.id ? { ...s, group: null } : s)),
+      }));
+      show(`${subject.name} posts will now go to your General group (fallback).`);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const pickSubjectGroup = async (subject) => {
+    setError('');
+    setEditingSubject(subject.id);
+    setSubjectSelected('');
+    if (groups === null) await refresh(); // one shared list for general + subjects
+  };
+
   if (!section) return <NoSection />;
 
   return (
     <>
       <PageHeader
         title="WhatsApp Group"
-        description={`Link your class WhatsApp group — ${section.name} posts (announcements, assignments, notes, timetable) are delivered to it automatically.`}
+        description={`Link your class WhatsApp group — announcements and timetable changes go to your General group; assignments and notes go to each subject's own group (with General as fallback).`}
       />
 
       <SuccessFlash message={flash} />
@@ -167,11 +217,14 @@ export default function WhatsappGroupPage() {
               <IconInfo className="size-3.5" /> What gets sent
             </p>
             <div className="mt-2.5 grid gap-1.5 text-sm text-slate-600 sm:grid-cols-2">
-              <p>📢 Announcements</p>
-              <p>📋 Assignments (with due date)</p>
-              <p>📄 Notes</p>
-              <p>📅 Timetable changes &amp; cancellations</p>
+              <p>📢 Announcements → General group</p>
+              <p>📅 Timetable changes &amp; cancellations → General group</p>
+              <p>📋 Assignments → the subject's own group</p>
+              <p>📄 Notes → the subject's own group</p>
             </div>
+            <p className="mt-2.5 text-xs text-slate-500">
+              A subject without its own group automatically falls back to your General group — nothing is ever skipped.
+            </p>
             <p className="mt-2.5 text-xs text-slate-500">
               Attached photos, PDFs, videos &amp; voice notes arrive in the group as real WhatsApp media — members never need to open the app.
             </p>
@@ -238,6 +291,78 @@ export default function WhatsappGroupPage() {
         </Card>
       )}
 
+      {/* ------------------------- SUBJECT GROUPS ------------------------- */}
+      {subjects.length > 0 && !loading && (
+        <Card className="mt-6 p-6">
+          <div className="flex items-start gap-3.5">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-primary-100">
+              <IconChatBubble className="size-5.5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-base font-semibold text-slate-900">Subject groups</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Assignments and notes go to the subject's own WhatsApp group when linked — otherwise they fall back to your General group.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {subjects.map((subject) => {
+              const isEditing = editingSubject === subject.id;
+              return (
+                <div key={subject.id} className="rounded-xl border border-slate-200 p-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-800">
+                        {subject.name} <span className="font-normal text-slate-400">({subject.code})</span>
+                      </p>
+                      {subject.group ? (
+                        <p className="mt-0.5 flex items-center gap-1 text-xs text-emerald-700">
+                          <IconCheck className="size-3" /> {subject.group.name}
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-xs text-slate-400">
+                          Falls back to General group{linked ? ` (${linked.name})` : ' (not linked yet)'}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => (isEditing ? setEditingSubject(null) : pickSubjectGroup(subject))}
+                        disabled={subjectSaving}
+                      >
+                        {isEditing ? 'Cancel' : subject.group ? 'Change group' : 'Link group'}
+                      </Button>
+                      {subject.group && (
+                        <Button variant="danger" onClick={() => setConfirmSubjectUnlink(subject)}>Unlink</Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {isEditing && (
+                    <div className="mt-3 border-t border-slate-100 pt-3">
+                      {(groups ?? null) === null ? (
+                        <p className="text-sm text-slate-400">Fetching the group list…</p>
+                      ) : (
+                        <>
+                          <GroupPicker groups={groups} selected={subjectSelected} onSelect={setSubjectSelected} emptyNote={error} />
+                          <div className="mt-3 flex justify-end">
+                            <Button onClick={saveSubjectGroup} disabled={!subjectSelected || subjectSaving}>
+                              {subjectSaving ? 'Saving…' : 'Save group'}
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
       <ConfirmDialog
         open={confirmUnlink}
         onClose={() => setConfirmUnlink(false)}
@@ -250,6 +375,20 @@ export default function WhatsappGroupPage() {
         }
         confirmLabel="Unlink"
         onConfirm={unlink}
+      />
+
+      <ConfirmDialog
+        open={Boolean(confirmSubjectUnlink)}
+        onClose={() => setConfirmSubjectUnlink(null)}
+        title={`Unlink ${confirmSubjectUnlink?.name ?? 'subject'} group?`}
+        body={
+          <p>
+            {confirmSubjectUnlink?.name} posts will go to your General group instead of{' '}
+            <span className="font-semibold">{confirmSubjectUnlink?.group?.name}</span>.
+          </p>
+        }
+        confirmLabel="Unlink"
+        onConfirm={unlinkSubjectGroup}
       />
     </>
   );

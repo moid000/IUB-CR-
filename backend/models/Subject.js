@@ -17,6 +17,21 @@ const subjectSchema = new Schema(
     section: { type: ObjectId, ref: 'Section', required: true },
     createdBy: { type: ObjectId, ref: 'User', required: true },
     status: { type: String, enum: ['active', 'archived'], default: 'active' },
+    // Subject's OWN WhatsApp group (owner request 2026-10-03): assignments
+    // and notes of this subject go here when linked; otherwise they fall
+    // back to the section's general group. Same shape as Section.whatsappGroup.
+    whatsappGroup: {
+      type: new Schema(
+        {
+          id: { type: String, required: true, trim: true },
+          name: { type: String, required: true, trim: true },
+          linkedBy: { type: ObjectId, ref: 'User' },
+          linkedAt: { type: Date, default: Date.now },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
   },
   { timestamps: true }
 );

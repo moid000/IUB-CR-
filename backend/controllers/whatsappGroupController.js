@@ -17,3 +17,5 @@ export const getWhatsappGroup = wrapDoc(groupSvc.getGroupConfigCr);
 export const refreshWhatsappGroups = wrapDoc(groupSvc.refreshGroupsCr);
 export const linkWhatsappGroup = wrapDoc(groupSvc.linkGroupCr);
 export const unlinkWhatsappGroup = wrapDoc(groupSvc.unlinkGroupCr);
+export const linkWhatsappSubjectGroup = wrapDoc(groupSvc.linkSubjectGroupCr);
+export const unlinkWhatsappSubjectGroup = wrapDoc(groupSvc.unlinkSubjectGroupCr);

@@ -40,6 +40,8 @@ export const crApi = {
     refreshGroups: () => api.get('/api/cr/whatsapp-group/groups'), // { groups: [{id,name}] }
     link: (body) => api.put('/api/cr/whatsapp-group', body), // { groupId, groupName }
     unlink: () => api.del('/api/cr/whatsapp-group'),
+    linkSubject: (subjectId, body) => api.put(`/api/cr/whatsapp-group/subject/${subjectId}`, body), // { groupId }
+    unlinkSubject: (subjectId) => api.del(`/api/cr/whatsapp-group/subject/${subjectId}`),
   },
 
   /* ---- Teachers (one teacher per subject — WhatsApp deadline alerts) ---- */

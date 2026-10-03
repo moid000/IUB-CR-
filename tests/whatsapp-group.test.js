@@ -122,6 +122,182 @@ test.before(async () => {
   assert.equal((await student.api('POST', '/api/auth/login', { email: 'sneaky@test.local', password: 'Pass1234!' })).status, 200);
 });
 
+/* ================= SUBJECT GROUPS (owner request 2026-10-03) ================= */
+
+const SUBJECT_GROUP_ID = '12036303@g.us';
+const SUBJECT_GROUP_NAME = 'DS Class Group';
+
+/* Default stub gains a second, subject-specific group the CR is a member of. */
+function stubBoth() {
+  stubGateway({
+    groups: [
+      waGroup(GROUP_ID, GROUP_NAME, [CR_WA, '923001110002']),
+      waGroup(SUBJECT_GROUP_ID, SUBJECT_GROUP_NAME, [CR_WA]),
+    ],
+  });
+}
+
+test('subject groups: link/unlink surface in config; membership + section-scoped', async () => {
+  stubBoth();
+  await linkGroup();
+
+  // config lists the section's subjects, initially unlinked
+  const cfg0 = await cr.api('GET', '/api/cr/whatsapp-group');
+  const subj0 = cfg0.json.data.subjects.find((s) => s.id === subject);
+  assert.ok(subj0, 'config must list the section subjects');
+  assert.equal(subj0.group, null);
+
+  // cannot link a group the CR is not a member of
+  const bad = await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: '999@g.us' });
+  assert.equal(bad.status, 400);
+
+  // unknown/foreign subject ids are rejected (section-scoped ownership)
+  const missing = await cr.api('PUT', `/api/cr/whatsapp-group/subject/${new mongoose.Types.ObjectId()}`, { groupId: SUBJECT_GROUP_ID });
+  assert.equal(missing.status, 404);
+
+  // link the subject's own group; name comes from the gateway, not the client
+  const link = await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID, groupName: 'Fake' });
+  assert.equal(link.status, 200, link.text);
+  assert.equal(link.json.data.group.id, SUBJECT_GROUP_ID);
+  assert.equal(link.json.data.group.name, SUBJECT_GROUP_NAME); // gateway truth wins
+
+  const cfg1 = await cr.api('GET', '/api/cr/whatsapp-group');
+  assert.equal(cfg1.json.data.subjects.find((x) => x.id === subject).group.id, SUBJECT_GROUP_ID);
+
+  // unlink clears it
+  const unlink = await cr.api('DELETE', `/api/cr/whatsapp-group/subject/${subject}`);
+  assert.equal(unlink.status, 200);
+  const cfg2 = await cr.api('GET', '/api/cr/whatsapp-group');
+  assert.equal(cfg2.json.data.subjects.find((x) => x.id === subject).group, null);
+
+  // students can never touch subject groups
+  assert.equal((await student.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID })).status, 403);
+});
+
+test('assignments go to the SUBJECT group when linked; fall back to General otherwise', async () => {
+  stubBoth();
+  await linkGroup();
+  await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID });
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/assignments', {
+    subject, title: 'DS lab 2 submission', deadline: '2026-09-26T18:00:00.000Z',
+  });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to, SUBJECT_GROUP_ID, 'assignment must reach the subject group');
+  assert.ok(sent[0].params.body.includes('DS lab 2 submission'));
+
+  // fallback: subject group unlinked → general group, never silently skipped
+  await cr.api('DELETE', `/api/cr/whatsapp-group/subject/${subject}`);
+  sent.length = 0;
+  const res2 = await cr.api('POST', '/api/cr/assignments', {
+    subject, title: 'DS lab 3 submission', deadline: '2026-09-27T18:00:00.000Z',
+  });
+  assert.equal(res2.status, 200, res2.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to, GROUP_ID, 'unlinked subject must fall back to the general group');
+});
+
+test('notes with a subject go to its group; notes without a subject go to General', async () => {
+  stubBoth();
+  await linkGroup();
+  await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID });
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/notes', { title: 'DS lecture 6 notes', subject });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to, SUBJECT_GROUP_ID);
+
+  sent.length = 0;
+  const res2 = await cr.api('POST', '/api/cr/notes', { title: 'General study tip' }); // no subject
+  assert.equal(res2.status, 200, res2.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to, GROUP_ID);
+});
+
+test('announcements and timetable NEVER go to subject groups — always General', async () => {
+  stubBoth();
+  await linkGroup();
+  await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID });
+  sent.length = 0;
+
+  const ann = await cr.api('POST', '/api/cr/announcements', { title: 'Semester break', content: 'Enjoy.' });
+  assert.equal(ann.status, 200, ann.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to, GROUP_ID, 'announcements belong to the general group');
+
+  sent.length = 0;
+  const slot = await cr.api('POST', '/api/cr/timetable', {
+    subject, date: '2026-10-10', startTime: '09:00', endTime: '10:00', room: 'R1',
+  });
+  assert.equal(slot.status, 200, slot.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to, GROUP_ID, 'timetable changes belong to the general group');
+});
+
+test('combined broadcast endpoint routes a subject post to the SUBJECT group', async () => {
+  stubBoth();
+  await linkGroup();
+  await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID });
+  sent.length = 0;
+
+  const res = await cr.api('POST', '/api/cr/notes', {
+    title: 'Combined subject note', content: 'Ch 5 summary', subject, suppressGroupBroadcast: true,
+  });
+  const id = res.json.data._id;
+  const { Note } = models;
+  await Note.updateOne({ _id: id }, { $set: { attachments: [
+    { publicId: 's1', url: 'https://res.cloudinary.com/t/i/pic.png', mimeType: 'image/png', originalName: 'pic.png' },
+  ] } });
+
+  const out = await cr.api('POST', `/api/cr/notes/${id}/broadcast`);
+  assert.equal(out.status, 200, out.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'image');
+  assert.equal(sent[0].params.to, SUBJECT_GROUP_ID, 'combined burst must reach the subject group');
+  assert.ok(sent[0].params.caption.includes('Combined subject note'));
+});
+
+test('late-attached files follow the same subject routing as their post', async () => {
+  stubBoth();
+  await linkGroup();
+  await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID });
+  sent.length = 0;
+
+  const file = { publicId: 'f1', url: 'https://res.cloudinary.com/t/d/late.pdf', mimeType: 'application/pdf', originalName: 'late.pdf' };
+  // assignment/note attachment hook: subject-routed destination
+  const out = await broadcastAttachmentToSectionGroup(section, file, subject);
+  assert.equal(out.mediaSent, 1);
+  assert.equal(sent[0].kind, 'document');
+  assert.equal(sent[0].params.to, SUBJECT_GROUP_ID);
+
+  // announcement attachment hook: no subject → general group
+  sent.length = 0;
+  const out2 = await broadcastAttachmentToSectionGroup(section, file, null);
+  assert.equal(out2.mediaSent, 1);
+  assert.equal(sent[0].params.to, GROUP_ID);
+});
+
+test('subject group linked but general NOT linked: subject posts deliver, others skip', async () => {
+  stubBoth();
+  await cr.api('DELETE', '/api/cr/whatsapp-group'); // independence: no general group
+  await cr.api('PUT', `/api/cr/whatsapp-group/subject/${subject}`, { groupId: SUBJECT_GROUP_ID });
+  sent.length = 0;
+
+  const note = await cr.api('POST', '/api/cr/notes', { title: 'Routed note', subject });
+  assert.equal(note.status, 200, note.text);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to, SUBJECT_GROUP_ID);
+
+  // an announcement has no subject and there is no general group → no send, no crash
+  sent.length = 0;
+  const ann = await cr.api('POST', '/api/cr/announcements', { title: 'Nowhere to go', content: 'x' });
+  assert.equal(ann.status, 200, ann.text);
+  assert.equal(sent.length, 0);
+});
+
 test.after(async () => {
   server.closeAllConnections?.();
   await new Promise((r) => server.close(r));

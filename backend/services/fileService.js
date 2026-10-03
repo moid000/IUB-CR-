@@ -351,7 +351,7 @@ export async function confirmUpload(req) {
   // members never miss them. During the create→upload→broadcast-once flow the
   // flag is still null, so nothing double-sends. Student submissions NEVER broadcast.
   if (parentType !== 'submission' && parent.groupBroadcastAt) {
-    await broadcastAttachmentToSectionGroup(parent.section, fileMeta);
+    await broadcastAttachmentToSectionGroup(parent.section, fileMeta, parent.subject ?? null);
   }
 
   return (updated[field]).find((f) => f.publicId === publicId) ?? fileMeta;

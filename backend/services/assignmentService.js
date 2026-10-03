@@ -8,7 +8,7 @@ const assertText = v.assertText;
 import { parsePagination, paginationMeta, searchFilter } from '../utils/pagination.js';
 import { now, nowDate } from '../utils/clock.js';
 import { notifySection } from './notificationService.js';
-import { broadcastToSectionGroup, broadcastContentToGroup, assignmentMessage } from './whatsappGroupService.js';
+import { broadcastToSubjectGroup, broadcastContentToGroup, assignmentMessage } from './whatsappGroupService.js';
 
 /**
  * Assignments + Submissions (Step 6).
@@ -112,7 +112,7 @@ export async function createAssignmentAdmin(req) {
     after: { title: doc.title, subject: String(subject), deadline: doc.deadline.toISOString() },
   });
   await notifyAssignmentCreated(req, doc); // updates/archives never re-notify
-  const out = await broadcastToSectionGroup(doc.section, await assignmentMessage(doc, subject), doc.attachments); // WhatsApp class-group (best-effort)
+  const out = await broadcastToSubjectGroup(doc.section, subject, await assignmentMessage(doc, subject), doc.attachments); // WhatsApp class-group (best-effort)
   if (out.sent) { doc.groupBroadcastAt = new Date(); await doc.save(); }
   return doc;
 }
@@ -139,7 +139,7 @@ export async function createAssignmentCr(req) {
   await notifyAssignmentCreated(req, doc); // updates/archives never re-notify
   // suppressGroupBroadcast: CR portal uploads files after create, then fires the combined broadcast once.
   if (req.body?.suppressGroupBroadcast !== true) {
-  await broadcastToSectionGroup(doc.section, await assignmentMessage(doc, subject), doc.attachments); // WhatsApp class-group (best-effort)
+  await broadcastToSubjectGroup(doc.section, subject, await assignmentMessage(doc, subject), doc.attachments); // WhatsApp class-group (best-effort)
   }
   return doc;
 }
