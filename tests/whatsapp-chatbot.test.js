@@ -41,10 +41,10 @@ const { env } = await import('../backend/config/env.js');
 const chatbot = await import('../backend/services/chatbotService.js');
 const {
   handleGroupMessage, shouldTrigger, stripMentions, parseGeminiJson,
-  buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf,
+  buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData,
 } = chatbot;
 
-const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession } = models;
+const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
@@ -130,6 +130,16 @@ test.before(async () => {
     title: 'Assignment 1', subject: subject._id, section: section._id,
     deadline: new Date(Date.now() + 3 * 86400000),
   });
+
+  // roster context fixtures (chatbot owner request 2026-10-03)
+  await User.deleteMany({ email: /@chatbot-test\.local$/ });
+  const crUser = await User.create({ name: 'Ali Raza', email: 'cr@chatbot-test.local', password: 'Pass#12345678', role: 'cr', section: section._id });
+  await User.create({ name: 'Sara Khan', email: 'sara@chatbot-test.local', password: 'Pass#12345678', role: 'student', section: section._id, rollNo: 'S-001' });
+  await User.create({ name: 'Bilal Ahmed', email: 'bilal@chatbot-test.local', password: 'Pass#12345678', role: 'student', section: section._id, rollNo: 'S-002' });
+  await Section.updateOne({ _id: section._id }, { cr: crUser._id });
+  await Teacher.deleteMany({ section: section._id });
+  await Teacher.create({ name: 'Dr. Usman Tariq', subject: subject._id, section: section._id, designation: 'Professor', whatsapp: '923009999999', email: 't@chatbot-test.local', createdBy: crUser._id });
+  await Announcement.create({ title: 'Quiz next week', content: 'AI ki quiz agle hafte hogi.', section: section._id, author: crUser._id });
 });
 
 test.after(async () => {
@@ -147,6 +157,9 @@ test('shouldTrigger: questions/keywords wake the bot, casual chat does not', () 
   assert.equal(shouldTrigger('ICT ke notes bhej do'), true);
   assert.equal(shouldTrigger('aj sir ny kia perhaya'), true);
   assert.equal(shouldTrigger('assignment deadline?'), true);
+  assert.equal(shouldTrigger('section me kaun kaun students hain'), true);
+  assert.equal(shouldTrigger('cr kaun hai hamara'), true);
+  assert.equal(shouldTrigger('hamari section konsi hai'), true);
   assert.equal(shouldTrigger('kya haal hai doston'), false); // casual — no keyword/?
   assert.equal(shouldTrigger('ok'), false);
   assert.equal(shouldTrigger('hi bot'), true); // direct address
@@ -196,6 +209,12 @@ test('linked group + question → Gemini answer sent to the group, audit logged'
   assert.equal(geminiCalls.length, 1);
   assert.ok(String(geminiCalls[0].url).includes('gemini-2.5-flash'));
   assert.ok(String(geminiCalls[0].body.contents[0].parts[0].text).includes('B-204'));
+  const sentData = String(geminiCalls[0].body.contents[0].parts[0].text);
+  assert.ok(sentData.includes('Ali Raza'), 'CR name reaches the LLM');
+  assert.ok(sentData.includes('Sara Khan'), 'student roster reaches the LLM');
+  assert.ok(sentData.includes('Dr. Usman Tariq'), 'teacher reaches the LLM');
+  assert.ok(!sentData.includes('923009999999'), 'teacher WhatsApp number never reaches the LLM');
+  assert.ok(!sentData.includes('iubcr.vercel.app'), 'no portal link in bot context');
   assert.equal(waSent.length, 1);
   assert.equal(waSent[0].kind, 'chat');
   assert.equal(waSent[0].params.to, GROUP_ID);
@@ -271,16 +290,85 @@ test('per-group cooldown: an immediate second question is dropped', async () => 
   assert.equal(waSent.length, sentAfterFirst);
 });
 
-test('fallback builder: today\'s classes, notes list and deadlines', async () => {
-  const data = {
-    timetable: [{ date: today, time: '9:00 AM – 10:30 AM', subject: 'ICT', room: 'B-204', status: 'Teacher confirmed ✅' }],
-    subjects: [{ name: 'ICT', code: 'ICT-101' }],
-    noteFileIndex: [{ title: 'Lecture 1 - Introduction', subject: 'ICT', hasFiles: true }],
-    assignments: [{ title: 'Assignment 1', subject: 'ICT', deadline: 'soon', past: false }],
+const FALLBACK_DATA = {
+  section: '3M', department: 'AI Department', semester: 2, session: '2024-2028',
+  cr: 'Ali Raza', gr: 'Not set yet',
+  timetable: [
+    { date: today, day: 'today', time: '9:00 AM – 10:30 AM', subject: 'ICT', room: 'B-204', status: 'Teacher confirmed ✅' },
+  ],
+  subjects: [{ name: 'ICT', code: 'ICT-101' }],
+  noteFileIndex: [{ title: 'Lecture 1 - Introduction', subject: 'ICT', hasFiles: true }],
+  assignments: [{ title: 'Assignment 1', subject: 'ICT', deadline: 'soon', past: false }],
+  students: [
+    { name: 'Sara Khan', rollNo: 'S-001' },
+    { name: 'Bilal Ahmed', rollNo: 'S-002' },
+  ],
+  teachers: [{ name: 'Dr. Usman Tariq', subject: 'ICT', designation: 'Professor' }],
+  announcements: [{ title: 'Quiz next week', date: 'today' }],
+};
+
+test('fallback builder: classes, notes, deadlines', async () => {
+  assert.match(buildFallbackReply('aj ki class?', FALLBACK_DATA), /9:00 AM/);
+  assert.match(buildFallbackReply('ICT ke notes', FALLBACK_DATA), /Lecture 1/);
+  assert.match(buildFallbackReply('assignments?', FALLBACK_DATA), /Assignment 1/);
+});
+
+test('owner rule: fallback replies NEVER send portal links or hand emojis', async () => {
+  const probes = [
+    'aj ki class?', 'ICT ke notes', 'assignments?', 'kal ki class?',
+    'section me kaun kaun students hain', 'cr kaun hai', 'random greeting text',
+  ];
+  for (const q of probes) {
+    const r = buildFallbackReply(q, FALLBACK_DATA);
+    assert.ok(!/portal|website|iubcr|http/i.test(r), `portal/link leaked for: ${q}`);
+    assert.ok(!/[🙏🙌🤝]/u.test(r), `hand emoji leaked for: ${q}`);
+  }
+});
+
+test('fallback builder: no class today → plain "koi class nahi" + upcoming, no portal pointer', async () => {
+  const data = { ...FALLBACK_DATA, timetable: [
+    { date: '2099-01-01', day: 'Fri 1 Jan', time: '9:00 AM – 10:30 AM', subject: 'ICT', room: 'B-204', status: 'Teacher confirmed ✅' },
+  ] };
+  const r = buildFallbackReply('aj ki class?', data);
+  assert.match(r, /koi class nahi/i);
+  assert.ok(!/portal/i.test(r));
+  assert.match(r, /9:00 AM/); // upcoming classes listed instead of a deflection
+});
+
+test('fallback builder: section / CR / student roster answers (names + rollNo only)', async () => {
+  const roster = buildFallbackReply('hamari section konsi hai aur cr kaun hai?', FALLBACK_DATA);
+  assert.match(roster, /3M/);
+  assert.match(roster, /AI Department/);
+  assert.match(roster, /Ali Raza/);
+  assert.ok(!/Not set yet/.test(roster)); // GR unset → line omitted, not exposed
+
+  const list = buildFallbackReply('class ke students kaun kaun hain?', FALLBACK_DATA);
+  assert.match(list, /Sara Khan \(S-001\)/);
+  assert.match(list, /Bilal Ahmed \(S-002\)/);
+  assert.ok(!/@|mail|9230|Pass/i.test(list)); // no contact/personal data ever
+
+  const teachers = buildFallbackReply('teacher kaun hai ICT ka?', FALLBACK_DATA);
+  assert.match(teachers, /Dr\. Usman Tariq/);
+  assert.ok(!/923009999999/.test(teachers)); // teacher's WhatsApp number never shared
+});
+
+test('contextData: CR/GR/students/teachers/announcements included, NO portal key, NO contact fields', async () => {
+  const ctx = {
+    section: { name: '3M', semester: 2, department: { name: 'AI Department' }, session: { name: '2024-2028' }, cr: { name: 'Ali Raza' }, gr: null },
+    subjects: [], slots: [], notes: [], assignments: [],
+    students: [{ name: 'Sara Khan', rollNo: 'S-001' }],
+    teachers: [{ name: 'Dr. Usman Tariq', subject: { name: 'ICT' }, designation: 'Professor' }],
+    announcements: [{ title: 'Quiz next week', createdAt: new Date().toISOString() }],
   };
-  assert.match(buildFallbackReply('aj ki class?', data), /9:00 AM/);
-  assert.match(buildFallbackReply('ICT ke notes', data), /Lecture 1/);
-  assert.match(buildFallbackReply('assignments?', data), /Assignment 1/);
+  const data = contextData(ctx);
+  assert.equal(data.cr, 'Ali Raza');
+  assert.equal(data.gr, 'Not set yet');
+  assert.deepEqual(data.students, [{ name: 'Sara Khan', rollNo: 'S-001' }]);
+  assert.equal(data.teachers[0].name, 'Dr. Usman Tariq');
+  assert.equal(data.announcements[0].title, 'Quiz next week');
+  const json = JSON.stringify(data);
+  assert.ok(!('portal' in data), 'portal key removed (owner rule: no links)');
+  assert.ok(!/phone|email|whatsapp/i.test(json), 'no contact fields in bot data');
 });
 
 /* ------------------- route-level integration ------------------- */
