@@ -42,6 +42,7 @@ const chatbot = await import('../backend/services/chatbotService.js');
 const {
   handleGroupMessage, shouldTrigger, stripMentions, parseGeminiJson,
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
+  resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT,
 } = chatbot;
 
 const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
@@ -83,6 +84,7 @@ test.afterEach(async () => {
   geminiResponse = null;
   chatbot.__resetGuards(); // fresh cooldown/hour/day budget per test
   await ChatbotSetting.deleteMany({}); // panel switch resets to env defaults
+  await ChatbotLog.deleteMany({}); // group memory must not leak between tests
 });
 
 const today = new Intl.DateTimeFormat('en-CA', {
@@ -164,6 +166,9 @@ test('shouldTrigger: questions/keywords wake the bot, casual chat does not', () 
   assert.equal(shouldTrigger('kya haal hai doston'), false); // casual — no keyword/?
   assert.equal(shouldTrigger('ok'), false);
   assert.equal(shouldTrigger('hi bot'), true); // direct address
+  assert.equal(shouldTrigger('ye wala note bhej do'), true); // pick of an offered title
+  assert.equal(shouldTrigger('dusra wala'), true); // ordinal pick
+  assert.equal(shouldTrigger('waha khana khaate hain'), false); // 'waha' is not a pick
   assert.equal(shouldTrigger(''), false);
   assert.equal(shouldTrigger('x'.repeat(500)), false);
 });
@@ -437,6 +442,133 @@ test('subjectAsked pins the subject by name, code or abbreviation', async () => 
   assert.equal(subjectAsked('artificial intelligence ki class timing', subjects)?.name, 'Artificial Intelligence');
   assert.equal(subjectAsked('ict-101 ke notes', subjects)?.name, 'ICT');
   assert.equal(subjectAsked('kya haal hai', subjects), null);
+});
+
+test('owner feature: prompt carries recency rule, two-step pick, memory and the funny personality', () => {
+  assert.match(SYSTEM_PROMPT, /NEWEST-first/i);
+  assert.match(SYSTEM_PROMPT, /TWO-STEP PICK/);
+  assert.match(SYSTEM_PROMPT, /MEMORY/);
+  assert.match(SYSTEM_PROMPT, /witty/i);
+  assert.match(SYSTEM_PROMPT, /never tease any student or teacher by name/i);
+  assert.match(SYSTEM_PROMPT, /EXACT title/i);
+});
+
+test('owner feature: "last time jo notes diye" picks the NEWEST note of the subject (fallback)', () => {
+  const dataJson = {
+    subjects: [{ name: 'ICT', code: 'ICT-101' }],
+    noteFileIndex: [
+      { title: 'Lecture 2 - New', subject: 'ICT', hasFiles: true, date: '2 Oct' },
+      { title: 'Lecture 1 - Old', subject: 'ICT', hasFiles: true, date: '20 Sep' },
+    ],
+  };
+  const r = resolveLastNotes('last time sir ne ICT ke jo notes diye the?', dataJson);
+  assert.ok(r);
+  assert.match(r.reply, /Lecture 2 - New/);
+  assert.deepEqual(r.titles, ['Lecture 2 - New']);
+  // unrelated question → no hijack
+  assert.equal(resolveLastNotes('ICT ke notes do', dataJson), null);
+});
+
+test('owner feature: two-step pick — "ye wala" resolves against the last offered titles (fallback)', () => {
+  const dataJson = {
+    noteFileIndex: [
+      { title: 'Lecture 1 - Introduction', subject: 'ICT', hasFiles: true, date: '1 Oct' },
+      { title: 'Lecture 2 - Logic Gates', subject: 'ICT', hasFiles: false, date: '2 Oct' },
+    ],
+    assignments: [{ title: 'Assignment 1', subject: 'ICT', deadline: 'Mon 5 Oct', past: false }],
+  };
+  // ordinal pick → second offered title (no files → says so, sends nothing)
+  const r = resolvePick('dusra wala do', { offeredTitles: ['Lecture 1 - Introduction', 'Lecture 2 - Logic Gates'] }, dataJson);
+  assert.ok(r);
+  assert.match(r.reply, /Lecture 2 - Logic Gates/);
+  assert.deepEqual(r.titles, []);
+  // single offered + "ye wala" → that one, files delivered
+  const r2 = resolvePick('ye wala note bhej do', { offeredTitles: ['Lecture 1 - Introduction'] }, dataJson);
+  assert.ok(r2);
+  assert.match(r2.reply, /Lecture 1 - Introduction/);
+  assert.deepEqual(r2.titles, ['Lecture 1 - Introduction']);
+  // fragment of the title ("assignment 1 wala") → assignment details with deadline
+  const r3 = resolvePick('assignment 1 wala bata do', { offeredTitles: ['Assignment 1', 'Lecture 1 - Introduction'] }, dataJson);
+  assert.ok(r3);
+  assert.match(r3.reply, /Assignment 1/);
+  assert.match(r3.reply, /Mon 5 Oct/);
+  // a fresh full question is NOT hijacked as a pick
+  assert.equal(resolvePick('last time jo sir ne notes diye the ICT ke, wo bhejo please mjhe', { offeredTitles: ['Lecture 1 - Introduction'] }, dataJson), null);
+});
+
+test('owner feature: extractOfferedTitles logs exactly what the reply listed', () => {
+  const dataJson = {
+    noteFileIndex: [{ title: 'Lecture 1 - Introduction', subject: 'ICT', hasFiles: true, date: '' }],
+    assignments: [{ title: 'Assignment 1', subject: 'ICT', deadline: '', past: false }],
+  };
+  const offered = extractOfferedTitles('Ye hain notes: Lecture 1 - Introduction. Aur Assignment 1 bhi pending hai.', dataJson, ['Extra Delivered']);
+  assert.ok(offered.includes('Lecture 1 - Introduction'));
+  assert.ok(offered.includes('Assignment 1'));
+  assert.ok(offered.includes('Extra Delivered'));
+});
+
+test('owner feature: pick flow end-to-end — bot offered, student says "ye wala", files arrive', async () => {
+  await ChatbotLog.create({
+    section: section._id, groupId: GROUP_ID,
+    question: 'ICT ke notes kaun se hain?', source: 'fallback',
+    reply: 'Ye hain: Lecture 1 - Introduction, Lecture 2 - Logic Gates',
+    offeredTitles: ['Lecture 1 - Introduction', 'Lecture 2 - Logic Gates'],
+  });
+  geminiResponse = null; // Gemini busy → the fallback pick path must work too
+  // "dusra wala" → second offered title (Logic Gates, no files → says so)
+  assert.equal(await handleGroupMessage(groupMsg('dusra wala note bhej do')), true);
+  let chat = waSent.find((s) => s.kind === 'chat');
+  assert.ok(chat, 'text reply sent');
+  assert.match(chat.params.body, /Lecture 2 - Logic Gates/);
+  // single offer + "ye wala" → that note's files delivered
+  chatbot.__resetGuards(); // msg1 started the 8s group cooldown
+  await ChatbotLog.deleteMany({}); // msg1's own log must not shadow this one
+  await ChatbotLog.create({
+    section: section._id, groupId: GROUP_ID, source: 'fallback',
+    question: 'x', reply: 'Latest: Lecture 1 - Introduction',
+    offeredTitles: ['Lecture 1 - Introduction'],
+  });
+  assert.equal(await handleGroupMessage(groupMsg('ye wala note bhej do')), true);
+  chat = waSent.filter((s) => s.kind === 'chat').at(-1);
+  assert.match(chat.params.body, /Lecture 1 - Introduction/);
+  const doc = waSent.find((s) => s.kind === 'document');
+  assert.ok(doc, 'picked note files delivered');
+  assert.equal(doc.params.document, 'https://res.cloudinary.com/demo/n1.pdf');
+});
+
+test('owner feature: last-notes question end-to-end — newest note with files is delivered (fallback)', async () => {
+  await Note.create({ createdBy: section._id, author: section._id,
+    title: 'Lecture 3 - Pointers', subject: subject._id, section: section._id,
+    attachments: [{ publicId: 'p3', url: 'https://res.cloudinary.com/demo/n3.pdf', mimeType: 'application/pdf', originalName: 'ptr.pdf' }],
+  }); // newest (created last)
+  geminiResponse = null;
+  assert.equal(await handleGroupMessage(groupMsg('last time sir ny jo notes diye the ICT ke, wo bhej do')), true);
+  const doc = waSent.find((s) => s.kind === 'document');
+  assert.ok(doc, 'newest note files delivered');
+  assert.equal(doc.params.document, 'https://res.cloudinary.com/demo/n3.pdf');
+  assert.match(waSent.find((s) => s.kind === 'chat').params.body, /Lecture 3 - Pointers/);
+});
+
+test('owner feature: Gemini gets the group MEMORY so "ye wala" resolves over the LLM too', async () => {
+  await ChatbotLog.create({
+    section: section._id, groupId: GROUP_ID, source: 'gemini',
+    question: 'ICT ke notes?', reply: 'Ye hain: Lecture 1 - Introduction',
+    offeredTitles: ['Lecture 1 - Introduction'],
+  });
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Ye raha Lecture 1 - Introduction.\",\"send_note_titles\":[\"Lecture 1 - Introduction\"]}' }] } }] };
+  assert.equal(await handleGroupMessage(groupMsg('ye wala do')), true);
+  const lastUser = geminiCalls[0].body.contents.at(-1).parts[0].text;
+  assert.match(lastUser, /MEMORY/);
+  assert.match(lastUser, /Lecture 1 - Introduction/);
+  assert.ok(geminiCalls.length >= 1);
+});
+
+test('owner feature: reply logs the offered titles it listed (memory for the next pick)', async () => {
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Notes hain: Lecture 1 - Introduction aur Lecture 2 - Logic Gates.\",\"send_note_titles\":[]}' }] } }] };
+  assert.equal(await handleGroupMessage(groupMsg('ICT ke notes kaun se hain?')), true);
+  const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });
+  assert.ok(log.offeredTitles.includes('Lecture 1 - Introduction'));
+  assert.ok(log.offeredTitles.includes('Lecture 2 - Logic Gates'));
 });
 
 test('contextData: CR/GR/students/teachers/announcements included, NO portal key, NO contact fields', async () => {

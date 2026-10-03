@@ -16,6 +16,9 @@ const chatbotLogSchema = new Schema(
     question: { type: String, trim: true, maxlength: 500 },
     reply: { type: String, trim: true, maxlength: 1200 },
     sentFiles: { type: Number, default: 0 },
+    // titles this reply listed/offered (notes + assignments) — lets the
+    // NEXT message resolve a pick like "ye wala / dusra wala" (owner feature)
+    offeredTitles: { type: [String], default: [] },
     // where the answer came from: 'gemini' (LLM) or 'fallback' (keyword router)
     source: { type: String, enum: ['gemini', 'fallback', 'error'], default: 'gemini' },
     error: { type: String, trim: true, maxlength: 300 },
