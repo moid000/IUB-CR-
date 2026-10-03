@@ -448,7 +448,8 @@ export function resolveLastNotes(question, dataJson) {
  */
 const CASUAL_GREETING_RE = /\b(salam|as+salam|asa?lam|aoa|adaab|hello|hii?|hey|yo)\b/i;
 const CASUAL_DISS_RE = /\b(dafa|hutt|hato|chup|bakwas|pagal)\b/i;
-const CASUAL_CHAT_RE = /kya haal|kaisay|kese ho|kya hal|kya kar|maza|shugal|mazak|bore|kahan ho|zinda/i;
+// Roman-Urdu spelling jungle: kya/kia, hal/haal, kaisay/kaise/kese/kaisy...
+const CASUAL_CHAT_RE = /(kya|kia|ky)\s+ha+l|kaisay|kaisy|kaise|kese|kya\s+kar|kia\s+kar|maza|shugal|mazak|bore|kahan ho|kahan aye|zinda|haal chaal|kia scene|kya scene/i;
 
 export function casualReply(question) {
   const q = String(question ?? '').trim();

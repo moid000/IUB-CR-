@@ -486,6 +486,11 @@ test('owner feature: TAGGED casual chat always gets a reply — casualReply help
   const haal = casualReply('kaisay ho?');
   assert.ok(haal);
   assert.match(haal, /zinda|parhai|WiFi|haal|attendance/i);
+  // Roman-Urdu spelling variants the owner actually types (regression:
+  // 'kia hal hain' once fell through to the dry catch-all)
+  for (const variant of ['kia hal hain', 'kya haal hai doston', 'kaise ho', 'kia hal', 'kese ho aap']) {
+    assert.ok(casualReply(variant), `casual variant must banter: ${variant}`);
+  }
   // bare tag (empty question after stripping) → witty prompt to ask something
   assert.match(casualReply(''), /sirf tag/);
   // study content is NEVER hijacked by the casual branch
