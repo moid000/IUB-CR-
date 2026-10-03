@@ -42,7 +42,7 @@ const chatbot = await import('../backend/services/chatbotService.js');
 const {
   handleGroupMessage, shouldTrigger, stripMentions, parseGeminiJson,
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
-  resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT,
+  resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply,
 } = chatbot;
 
 const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
@@ -442,6 +442,37 @@ test('subjectAsked pins the subject by name, code or abbreviation', async () => 
   assert.equal(subjectAsked('artificial intelligence ki class timing', subjects)?.name, 'Artificial Intelligence');
   assert.equal(subjectAsked('ict-101 ke notes', subjects)?.name, 'ICT');
   assert.equal(subjectAsked('kya haal hai', subjects), null);
+});
+
+test('owner mini-game: "class ki phopho kon hai?" → spin lands on Warda and Arooj, funny but never hurtful', async () => {
+  // unit: trigger words + fixed outcome
+  const g1 = miniGameReply('yar is class ki phopho kon hai jo shitani karti hai?');
+  assert.ok(g1);
+  assert.match(g1, /Warda/);
+  assert.match(g1, /Arooj/);
+  assert.ok(miniGameReply('class ki phuppo kaun hai')); // spelling variant
+  // affectionate guard — every spin carries a "don't take it to heart" line
+  for (let i = 0; i < 12; i += 1) {
+    const spin = miniGameReply('phopho kon hai?');
+    assert.match(spin, /(dil pe mat lena|serious na ho jao|game design)/);
+    assert.match(spin, /pyari|jaan/); // affectionate framing, never an insult
+  }
+  // unrelated questions are NOT hijacked
+  assert.equal(miniGameReply('timetable kya hai aj ka'), null);
+  assert.equal(miniGameReply('notes bhej do'), null);
+
+  // end-to-end: answered WITHOUT calling Gemini (fixed game, zero LLM spend)
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Gemini must not be called here.\",\"send_note_titles\":[]}' }] } }] };
+  assert.equal(await handleGroupMessage(groupMsg('class ki phopho kon hai jo shitani karti hai?')), true);
+  assert.equal(geminiCalls.length, 0, 'mini-game never spends an LLM call');
+  const chat = waSent.find((s) => s.kind === 'chat');
+  assert.ok(chat, 'reply sent');
+  assert.ok(chat.params.body.startsWith(`@${STUDENT} `), 'mentions the asker');
+  assert.match(chat.params.body, /Warda/);
+  assert.match(chat.params.body, /Arooj/);
+  // the log marks it as a fallback-source answer
+  const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });
+  assert.equal(log.source, 'fallback');
 });
 
 test('owner feature: group reply @mentions the student who asked (busy-group clarity)', async () => {

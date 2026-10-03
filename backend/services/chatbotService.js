@@ -404,6 +404,23 @@ function pickResult(title, dataJson) {
   return null;
 }
 
+/**
+ * OWNER MINI-GAME (2026-10-03): "class ki phopho kon hai?" — the bot spins a
+ * roll-number wheel and ALWAYS lands on Warda and Arooj. Funny on purpose,
+ * hurt on never: affectionate wording, fixed outcome, zero LLM spend.
+ */
+const PHOPO_RE = /phop?h[ou]|phuppo|fupho|fopho/i;
+const PHOPO_SPINS = [
+  'Wah, ye to aaj ka sawal hai! Roll number wheel chala raha hoon... spin spin spin... DING! Pointer ruk gaya *Warda* or *Arooj* pe — dono is class ki phopho jodi hain. Shitani department inhi ka, warna dono hamari pyari hain. (Wheel ka faisla hai, dil pe mat lena, hasne wali baat hai.)',
+  'Hmm, bara sensitive sawal... spin lagata hoon roll numbers pe... wheel ghoor raha hoon... GAYA! Wheel ka faisla: *Warda* or *Arooj*. Class ki official phopho status in dono ke paas hai — lekin mind it, class ki jaan bhi yehi hain. Game hai ji, serious na ho jao.',
+  'Acha, investigation mode on! Roll number generator ghooma... thum thum thum... aur jawab aa gaya: *Warda* or *Arooj*. Shitani ki Malik inhi ke paas hai — itne pyari hain ke class inke bina adhoori hai. (Wheel har baar inhi pe rukta hai — coincidence nahi, game design hai.)',
+];
+
+export function miniGameReply(question) {
+  if (!PHOPO_RE.test(String(question ?? ''))) return null;
+  return PHOPO_SPINS[Math.floor(Math.random() * PHOPO_SPINS.length)];
+}
+
 /** "Last time jo notes diye the is subject ke" → the newest note of that subject. */
 export function resolveLastNotes(question, dataJson) {
   const q = String(question ?? '').toLowerCase();
@@ -675,13 +692,26 @@ export async function handleGroupMessage(payload) {
     const memory = lastLog?.reply ? { prevReply: lastLog.reply, offeredTitles: lastLog.offeredTitles ?? [] } : null;
 
     let source = 'gemini';
-    let answer = setting.apiKey ? await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory }) : null;
     let sendTitles = [];
-    if (answer) {
-      sendTitles = answer.send_note_titles;
-      answer = answer.reply;
+    // fixed-outcome mini-game (owner's phopho spin): always the same two
+    // names, affectionate wording — and it never goes to the LLM
+    const game = miniGameReply(question);
+    let answer;
+    if (game) {
+      answer = game;
+      source = 'fallback';
+    } else if (setting.apiKey) {
+      const llm = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory });
+      if (llm) {
+        answer = llm.reply;
+        sendTitles = llm.send_note_titles;
+      } else {
+        source = 'fallback';
+      }
     } else {
       source = 'fallback';
+    }
+    if (source === 'fallback' && !game) {
       const pick = resolvePick(question, lastLog, dataJson) ?? resolveLastNotes(question, dataJson);
       if (pick) {
         answer = pick.reply;
