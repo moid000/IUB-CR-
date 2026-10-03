@@ -213,13 +213,11 @@ export async function verifyAndConsumeWipeCodes({ emailCode, waCode }) {
 /* ------------------------------------------------------------------ */
 /* WhatsApp chatbot master switch (owner request 2026-10-03):          */
 /* ON/OFF from the admin panel's Administration section, at any time.  */
-/* The singleton ChatbotSetting doc is the live source of truth; until */
-/* it exists the bot falls back to the WHATSAPP_CHATBOT_ENABLED env    */
-/* var (default OFF). The Gemini API key is never returned to the       */
-/* client — only whether one is configured and where it came from.     */
+/* The Gemini API key is NEVER managed here - it lives only in the     */
+/* server environment (GOOGLE_API_KEY, set by the developer). The       */
+/* panel is a single control: the ON/OFF switch.                        */
 /* ------------------------------------------------------------------ */
 const CHATBOT_SETTING_KEY = 'global';
-const GOOGLE_KEY_PATTERN = /^AIza[0-9A-Za-z_-]{20,}$/;
 
 function envChatbotEnabled() {
   return (process.env.WHATSAPP_CHATBOT_ENABLED || '').trim().toLowerCase() === 'true';
@@ -231,60 +229,39 @@ function envGoogleKey() {
 /** Admin-only read of the effective chatbot switch state (no secrets). */
 export async function getChatbotSetting() {
   const doc = await ChatbotSetting.findOne({ key: CHATBOT_SETTING_KEY });
-  const panelKey = Boolean((doc?.apiKey || '').trim());
   const envKey = Boolean(envGoogleKey());
   return {
     enabled: doc ? doc.enabled === true : envChatbotEnabled(),
-    apiKeyConfigured: panelKey || envKey,
-    apiKeySource: panelKey ? 'panel' : (envKey ? 'env' : 'none'),
+    apiKeyConfigured: envKey,
+    apiKeySource: envKey ? 'env' : 'none',
     updatedAt: doc?.updatedAt ?? null,
   };
 }
 
-/** Admin-only update of the switch and/or the Gemini API key. */
+/** Admin-only update of the ON/OFF switch (the panel's only control). */
 export async function updateChatbotSetting(req) {
-  const { enabled, apiKey } = req.body ?? {};
+  const { enabled } = req.body ?? {};
 
-  if (enabled !== undefined && typeof enabled !== 'boolean') {
+  if (typeof enabled !== 'boolean') {
     throw new ApiError(400, '"enabled" must be true or false');
-  }
-
-  let cleanKey;
-  if (apiKey !== undefined) {
-    cleanKey = String(apiKey ?? '').trim();
-    if (cleanKey && !GOOGLE_KEY_PATTERN.test(cleanKey)) {
-      throw new ApiError(400, 'That does not look like a Google AI Studio key — it should start with "AIza".');
-    }
-    cleanKey = cleanKey.slice(0, 200);
-  }
-
-  const update = {};
-  if (enabled !== undefined) update.enabled = enabled;
-  if (apiKey !== undefined) update.apiKey = cleanKey;
-
-  // First time the settings doc is created (e.g. the owner only saves a key),
-  // inherit the CURRENT live switch state instead of the schema default — so
-  // saving a key alone can never silently flip the bot OFF.
-  if (update.enabled === undefined && !(await ChatbotSetting.exists({ key: CHATBOT_SETTING_KEY }))) {
-    update.enabled = envChatbotEnabled();
   }
 
   const doc = await ChatbotSetting.findOneAndUpdate(
     { key: CHATBOT_SETTING_KEY },
-    { key: CHATBOT_SETTING_KEY, ...update },
+    { key: CHATBOT_SETTING_KEY, enabled },
     { new: true, upsert: true, setDefaultsOnInsert: true },
   );
 
   await auditFromReq(req, {
     action: 'admin.chatbot-setting-updated', entityType: 'chatbot', entityId: doc._id,
-    after: { enabled: doc.enabled, keyConfigured: Boolean(doc.apiKey) },
+    after: { enabled: doc.enabled },
   });
 
-  const panelKey = Boolean((doc.apiKey || '').trim());
+  const envKey = Boolean(envGoogleKey());
   return {
     enabled: doc.enabled === true,
-    apiKeyConfigured: panelKey || Boolean(envGoogleKey()),
-    apiKeySource: panelKey ? 'panel' : (Boolean(envGoogleKey()) ? 'env' : 'none'),
+    apiKeyConfigured: envKey,
+    apiKeySource: envKey ? 'env' : 'none',
     updatedAt: doc.updatedAt,
   };
 }

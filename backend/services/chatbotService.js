@@ -387,15 +387,11 @@ export function __resetGuards() {
 /* ------------------------------------------------------------------ */
 async function resolveRuntimeSetting() {
   try {
+    // The Gemini key always comes from the server environment (GOOGLE_API_KEY);
+    // only the ON/OFF switch is stored in the DB.
     const doc = await ChatbotSetting.findOne({ key: 'global' }).lean();
-    if (doc) {
-      return {
-        enabled: doc.enabled === true,
-        apiKey: (doc.apiKey || '').trim() || env.chatbot.googleApiKey,
-        source: 'panel',
-      };
-    }
-  } catch { /* fall through to env defaults */ }
+    if (doc) return { enabled: doc.enabled === true, apiKey: env.chatbot.googleApiKey };
+  } catch { /* fall through to the env default */ }
   return { enabled: env.chatbot.enabled, apiKey: env.chatbot.googleApiKey, source: 'env' };
 }
 

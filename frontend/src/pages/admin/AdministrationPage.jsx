@@ -33,7 +33,6 @@ export default function AdministrationPage() {
   const [botBusy, setBotBusy] = useState(false);
   const [botError, setBotError] = useState(null);
   const [botSaved, setBotSaved] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
 
   useEffect(() => {
     if (botData) {
@@ -54,25 +53,6 @@ export default function AdministrationPage() {
         apiKeyConfigured: res.apiKeyConfigured === true,
         apiKeySource: res.apiKeySource ?? 'none',
       });
-      setBotSaved(true);
-    } catch (err) {
-      setBotError(err);
-    } finally {
-      setBotBusy(false);
-    }
-  };
-
-  const saveApiKey = async (e) => {
-    e.preventDefault();
-    setBotBusy(true); setBotError(null); setBotSaved(false);
-    try {
-      const res = await adminApi.chatbot.update({ apiKey: apiKeyInput.trim() });
-      setBot({
-        enabled: res.enabled === true,
-        apiKeyConfigured: res.apiKeyConfigured === true,
-        apiKeySource: res.apiKeySource ?? 'none',
-      });
-      setApiKeyInput('');
       setBotSaved(true);
     } catch (err) {
       setBotError(err);
@@ -234,27 +214,10 @@ export default function AdministrationPage() {
                   <p className="text-xs text-slate-400">
                     Gemini key:{' '}
                     {bot.apiKeyConfigured
-                      ? `configured (${bot.apiKeySource === 'panel' ? 'saved here in the panel' : 'server environment'})`
+                      ? 'configured on the server'
                       : 'not set — the bot will use built-in answers only'}
                   </p>
                 </div>
-
-                <form onSubmit={saveApiKey} className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <Input
-                    type="password"
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder={bot.apiKeyConfigured ? 'Replace the Gemini key (paste a new one)' : 'Paste your Google AI Studio key (starts with AIza)'}
-                    autoComplete="off"
-                    disabled={botBusy}
-                  />
-                  <Button type="submit" variant="secondary" disabled={botBusy || !apiKeyInput.trim()}>
-                    {botBusy ? 'Saving…' : 'Save key'}
-                  </Button>
-                </form>
-                <p className="mt-1.5 text-xs text-slate-400">
-                  Optional. The key is stored server-side and never shown again. Leave empty to keep the current key.
-                </p>
               </div>
             </div>
           </section>
