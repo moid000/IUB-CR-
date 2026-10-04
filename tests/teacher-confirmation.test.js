@@ -475,6 +475,21 @@ test('OWNER FEATURE: class reminder skips slots with no teacher linked (no messa
   assert.ok(!(await Timetable.findById(slot._id)).classReminder);
 });
 
+test('OWNER RULE: teacher gave NO response (question awaiting) → reminder STILL goes', async () => {
+  const { runClassReminderSweep } = await import('../backend/services/classReminderService.js');
+  const author = (await User.findOne({ email: 'cr-teacher@test.local' }))._id;
+  const nowEpoch = Date.UTC(2026, 9, 5, 3, 45); // 08:45 PKT
+  const slot = await Timetable.create({ section, subject, status: 'active', createdBy: author,
+    date: '2026-10-05', startTime: '09:05', endTime: '10:00', room: 'R3',
+    teacherConfirmation: { status: 'awaiting', phone: '923001112233', attempts: 1 } });
+  const sentBefore = sent.length;
+  const r = await runClassReminderSweep({ nowEpoch, only: slot._id });
+  // no YES/NO received → the class reminder still fires — only DECLINED is excluded
+  assert.equal(r.sent, 1);
+  assert.equal(sent.length, sentBefore + 1);
+  assert.match(sent.at(-1).body, /\*Reminder:\*/);
+});
+
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
   const { buildHintMessage } = await import('../backend/services/teacherConfirmationService.js');
   const pool = new Set(Array.from({ length: 40 }, () => buildHintMessage('Dr Test')));
