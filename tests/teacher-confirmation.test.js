@@ -307,9 +307,16 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
     'inshallah aaon ga', 'ok', 'no problem, ho gi', 'ji zaroor aaonga', 'theek hai chalega']) {
     assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
   }
-  // NO in the wild
-  for (const no of ['nahi ho gi, urgent kaam hai', 'cancel kar do aj ki', 'g nahi bhai, chutti hai', 'busy hoon aa nahi sakta']) {
+  // NO in the wild — OWNER BUG CASE (2026-10-04): 'mera dil ni ha' was wrongly
+  // confirmed as YES ('ni' missing from negation, 'ha' falsely read as haan)
+  for (const no of ['mera dil ni ha', 'mera dil nahi hai class ka', 'mujy maan ni ha class ki',
+    'mood nahi hai', 'ma a ni aa sakta', 'nahi ho gi, urgent kaam hai', 'cancel kar do aj ki',
+    'g nahi bhai, chutti hai', 'busy hoon aa nahi sakta']) {
     assert.equal(interpretReply(no), 'NO', `expected NO: ${no}`);
+  }
+  // YES still solid after the fix — weak words ('ha' as bare hai, 'ya' = or) removed
+  for (const yes of ['ha beta ho gi', 'haan zaroor aaon ga']) {
+    assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
   }
   // genuinely unclear — never guessed, hint path instead
   for (const unclear of ['pata nahi abhi', 'acha, dekh ke bataon ga', 'acha', 'maybe', 'thori der me bataon ga']) {

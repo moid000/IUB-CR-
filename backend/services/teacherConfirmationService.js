@@ -338,8 +338,11 @@ const INTERPRET_TIMEOUT_MS = 5_000;
  * is a YES; any negation wins over affirmation ("haan nahi ho gi" = NO). */
 const INTERPRET_UNCLEAR_RE = /pata nahi|pata nh\b|abhi (nahi|nh)\b|maybe|shayad|dekh(te|ta|ta hai| ke|kar)|soch( kar| ke)|baad (me|men) bata|let you know|i'?ll confirm later|wait|inta ?zar|thori der/i;
 const INTERPRET_NOPROBLEM_RE = /no problem|no issue|no worries|koi (masla|baat) nahi/i;
-const INTERPRET_NO_RE = /\b(nahi|nahin|nay?hi|nhi|nyi|nai|nh|no|nahi\?)\b|cancel|postpone|can'?t|cannot|not possible|impossible|busy ho|urgent|emergency|khali nahi|chutti|strike|ho (nahi|nhi) (ga|gi)/i;
-const INTERPRET_YES_RE = /(ho|how) ?g[iay]a?|\b(g|gee|ji|haan|han|ha|hmm+|yes|yep|ya|ok|okay|okie|sure|bilkul|zaroor|pakka|insha? ?allah|inshallah|definitely|confirmed?|ready|aaon|aaon ga|aaunga|aaonga|aa raha|aa rahi|time ?pe?|on time|theek hai|chal[ie]gi|chal[ie]ga)\b/i;
+const INTERPRET_NO_RE = /\b(nahi|nahin|nay?hi|nhi|nyi|nai|ni|ny|nhn|nh|no|nahi\?)\b|cancel|postpone|can'?t|cannot|not possible|impossible|busy ho|urgent|emergency|khali nahi|chutti|strike|ho (nahi|nhi|ni) (ga|gi)|mera dil (nahi|ni|nhi)|mood (nahi|ni|nhi)/i;
+// YES words stay SOLID — weak words are deliberately excluded: bare 'ha'
+// is usually just 'hai' (mera dil NI HA = NO), 'ya' means 'or'. If a reply
+// matches none of these the rules return UNCLEAR and Gemini judges it.
+const INTERPRET_YES_RE = /(ho|how) ?g[iay]a?|\b(g|gee|ji|haan|han|haa|hmm+|yes|yep|ok|okay|okie|sure|bilkul|zaroor|pakka|insha? ?allah|inshallah|definitely|confirmed?|ready|aaon|aaon ga|aaunga|aaonga|aa raha|aa rahi|time ?pe?|on time|theek hai|chal[ie]gi|chal[ie]ga)\b/i;
 
 /** Local rules: 'YES' | 'NO' | null (unclear → try Gemini). Exported for tests. */
 export function interpretReply(body) {
