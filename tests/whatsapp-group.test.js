@@ -33,7 +33,7 @@ const models = await import('../backend/models/index.js');
 const { default: app } = await import('../backend/app.js');
 
 const { User, Section, Subject, Announcement } = models;
-const { broadcastAttachmentToSectionGroup, contentPreview, announcementMessage } = await import('../backend/services/whatsappGroupService.js');
+const { broadcastAttachmentToSectionGroup, contentPreview, announcementMessage, noteMessage, assignmentMessage } = await import('../backend/services/whatsappGroupService.js');
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
@@ -436,7 +436,10 @@ test('announcement create broadcasts to the linked group', async () => {
   assert.equal(sent.length, 1, `expected 1 gateway send, got ${sent.length}`);
   assert.equal(sent[0].params.to, GROUP_ID);
   assert.ok(sent[0].params.body.includes('Quiz on Monday'));
-  assert.ok(sent[0].params.body.includes('announcement'));
+  // OWNER REQUEST (2026-10-04): no auto label — the broadcast starts with the
+  // CR's own title, never a bolted-on "New announcement" header.
+  assert.ok(!sent[0].params.body.toLowerCase().includes('new announcement'));
+  assert.ok(sent[0].params.body.startsWith('"Quiz on Monday"'));
 });
 
 test('no broadcast when the section has no linked group', async () => {
@@ -847,6 +850,20 @@ test('contentPreview: truncates by length while still capping to max', () => {
   const out = contentPreview(input, 12);
   assert.ok(out.endsWith('\u2026'));
   assert.ok(out.length <= 13); // 12 chars + ellipsis
+});
+
+test('OWNER RULE: broadcasts never bolt on a "New ..." label — title first', async () => {
+  // announcement / note / assignment messages must START with the CR's own
+  // title; no auto header (owner request 2026-10-04: "khud ny extra kuch na aya kary")
+  const ann = announcementMessage({ title: 'Fee deadline', content: 'Pay by the 20th.' });
+  assert.ok(ann.startsWith('"Fee deadline"'));
+  assert.ok(!ann.toLowerCase().includes('new announcement'));
+  const note = await noteMessage({ title: 'Ch 3 slides', content: 'Read before Monday.' });
+  assert.ok(note.startsWith('"Ch 3 slides"'));
+  assert.ok(!note.toLowerCase().includes('new note'));
+  const asg = await assignmentMessage({ title: 'Lab 5', deadline: '2026-10-10T10:00:00Z', instructions: 'Draw the ER diagram.' }, null);
+  assert.ok(asg.startsWith('"Lab 5"'));
+  assert.ok(!asg.toLowerCase().includes('new assignment'));
 });
 
 test('announcementMessage: real owner-shaped content keeps paragraph breaks in the WhatsApp text', async () => {

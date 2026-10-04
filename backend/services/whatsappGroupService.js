@@ -413,14 +413,17 @@ export function announcementMessage(doc) {
   // Full content — the group receives EVERYTHING and never needs the app
   // link (owner request 2026-09-20). 3500 keeps us safely under WhatsApp's
   // 4096-char text limit even with the longest allowed announcement.
-  const lines = [`📢 *New announcement*`, ``, `"${doc.title}"`];
+  // OWNER REQUEST (2026-10-04): NO auto label like "New announcement" — the
+  // message starts directly with the CR's own title, then description.
+  const lines = [`"${doc.title}"`];
   const full = contentPreview(doc.content, 3500);
   if (full) lines.push(``, full);
   return lines.join('\n');
 }
 
 export async function noteMessage(doc) {
-  const lines = [`📄 *New note*`, ``, `"${doc.title}"`];
+  // OWNER REQUEST (2026-10-04): no "New note" label — title first, nothing extra.
+  const lines = [`"${doc.title}"`];
   if (doc.subject) {
     const subject = await Subject.findById(doc.subject).select('name');
     if (subject) lines.push(``, `Subject: ${subject.name}`);
@@ -432,7 +435,9 @@ export async function noteMessage(doc) {
 
 export async function assignmentMessage(doc, subjectId) {
   const subject = subjectId ? await Subject.findById(subjectId).select('name') : null;
-  const lines = [`📋 *New assignment*`, ``, `"${doc.title}"`];
+  // OWNER REQUEST (2026-10-04): no "New assignment" label — title first, then
+  // subject/due/instructions, nothing extra bolted on.
+  const lines = [`"${doc.title}"`];
   if (subject) lines.push(``, `Subject: ${subject.name}`);
   lines.push(``, `Due: ${PKT_DEADLINE_FMT.format(new Date(doc.deadline))} (PKT)`);
   const full = contentPreview(doc.instructions, 3500);
