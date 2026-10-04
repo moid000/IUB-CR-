@@ -5,6 +5,8 @@ import { ApiError } from '../middleware/error.js';
 import { runDeadlineSweep } from '../services/deadlineSweepService.js';
 import { runWatchdog } from '../services/ultramsgWatchdogService.js';
 import { dispatchPendingTeacherConfirmations, handleTeacherReply } from '../services/teacherConfirmationService.js';
+// OWNER FEATURE (2026-10-04): short teacher reminder ~20 min before their class
+import { runClassReminderSweep } from '../services/classReminderService.js';
 // NEW (2026-10-03): Tri3M group chatbot. handleGroupMessage is a pure
 // consumer of GROUP messages — it never throws, and returns false unless the
 // bot is enabled AND the payload is a group text message, so the teacher
@@ -50,7 +52,12 @@ const handle = async (req, res, next) => {
       console.error('[teacher confirmation sweep]', err.message);
       return { error: true };
     });
-    res.json({ success: true, data: { ...report, teacherConfirmations } });
+    // 20-min pre-class teacher reminder — same ping, must never break the sweep
+    const classReminders = await runClassReminderSweep().catch((err) => {
+      console.error('[class reminder sweep]', err.message);
+      return { error: true };
+    });
+    res.json({ success: true, data: { ...report, teacherConfirmations, classReminders } });
   } catch (err) {
     next(err);
   }

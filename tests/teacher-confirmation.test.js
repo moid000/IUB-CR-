@@ -407,6 +407,74 @@ test('OWNER RULE: GEMINI FIRST — any reply is understood by meaning, not a wor
   }
 });
 
+test('OWNER FEATURE: class reminder — short WhatsApp to the teacher ~20 min before the class', async () => {
+  const { runClassReminderSweep, buildClassReminderMessage } = await import('../backend/services/classReminderService.js');
+  // Mon 2026-10-05, 08:45 PKT — slots: 09:00 (due in 15), 09:18 (due in 33 → NO),
+  // 07:00 (already started → NO), 11:00 (way ahead → NO)
+  const nowEpoch = Date.UTC(2026, 9, 5, 3, 45); // 08:45 PKT
+  const author = (await User.findOne({ email: 'cr-teacher@test.local' }))._id;
+  const base = { section, subject, status: 'active', createdBy: author };
+  const due = await Timetable.create({ ...base, date: '2026-10-05', startTime: '09:00', endTime: '10:00', room: 'Room 9' });
+  await Timetable.create({ ...base, date: '2026-10-05', startTime: '09:18', endTime: '10:00', room: 'Room 9' });
+  await Timetable.create({ ...base, date: '2026-10-05', startTime: '07:00', endTime: '08:00' });
+  await Timetable.create({ ...base, date: '2026-10-05', startTime: '11:00', endTime: '12:00' });
+  // yesterday's 09:00 slot must never remind (date filter)
+  await Timetable.create({ ...base, date: '2026-10-04', startTime: '09:00', endTime: '10:00' });
+  // a DECLINED class is not the teacher's class anymore — no reminder
+  await Timetable.create({ ...base, date: '2026-10-05', startTime: '09:10', endTime: '10:00',
+    teacherConfirmation: { status: 'declined' } });
+
+  const sentBefore = sent.length;
+  const r1 = await runClassReminderSweep({ nowEpoch });
+  assert.equal(r1.configured, true);
+  assert.equal(r1.due, 1); // only the 09:00 slot — the 09:10 DECLINED slot is excluded
+  assert.equal(r1.sent, 1);
+  assert.equal(sent.length, sentBefore + 1);
+
+  // SHORT + clear: greeting, one reminder line, footer — no long template
+  const msg = sent.at(-1);
+  assert.equal(msg.to, '923001112233');
+  assert.match(msg.body, /Assalam-o-Alaikum Respected \*Dr Test\*/);
+  assert.match(msg.body, /\*Reminder:\* your \*Data Structures\* class \(4B\) starts at \*9:00 AM\* today — Room 9/);
+  assert.match(msg.body, /— Tri3M Class Agent/);
+  assert.ok(msg.body.length < 200, `reminder must stay SHORT (got ${msg.body.length})`);
+
+  // exactly-once: slot is marked, a second pass sends nothing
+  assert.ok((await Timetable.findById(due._id)).classReminder.sentAt, 'slot marked as reminded');
+  const r2 = await runClassReminderSweep({ nowEpoch });
+  assert.equal(r2.sent, 0);
+  assert.equal(sent.length, sentBefore + 1);
+
+  // gateway failure → NOT marked → the next pass retries the same slot
+  await Timetable.updateOne({ _id: due._id }, { $unset: { classReminder: 1 } });
+  failNext = true;
+  const r3 = await runClassReminderSweep({ nowEpoch });
+  assert.equal(r3.failed, 1);
+  const r4 = await runClassReminderSweep({ nowEpoch });
+  assert.equal(r4.sent, 1);
+  assert.match(sent.at(-1).body, /\*Reminder:\*/);
+
+  // teacher facing English, subject name, room optional
+  const sample = buildClassReminderMessage({ teacher: 'Dr X', subject: 'AI', section: '2M', time: '13:30', room: '' });
+  assert.ok(!sample.includes('undefined'), 'no room → clean line, no undefined');
+  assert.match(sample, /1:30 PM/);
+});
+
+test('OWNER FEATURE: class reminder skips slots with no teacher linked (no message, no spam)', async () => {
+  const { runClassReminderSweep } = await import('../backend/services/classReminderService.js');
+  const nowEpoch = Date.UTC(2026, 9, 5, 3, 45);
+  const author = (await User.findOne({ email: 'cr-teacher@test.local' }))._id;
+  const slot = await Timetable.create({ section, subject: new mongoose.Types.ObjectId(), status: 'active',
+    createdBy: author, date: '2026-10-05', startTime: '09:05', endTime: '10:00', room: 'R2' });
+  const sentBefore = sent.length;
+  const r = await runClassReminderSweep({ nowEpoch, only: slot._id });
+  assert.equal(r.skippedNoTeacher, 1);
+  assert.equal(r.sent, 0);
+  assert.equal(sent.length, sentBefore); // silence — never an error message to anyone
+  // stays unmarked → a teacher linked inside the window still gets reminded
+  assert.ok(!(await Timetable.findById(slot._id)).classReminder);
+});
+
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
   const { buildHintMessage } = await import('../backend/services/teacherConfirmationService.js');
   const pool = new Set(Array.from({ length: 40 }, () => buildHintMessage('Dr Test')));

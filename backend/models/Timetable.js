@@ -54,6 +54,12 @@ const timetableSchema = new Schema(
       }, { _id: false }),
       default: () => ({ status: 'none' }),
     },
+    // OWNER FEATURE (2026-10-04): short pre-class reminder to the teacher,
+    // sent ~20 minutes before the class starts. sentAt = the reminder went
+    // out; absent/failed sends stay unmarked so the next sweep retries.
+    classReminder: {
+      type: new Schema({ sentAt: { type: Date } }, { _id: false }),
+    },
   },
   { timestamps: true }
 );
