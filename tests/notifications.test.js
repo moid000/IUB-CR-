@@ -271,16 +271,32 @@ test('E4. section-B students never receive section-A assignment notifications', 
 });
 
 /* ------------------ F. TIMETABLE REMINDERS (KARACHI) ------------------ */
-const MON = Date.UTC(2026, 9, 5, 3, 30);  // 2026-10-05 08:30 PKT (Monday)
+/* TIME-FRAGILITY FIX (2026-10-04): this section used to pin a FIXED Monday
+ * (2026-10-05). Any fixture pinned to a date the real calendar can reach
+ * breaks the suite at collision times — it failed after 23:00 PKT on
+ * 2026-10-04 (the G1 deadline drifted into the REAL 24h window, so later
+ * polls with the real clock lazily generated extra reminders) and would have
+ * failed again the real morning of 2026-10-05 (F slots meeting the real
+ * clock). Everything now pins a Monday ~180 days in the REAL future — far
+ * from any real run time, computed dynamically so it can never go stale. */
+const MON_MIDNIGHT = (() => { // UTC midnight of the first Monday >= now+180d
+  let ms = Math.floor((Date.now() + 180 * 86400000) / 86400000) * 86400000;
+  while (new Date(ms).getUTCDay() !== 1) ms += 86400000;
+  return ms;
+})();
+const MON_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' })
+  .format(new Date(MON_MIDNIGHT)); // YYYY-MM-DD, the KARACHI Monday
+const atPk = (h, m) => MON_MIDNIGHT + (h * 60 + m - 300) * 60000; // PKT wall clock (UTC+5)
+const MON = atPk(8, 30); // Monday 08:30 PKT
 test('F1. 30-minute window: at start−30m exactly → reminder generated on poll', async () => {
   // Monday 09:00–10:00 PKT slot
   const slot = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, date: '2026-10-05', startTime: '09:00', endTime: '10:00', room: 'Lab 2',
+    subject: subA1, date: MON_DATE, startTime: '09:00', endTime: '10:00', room: 'Lab 2',
   });
   assert.equal(slot.status, 200);
   const slotId = String(slot.json.data._id);
 
-  setNow(Date.UTC(2026, 9, 5, 3, 30)); // 08:30 PKT — exactly 30 minutes before
+  setNow(MON); // 08:30 PKT — exactly 30 minutes before
   const res = await s1.api('GET', '/api/student/notifications');
   assert.equal(res.status, 200);
   const reminder = res.json.data.find((n) => n.type === 'timetable');
@@ -289,13 +305,13 @@ test('F1. 30-minute window: at start−30m exactly → reminder generated on pol
   assert.ok(reminder.message.includes('09:00'));
 
   const doc = await Notification.findOne({ recipient: s1Id, type: 'timetable' }).lean();
-  assert.equal(doc.dedupeKey, `reminder:${slotId}:2026-10-05`); // KARACHI date, not UTC
+  assert.equal(doc.dedupeKey, `reminder:${slotId}:${MON_DATE}`); // KARACHI date, not UTC
   setNow(null);
 });
 
 test('F2. before the 30-minute window → no reminder', async () => {
   const before = await Notification.countDocuments({ type: 'timetable' });
-  setNow(Date.UTC(2026, 9, 5, 3, 29)); // 08:29 PKT
+  setNow(atPk(8, 29)); // 08:29 PKT
   await s2.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ type: 'timetable' }), before);
   setNow(null);
@@ -303,14 +319,14 @@ test('F2. before the 30-minute window → no reminder', async () => {
 
 test('F3. after class start → no reminder (window closed)', async () => {
   const before = await Notification.countDocuments({ type: 'timetable' });
-  setNow(Date.UTC(2026, 9, 5, 4, 5)); // 09:05 PKT
+  setNow(atPk(9, 5)); // 09:05 PKT
   await s2.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ type: 'timetable' }), before);
   setNow(null);
 });
 
 test('F4. repeated polls → no duplicate reminders (idempotent)', async () => {
-  setNow(Date.UTC(2026, 9, 5, 3, 45)); // still inside the window
+  setNow(atPk(8, 45)); // still inside the window
   await s1.api('GET', '/api/student/notifications');
   await s1.api('GET', '/api/student/notifications');
   await s1.api('GET', '/api/student/notifications/unread-count');
@@ -320,7 +336,7 @@ test('F4. repeated polls → no duplicate reminders (idempotent)', async () => {
 });
 
 test('F5. 10 concurrent polls → exactly one reminder document (unique index)', async () => {
-  setNow(Date.UTC(2026, 9, 5, 3, 40));
+  setNow(atPk(8, 40));
   const polls = await Promise.allSettled(Array.from({ length: 10 }, () => s3.api('GET', '/api/student/notifications')));
   assert.ok(polls.every((p) => p.value.status === 200), 'no poll may fail under race');
   assert.equal(await Notification.countDocuments({ recipient: s3Id, type: 'timetable' }), 1);
@@ -329,27 +345,27 @@ test('F5. 10 concurrent polls → exactly one reminder document (unique index)',
 
 test('F6. Karachi date boundary: 01:00 PKT Monday class, polled at 00:35 PKT (19:35 UTC SUNDAY)', async () => {
   const slot = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, date: '2026-10-05', startTime: '01:00', endTime: '02:00', room: 'R1',
+    subject: subA1, date: MON_DATE, startTime: '01:00', endTime: '02:00', room: 'R1',
   });
   assert.equal(slot.status, 200);
   const slotId = String(slot.json.data._id);
 
-  setNow(Date.UTC(2026, 9, 4, 19, 35)); // UTC Sunday 19:35 = Karachi Monday 00:35
+  setNow(atPk(0, 35)); // UTC Sunday 19:35 = Karachi Monday 00:35
   const res = await s1.api('GET', '/api/student/notifications');
   const rem = res.json.data.find((n) => String(n.refId) === slotId);
   assert.ok(rem, 'reminder matches the Karachi-Monday slot despite UTC Sunday');
 
   const doc = await Notification.findOne({ recipient: s1Id, refId: slot.json.data._id }).lean();
-  assert.equal(doc.dedupeKey, `reminder:${slotId}:2026-10-05`, 'dedupe date is KARACHI Monday, not UTC Sunday 2026-10-04');
+  assert.equal(doc.dedupeKey, `reminder:${slotId}:${MON_DATE}`, 'dedupe date is KARACHI Monday, not UTC Sunday');
   setNow(null);
 });
 
 test('F7. archived timetable slot generates no reminder', async () => {
   const slot = await cr1.api('POST', '/api/cr/timetable', {
-    subject: subA1, date: '2026-10-05', startTime: '11:00', endTime: '12:00',
+    subject: subA1, date: MON_DATE, startTime: '11:00', endTime: '12:00',
   });
   await cr1.api('POST', `/api/cr/timetable/${slot.json.data._id}/archive`);
-  setNow(Date.UTC(2026, 9, 5, 4, 35)); // 10:35 PKT — inside window for 11:00
+  setNow(atPk(10, 35)); // 10:35 PKT — inside window for 11:00
   await s1.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ recipient: s1Id, refId: slot.json.data._id }), 0);
   setNow(null);
@@ -357,10 +373,10 @@ test('F7. archived timetable slot generates no reminder', async () => {
 
 /* --------------------- G. DEADLINE REMINDERS --------------------- */
 test('G1–G3. deadline within 24h → reminder; server time; idempotent', async () => {
-  setNow(Date.UTC(2026, 9, 5, 6, 0)); // fixed server time
+  setNow(atPk(11, 0)); // fixed server time (far-future Monday 11:00 PKT)
   const asg = await cr1.api('POST', '/api/cr/assignments', {
     subject: subA1, title: 'Deadline soon task', instructions: 'Hurry.',
-    deadline: new Date(Date.UTC(2026, 9, 5, 6, 0) + 12 * 3600 * 1000).toISOString(), // +12h
+    deadline: new Date(atPk(11, 0) + 12 * 3600 * 1000).toISOString(), // +12h
   });
   assert.equal(asg.status, 200);
   const asgId = asg.json.data._id;
@@ -376,14 +392,14 @@ test('G1–G3. deadline within 24h → reminder; server time; idempotent', async
   await s1.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ recipient: s1Id, refId: asgId, type: 'reminder' }), 1);
   const doc = await Notification.findOne({ recipient: s1Id, refId: asgId, type: 'reminder' }).lean();
-  assert.equal(doc.dedupeKey, `assignment_deadline:${asgId}:2026-10-05:${s1Id}`); // Karachi date key
+  assert.equal(doc.dedupeKey, `assignment_deadline:${asgId}:${MON_DATE}:${s1Id}`); // Karachi date key
 
   // deadline more than 24h away → no reminder for a second student
   const asg2 = await cr1.api('POST', '/api/cr/assignments', {
     subject: subA1, title: 'Far deadline', instructions: 'Relax.',
     // far for BOTH the pinned clock and the real clock — a bare mock+3d
-    // stays far only while the real date is near Oct 5 2026
-    deadline: new Date(Math.max(Date.UTC(2026, 9, 5, 6, 0), Date.now()) + 3 * 24 * 3600 * 1000).toISOString(),
+    // stays far only while the real date is near the pinned Monday
+    deadline: new Date(Math.max(atPk(11, 0), Date.now()) + 3 * 24 * 3600 * 1000).toISOString(),
   });
   await s2.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ recipient: s2Id, refId: asg2.json.data._id, type: 'reminder' }), 0);
@@ -392,10 +408,10 @@ test('G1–G3. deadline within 24h → reminder; server time; idempotent', async
   const asg3 = await cr1.api('POST', '/api/cr/assignments', {
     subject: subA1, title: 'Past deadline', instructions: 'Too late.',
     // past for BOTH the pinned clock and the real clock — before this fix a
-    // bare mock-1h (Oct 5 05:00 UTC) turned FUTURE-due whenever the suite ran
-    // on real Oct 4, silently generating "deadline approaching" reminders in
-    // every later test and breaking the H1 unread-count maths
-    deadline: new Date(Math.min(Date.UTC(2026, 9, 5, 6, 0), Date.now()) - 3600 * 1000).toISOString(),
+    // bare mock-1h turned FUTURE-due whenever the suite ran on a real date
+    // near the pinned Monday, silently generating "deadline approaching"
+    // reminders in every later test and breaking the H1 unread-count maths
+    deadline: new Date(Math.min(atPk(11, 0), Date.now()) - 3600 * 1000).toISOString(),
   });
   await s2.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ recipient: s2Id, refId: asg3.json.data._id, type: 'reminder' }), 0);

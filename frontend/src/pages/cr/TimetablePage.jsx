@@ -167,11 +167,36 @@ export default function TimetablePage() {
     }
   };
 
+  // OWNER FEATURE: teacher did not reply on WhatsApp, CR confirmed them on a
+  // phone call → CR updates the status manually. The automatic WhatsApp flow
+  // is untouched and keeps running.
+  const [callErr, setCallErr] = useState(null); // manual-override error line
+  const setCallStatus = async (t, status) => {
+    setCallErr(null);
+    try {
+      await crApi.timetable.overrideConfirmation(t._id, status);
+      reload(); reloadToday();
+      showFlash(status === 'confirmed'
+        ? `${t.subject?.name} marked as teacher confirmed (call).`
+        : `${t.subject?.name} marked as teacher unavailable (call).`);
+    } catch (err) {
+      setCallErr(err?.message ?? 'Could not update the status. Try again.');
+    }
+  };
+
   const renderActions = (t) => (
-    <div className="grid grid-cols-3 gap-1.5">
-      <Button variant="ghost" size="sm" className="w-full" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
-      <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600" icon={IconArchive} aria-label={`Archive ${t.subject?.name} slot`} onClick={() => { setArchiveTarget(t); setArchiveError(null); }}>Archive</Button>
-      <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700" icon={IconTrash} onClick={() => { setDeleteTarget(t); setDeleteError(null); }}>Delete</Button>
+    <div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <Button variant="ghost" size="sm" className="w-full" icon={IconPencil} aria-label={`Edit ${t.subject?.name} slot`} onClick={() => setModal({ mode: 'edit', item: t })}>Edit</Button>
+        <Button variant="ghost" size="sm" className="w-full text-slate-500 hover:text-red-600" icon={IconArchive} aria-label={`Archive ${t.subject?.name} slot`} onClick={() => { setArchiveTarget(t); setArchiveError(null); }}>Archive</Button>
+        <Button variant="ghost" size="sm" className="w-full text-red-500 hover:text-red-700" icon={IconTrash} onClick={() => { setDeleteTarget(t); setDeleteError(null); }}>Delete</Button>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Teacher told you on call?</span>
+        <Button variant="ghost" size="sm" className="flex-1 text-emerald-600 hover:text-emerald-700" onClick={() => setCallStatus(t, 'confirmed')} aria-label={`Mark ${t.subject?.name} as teacher confirmed on call`}>Yes</Button>
+        <Button variant="ghost" size="sm" className="flex-1 text-rose-500 hover:text-rose-700" onClick={() => setCallStatus(t, 'declined')} aria-label={`Mark ${t.subject?.name} as teacher unavailable on call`}>No</Button>
+      </div>
+      {callErr && <p className="mt-1 text-[11px] font-medium text-red-600">{callErr}</p>}
     </div>
   );
 

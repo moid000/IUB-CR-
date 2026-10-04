@@ -289,6 +289,8 @@ function publicEntry(doc) {
     status: confirmation?.status ?? 'none',
     sentAt: confirmation?.sentAt ?? null,
     respondedAt: confirmation?.respondedAt ?? null,
+    // marks "status set by the CR on a phone call" in the portal UI badge
+    manualBy: confirmation?.manualBy ?? null,
   };
   return entry;
 }
@@ -306,6 +308,31 @@ async function findOwnEntry(req) {
   const doc = await Timetable.findOne({ _id: id, section: req.user.section });
   if (!doc) throw new ApiError(404, 'Timetable entry not found'); // cross-section = missing
   return doc;
+}
+
+/**
+ * OWNER FEATURE (2026-10-04): teacher did not reply on WhatsApp, so the CR
+ * confirmed the teacher on a PHONE CALL and sets the class status manually.
+ *
+ * The AUTOMATIC WhatsApp flow is completely untouched and keeps running:
+ *  - a teacher's WhatsApp reply only ever updates a slot that is actively
+ *    'awaiting'/'sending'/'failed' — a manually-answered slot is none of
+ *    those, so the two paths can never fight over one slot;
+ *  - answering manually FREES the teacher's ONE-QUESTION-QUEUE: their next
+ *    queued class dispatches automatically on the next sweep pass;
+ *  - hints, reminders and the 20-min pre-class reminder read the SAME
+ *    status, so a manual 'declined' stops the reminder exactly like a NO.
+ */
+export async function overrideTeacherConfirmationCr(req) {
+  const status = v.assertEnum(req.body?.status, ['confirmed', 'declined'], 'confirmation status');
+  const doc = await findOwnEntry(req); // own-section check — cross-section = 404
+  if (doc.status !== 'active') throw new ApiError(400, 'Only an active class can be updated');
+  doc.teacherConfirmation.status = status;
+  doc.teacherConfirmation.respondedAt = new Date();
+  doc.teacherConfirmation.manualBy = req.user._id;
+  doc.teacherConfirmation.manualAt = new Date();
+  await doc.save();
+  return publicEntry(await populateDoc(doc));
 }
 
 export async function getTimetableCr(req) {

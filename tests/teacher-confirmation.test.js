@@ -490,6 +490,70 @@ test('OWNER RULE: teacher gave NO response (question awaiting) → reminder STIL
   assert.match(sent.at(-1).body, /\*Reminder:\*/);
 });
 
+test('OWNER FEATURE: CR manual override — teacher confirmed on a phone call (no WhatsApp reply)', async () => {
+  // close stale questions from earlier tests so the ONE-QUESTION-QUEUE for
+  // this teacher's phone is free for this scenario
+  await Timetable.updateMany({ 'teacherConfirmation.status': { $in: ['queued', 'sending', 'awaiting', 'failed'] } },
+    { $set: { 'teacherConfirmation.status': 'none' } });
+  // a class with a live WhatsApp question the teacher never answers
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-02-01', startTime: '09:00', endTime: '10:00', room: 'Room 1' });
+  const slotId = r.json.data._id;
+  // creation auto-dispatches the WhatsApp question → teacher goes silent
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+
+  // CR called the teacher → sets the status manually from the portal
+  const ov = await cr('POST', `/api/cr/timetable/${slotId}/confirmation-override`, { status: 'confirmed' });
+  assert.equal(ov.status, 200);
+  let slot = await Timetable.findById(slotId);
+  assert.equal(slot.teacherConfirmation.status, 'confirmed');
+  assert.ok(slot.teacherConfirmation.manualBy, 'manualBy marks the CR phone-call override');
+  assert.ok(slot.teacherConfirmation.manualAt);
+  assert.ok(slot.teacherConfirmation.respondedAt);
+  assert.ok(ov.json.data.teacherConfirmation.manualBy, 'response feeds the "· set by CR" badge');
+
+  // OWNER RULE: the AUTOMATIC flow is untouched — a LATE exact-code WhatsApp
+  // NO cannot flip a slot the CR already answered (reply filter requires an
+  // open awaiting/sending/failed question; this one is answered)
+  const res = await webhook(incoming(`NO ${slot.teacherConfirmation.code}`));
+  assert.equal(res.json.data.updated, false);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+
+  // the queue keeps flowing: the teacher's NEXT queued class dispatches and
+  // is still answered normally over WhatsApp (no manualBy on it)
+  const r2 = await cr('POST', '/api/cr/timetable', { subject, date: '2099-02-02', startTime: '10:00', endTime: '11:00' });
+  const slot2Id = r2.json.data._id;
+  await Timetable.updateOne({ _id: slot2Id }, { $set: { 'teacherConfirmation.nextAttemptAt': new Date(0) } });
+  await admin('GET', '/api/whatsapp/deadline-sweep?secret=fake-sweep-secret');
+  assert.equal((await Timetable.findById(slot2Id)).teacherConfirmation.status, 'awaiting');
+  assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+  const slot2 = await Timetable.findById(slot2Id);
+  assert.equal(slot2.teacherConfirmation.status, 'confirmed');
+  assert.ok(!slot2.teacherConfirmation.manualBy, 'WhatsApp answer — no manual mark');
+});
+
+test('OWNER FEATURE: manual override validation + a phone-call NO also cancels', async () => {
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-02-03', startTime: '11:00', endTime: '12:00' });
+  const slotId = r.json.data._id;
+
+  // invalid status rejected
+  assert.equal((await cr('POST', `/api/cr/timetable/${slotId}/confirmation-override`, { status: 'maybe' })).status, 400);
+  // students can never touch the CR override endpoint
+  assert.equal((await student('POST', `/api/cr/timetable/${slotId}/confirmation-override`, { status: 'confirmed' })).status, 403);
+
+  // teacher told the CR "class nahi hogi" on the call → manual decline
+  const ov = await cr('POST', `/api/cr/timetable/${slotId}/confirmation-override`, { status: 'declined' });
+  assert.equal(ov.status, 200);
+  const slot = await Timetable.findById(slotId);
+  assert.equal(slot.teacherConfirmation.status, 'declined');
+  assert.ok(slot.teacherConfirmation.manualBy);
+  // the 20-min pre-class reminder reads the SAME status → a manual decline
+  // is excluded exactly like a WhatsApp NO
+  const { runClassReminderSweep } = await import('../backend/services/classReminderService.js');
+  const nowEpoch = Date.UTC(2099, 1, 3, 5, 45); // 10:45 PKT, 15 min before 11:00
+  const sweep = await runClassReminderSweep({ nowEpoch, only: slotId });
+  assert.equal(sweep.due, 0, 'manually declined class gets no reminder');
+});
+
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
   const { buildHintMessage } = await import('../backend/services/teacherConfirmationService.js');
   const pool = new Set(Array.from({ length: 40 }, () => buildHintMessage('Dr Test')));

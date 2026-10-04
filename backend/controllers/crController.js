@@ -94,6 +94,7 @@ export const copyTimetable = wrapDoc(timetableSvc.copyTimetableCr);
 export const getTimetable = wrapDoc(timetableSvc.getTimetableCr);
 export const updateTimetable = wrapDoc(timetableSvc.updateTimetableCr);
 export const archiveTimetable = wrapDoc(timetableSvc.archiveTimetableCr);
+export const overrideTeacherConfirmation = wrapDoc(timetableSvc.overrideTeacherConfirmationCr);
 export const deleteTimetable = wrapDoc(timetableSvc.deleteTimetableCr);
 
 /* ---- Attendance — section ALWAYS req.user.section; code shown once at create ---- */

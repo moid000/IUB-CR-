@@ -97,6 +97,8 @@ export const crApi = {
     update: (id, body) => api.patch(`/api/cr/timetable/${id}`, body),
     archive: (id) => api.post(`/api/cr/timetable/${id}/archive`),
     delete: (id) => api.del(`/api/cr/timetable/${id}`), // permanently removes the slot
+    // teacher confirmed on a phone call → CR sets the status manually
+    overrideConfirmation: (id, status) => api.post(`/api/cr/timetable/${id}/confirmation-override`, { status }),
   },
 
   /* ---- Attendance (code + QR returned EXACTLY ONCE at creation) ---- */

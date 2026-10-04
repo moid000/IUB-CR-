@@ -21,9 +21,14 @@ const styles = {
 
 export default function TeacherConfirmationStatus({ confirmation, compact = false }) {
   const status = confirmation?.status ?? 'none';
+  // set manually by the CR (teacher confirmed on a phone call, no WhatsApp reply)
+  const manual = Boolean(confirmation?.manualBy);
+  const text = manual && (status === 'confirmed' || status === 'declined')
+    ? `${labels[status]} · set by CR`
+    : (labels[status] ?? labels.none);
   return (
-    <span className={`inline-flex w-fit max-w-full items-center rounded-full border font-medium ${compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]'} ${styles[status] ?? styles.none}`}>
-      {labels[status] ?? labels.none}
+    <span title={manual ? 'Teacher confirmed on a phone call — CR updated the status manually' : undefined} className={`inline-flex w-fit max-w-full items-center rounded-full border font-medium ${compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]'} ${styles[status] ?? styles.none}`}>
+      {text}
     </span>
   );
 }

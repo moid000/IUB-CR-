@@ -22,6 +22,7 @@ import {
   deleteNote,
   deleteSubject,
   deleteTimetable,
+  overrideTeacherConfirmation,
   getAnnouncement,
   getAssignment,
   getAttendanceSession,
@@ -153,6 +154,9 @@ router.get('/timetable/:id', getTimetable);
 router.patch('/timetable/:id', updateTimetable);
 router.post('/timetable/:id/archive', archiveTimetable);
 router.delete('/timetable/:id', deleteTimetable);
+// OWNER FEATURE: teacher did not reply on WhatsApp; CR confirmed on a phone
+// call and sets the status manually. Automatic WhatsApp flow stays untouched.
+router.post('/timetable/:id/confirmation-override', overrideTeacherConfirmation);
 
 // Attendance sessions — section ALWAYS req.user.section; code returned once
 router.post('/attendance/sessions', createAttendanceSession);
