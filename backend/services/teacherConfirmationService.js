@@ -355,11 +355,14 @@ export function interpretReply(body) {
   return null;
 }
 
-/** Gemini fallback for a reply the local rules cannot classify. Best-effort,
- * short timeout, NEVER throws: null on any problem → polite hint instead. */
+/** Gemini classifier: returns 'YES' | 'NO' | 'UNCLEAR', or null when the API
+ * is unreachable (no key, network, timeout, bad response). NEVER throws. */
 async function classifyReplyWithGemini(body) {
   const key = env.chatbot?.googleApiKey;
-  if (!key || process.env.NODE_ENV === 'test') return null;
+  if (!key) return null;
+  // tests stay deterministic: Gemini is opt-in via ALLOW_TEST_GEMINI=1 and a
+  // mocked generativelanguage fetch — production always calls the real API.
+  if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), INTERPRET_TIMEOUT_MS);
   try {
@@ -367,7 +370,7 @@ async function classifyReplyWithGemini(body) {
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(key)}`,
       { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" (will you take the scheduled class?). Classify the teacher\'s natural-language reply (English, Urdu or Roman Urdu). YES = the class will happen / the teacher will come. NO = the class will not happen / the teacher cannot come. UNCLEAR = cannot decide. Return ONLY JSON {"answer":"YES"|"NO"|"UNCLEAR"}.' }] },
+          systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come. NO = the teacher will not take it / cannot come / does not want to. UNCLEAR = genuinely cannot decide (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"UNCLEAR"}.' }] },
           contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
           generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
             responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'UNCLEAR'] } }, required: ['answer'] } },
@@ -377,13 +380,24 @@ async function classifyReplyWithGemini(body) {
     const json = await res.json();
     const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     const ans = String((JSON.parse(raw) ?? {}).answer ?? '').toUpperCase();
-    return ans === 'YES' || ans === 'NO' ? ans : null;
+    return ans === 'YES' || ans === 'NO' ? ans : 'UNCLEAR';
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
-/** Interpret ANY teacher reply into 'YES' | 'NO' | null. Rules first, Gemini second. */
+/** Interpret ANY teacher reply into 'YES' | 'NO' | null.
+ * OWNER RULE (2026-10-04): the teacher can type ANYTHING — Roman Urdu, Urdu,
+ * English, mixed, feelings ('mera dil nahi hai') — so the LLM judges every
+ * natural reply FIRST for real understanding, not a fixed word list. The
+ * local rules only act as a safety net when Gemini is unavailable, and the
+ * polite hint fires only when BOTH say the reply is unclear. */
 export async function interpretTeacherReply(body) {
-  return interpretReply(body) ?? await classifyReplyWithGemini(body);
+  const viaGemini = await classifyReplyWithGemini(body);
+  if (viaGemini === 'YES' || viaGemini === 'NO') return viaGemini;
+  // The LLM REACHED a verdict of UNCLEAR — its reading is final, the greedy
+  // word rules must not second-guess it ("samajh nahi aa raha" is not a NO).
+  if (viaGemini === 'UNCLEAR') return null;
+  // API unreachable → local rules as the safety net
+  return interpretReply(body);
 }
 
 /* Interpreted-answer acknowledgements (ENGLISH, owner rule 2026-10-04): the

@@ -13,6 +13,8 @@ process.env.ULTRAMSG_INSTANCE_ID = 'test-instance';
 process.env.ULTRAMSG_TOKEN = 'fake-token';
 process.env.ULTRAMSG_WEBHOOK_SECRET = 'fake-webhook-secret';
 process.env.DEADLINE_SWEEP_SECRET = 'fake-sweep-secret';
+process.env.GOOGLE_API_KEY = 'test-key';
+process.env.ALLOW_TEST_GEMINI = '1'; // teacher-interpretation tests mock the Gemini fetch
 
 const { default: mongoose } = await import('mongoose');
 const models = await import('../backend/models/index.js');
@@ -23,7 +25,15 @@ await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'functi
 const realFetch = globalThis.fetch;
 const sent = [];
 let failNext = false;
+let geminiAnswer = null; // 'YES' | 'NO' | 'UNCLEAR' | null (null = API error → rules fallback)
 globalThis.fetch = (url, options) => {
+  if (String(url).includes('generativelanguage.googleapis.com')) {
+    if (geminiAnswer) {
+      const payload = { candidates: [{ content: { parts: [{ text: JSON.stringify({ answer: geminiAnswer }) }] } }] };
+      return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
+    }
+    return Promise.resolve(new Response(JSON.stringify({}), { status: 400 })); // API down → rules fallback
+  }
   if (String(url).startsWith('https://api.ultramsg.com/test-instance/messages/chat')) {
     const data = new URLSearchParams(options.body);
     sent.push({ to: data.get('to'), body: data.get('body') });
@@ -361,6 +371,40 @@ test('OWNER FEATURE: a natural-language NO is INTERPRETED — class declined, En
   assert.match(ack.body, /understood your reply as a \*NO\*|reads as a cancellation/i);
   assert.match(ack.body, /\*cancelled\*/i);
   assert.match(ack.body, /Tri3M Class Agent/);
+});
+
+test('OWNER RULE: GEMINI FIRST — any reply is understood by meaning, not a word list', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-15', startTime: '09:00', endTime: '10:00', room: 'Room 12' });
+  const slotId = r.json.data._id;
+
+  // 'ma thak gaya hoon aaj' matches NO fixed word — only meaning (tired → not coming)
+  geminiAnswer = 'NO';
+  try {
+    assert.equal((await webhook(incoming('ma thak gaya hoon aaj, you take care'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'declined');
+    assert.match(sent.at(-1).body, /understood your reply as a \*NO\*|reads as a cancellation/i);
+
+    // Gemini's reading WINS over the local rules (LLM understands, rules only back it up)
+    const r2 = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-16', startTime: '09:00', endTime: '10:00', room: 'Room 13' });
+    const slot2Id = r2.json.data._id;
+    geminiAnswer = 'YES';
+    // 'nahi soch ra' is ambiguous to the rules-NO words, but the LLM reads it as reluctant-yes
+    assert.equal((await webhook(incoming('chalo theek hai, nahi soch ra aisa, aaon ga zaroor'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slot2Id)).teacherConfirmation.status, 'confirmed');
+
+    // Gemini UNCLEAR → falls back to the rules → still unclear → polite hint
+    const r3 = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-17', startTime: '09:00', endTime: '10:00', room: 'Room 14' });
+    const slot3Id = r3.json.data._id;
+    geminiAnswer = 'UNCLEAR';
+    const res = await webhook(incoming('mujhe abhi kuch samajh nahi aa raha'));
+    assert.equal(res.json.data.updated, true); // hint sent
+    assert.match(sent.at(-1).body, /plain \*YES\* or \*NO\*/);
+    assert.equal((await Timetable.findById(slot3Id)).teacherConfirmation.status, 'awaiting');
+  } finally {
+    geminiAnswer = null; // later tests: API error → rules fallback (previous behavior)
+  }
 });
 
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
