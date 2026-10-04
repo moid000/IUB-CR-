@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { renderToString } from 'react-dom/server';
 import { join, dirname } from 'path';
@@ -44,26 +44,38 @@ describe('NextClassCountdown never breaks out with a long CR-typed room string',
     return { y: g('year'), m: g('month'), d: g('day'), h: g('hour') % 24, min: g('minute') };
   };
   const slot = (offsetStartMin, durationMin) => {
-    const now = pktNowParts();
-    const base = Date.UTC(now.y, now.m - 1, now.d, now.h, now.min);
+    // fixtures are built around the PINNED time (see the test body below)
+    const pinned = pktNowParts();
+    const base = Date.UTC(pinned.y, pinned.m - 1, pinned.d, pinned.h, pinned.min);
     const start = new Date(base + offsetStartMin * 60000);
     const end = new Date(start.getTime() + durationMin * 60000);
     const hm = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
-    const dateStr = `${now.y}-${String(now.m).padStart(2, '0')}-${String(now.d).padStart(2, '0')}`;
+    const dateStr = `${pinned.y}-${String(pinned.m).padStart(2, '0')}-${String(pinned.d).padStart(2, '0')}`;
     return { _id: 'x', date: dateStr, startTime: hm(start), endTime: hm(end),
       room: longRoom, subject: { name: 'AI' }, teacherConfirmation: { status: 'confirmed' } };
   };
 
   it.each([
-    ['upcoming alert (<30min)', slot(20, 60)],
-    ['ongoing', slot(-10, 60)],
-    ['plain upcoming (>30min)', slot(120, 60)],
-  ])('%s: long room text stays wrap-safe, never nowrap', (_label, s) => {
+    ['upcoming alert (<30min)', 20, 60],
+    ['ongoing', -10, 60],
+    ['plain upcoming (>30min)', 120, 60],
+  ])('%s: long room text stays wrap-safe, never nowrap', (_label, offsetStartMin, durationMin) => {
+    // The widget reads "now" at render time, so pin a FIXED system clock —
+    // 09:30 PKT mid-morning — for BOTH fixture construction and rendering.
+    // Before this pin the suite was time-fragile: run after 23:00 PKT the
+    // fixtures crossed midnight, all scenarios collapsed to "all done" and
+    // the tests failed even though nothing regressed.
+    vi.useFakeTimers();
+    const { y, m, d } = pktNowParts();
+    vi.setSystemTime(new Date(Date.UTC(y, m - 1, d, 4, 30))); // 09:30 PKT
+    const s = slot(offsetStartMin, durationMin); // built under the PINNED clock
+    try {
     const html = renderToString(<NextClassCountdown slots={[s]} loading={false} />);
     expect(html).toContain('BBA Department'); // sanity: the long room text actually rendered
     expect(html).not.toContain('whitespace-nowrap');
     // the outer card and its text rows must carry the overflow-safety classes
     expect(html).toContain('min-w-0');
     expect(html).toContain('break-words');
+    } finally { vi.useRealTimers(); }
   });
 });

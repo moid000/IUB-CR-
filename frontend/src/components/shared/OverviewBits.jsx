@@ -38,9 +38,12 @@ export function useOverviewData(path, fetchOverview) {
     // fetchOverview is a stable module function (studentApi.overview / crApi.overview)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
+  // 60s poll for students too — but gated by the hook itself: it only runs
+  // while a teacher question is pending OR a class is live, so a mid-class
+  // cancellation reaches the ongoing timer within a minute (owner bug fix).
   useTeacherConfirmationRefresh(snap?.todayClasses, () => {
     fetchOverview().then((res) => { if (res?.data) { setSnap(res.data); setFailed(false); } }).catch(() => {});
-  }, path.startsWith('/api/cr/') ? 60000 : 0);
+  }, 60000);
   return { snap, loaded: snap !== null, failed };
 }
 
