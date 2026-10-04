@@ -321,12 +321,128 @@ async function hintTeacherReply(sender, payload) {
   return true;
 }
 
+/* ------------------------------------------------------------------ */
+/* OWNER FEATURE (2026-10-04): natural-language teacher replies.        */
+/* Teachers type real sentences — "g beta kl class ho gi time pe" —      */
+/* instead of a bare YES/NO, and the only-YES-or-NO reminder irritated   */
+/* them. Now EVERY reply is interpreted: fast local rules decide first   */
+/* (no API cost, deterministic); only a genuinely unclear reply goes    */
+/* to Gemini for classification. An interpreted answer updates the      */
+/* class status exactly like a plain YES/NO and the teacher receives   */
+/* an ENGLISH acknowledgement that states what was understood.          */
+/* ------------------------------------------------------------------ */
+
+const INTERPRET_TIMEOUT_MS = 5_000;
+
+/* Order matters: "abhi pata nahi" is NOT a NO (unclear first); "no problem"
+ * is a YES; any negation wins over affirmation ("haan nahi ho gi" = NO). */
+const INTERPRET_UNCLEAR_RE = /pata nahi|pata nh\b|abhi (nahi|nh)\b|maybe|shayad|dekh(te|ta|ta hai| ke|kar)|soch( kar| ke)|baad (me|men) bata|let you know|i'?ll confirm later|wait|inta ?zar|thori der/i;
+const INTERPRET_NOPROBLEM_RE = /no problem|no issue|no worries|koi (masla|baat) nahi/i;
+const INTERPRET_NO_RE = /\b(nahi|nahin|nay?hi|nhi|nyi|nai|nh|no|nahi\?)\b|cancel|postpone|can'?t|cannot|not possible|impossible|busy ho|urgent|emergency|khali nahi|chutti|strike|ho (nahi|nhi) (ga|gi)/i;
+const INTERPRET_YES_RE = /(ho|how) ?g[iay]a?|\b(g|gee|ji|haan|han|ha|hmm+|yes|yep|ya|ok|okay|okie|sure|bilkul|zaroor|pakka|insha? ?allah|inshallah|definitely|confirmed?|ready|aaon|aaon ga|aaunga|aaonga|aa raha|aa rahi|time ?pe?|on time|theek hai|chal[ie]gi|chal[ie]ga)\b/i;
+
+/** Local rules: 'YES' | 'NO' | null (unclear → try Gemini). Exported for tests. */
+export function interpretReply(body) {
+  const t = String(body ?? '').toLowerCase().trim();
+  if (!t || t.length > 300) return null;
+  if (INTERPRET_UNCLEAR_RE.test(t)) return null;
+  if (INTERPRET_NOPROBLEM_RE.test(t)) return 'YES';
+  if (INTERPRET_NO_RE.test(t)) return 'NO';
+  if (INTERPRET_YES_RE.test(t)) return 'YES';
+  return null;
+}
+
+/** Gemini fallback for a reply the local rules cannot classify. Best-effort,
+ * short timeout, NEVER throws: null on any problem → polite hint instead. */
+async function classifyReplyWithGemini(body) {
+  const key = env.chatbot?.googleApiKey;
+  if (!key || process.env.NODE_ENV === 'test') return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), INTERPRET_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(key)}`,
+      { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" (will you take the scheduled class?). Classify the teacher\'s natural-language reply (English, Urdu or Roman Urdu). YES = the class will happen / the teacher will come. NO = the class will not happen / the teacher cannot come. UNCLEAR = cannot decide. Return ONLY JSON {"answer":"YES"|"NO"|"UNCLEAR"}.' }] },
+          contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
+            responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'UNCLEAR'] } }, required: ['answer'] } },
+        }) },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    const ans = String((JSON.parse(raw) ?? {}).answer ?? '').toUpperCase();
+    return ans === 'YES' || ans === 'NO' ? ans : null;
+  } catch { return null; } finally { clearTimeout(timer); }
+}
+
+/** Interpret ANY teacher reply into 'YES' | 'NO' | null. Rules first, Gemini second. */
+export async function interpretTeacherReply(body) {
+  return interpretReply(body) ?? await classifyReplyWithGemini(body);
+}
+
+/* Interpreted-answer acknowledgements (ENGLISH, owner rule 2026-10-04): the
+ * teacher must see WHAT was understood — "your reply was understood as a
+ * YES/NO" — plus the updated class status. Rotating variants, never identical. */
+const INTERPRETED_ACK_POOLS = {
+  yes: [
+    ({ teacher, subject, section, day, time }) => [
+      `Thank you, ${bold(teacher)}! I understood your reply as a *YES*. ✅`,
+      '',
+      `Your ${bold(subject)} lecture on ${day} (${time}) is marked *confirmed* — students of ${bold(section, 25)} have been informed.`,
+      '',
+      `Portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day, time }) => [
+      `Got it, ${bold(teacher)} — thank you! Your reply reads as a confirmation. ✅`,
+      '',
+      `${bold(subject)} (${day}, ${time}) is now *confirmed* on the portal for ${bold(section, 25)}.`,
+      '',
+      `Portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+  ],
+  no: [
+    ({ teacher, subject, section, day, time }) => [
+      `Thank you for letting us know, ${bold(teacher)}. I understood your reply as a *NO*.`,
+      '',
+      `Your ${bold(subject)} lecture on ${day} (${time}) is marked *cancelled* — students of ${bold(section, 25)} have been informed.`,
+      '',
+      `Portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+    ({ teacher, subject, section, day, time }) => [
+      `Understood, ${bold(teacher)} — thank you for the update. Your reply reads as a cancellation.`,
+      '',
+      `${bold(subject)} (${day}, ${time}) is now *cancelled* on the portal for ${bold(section, 25)}.`,
+      '',
+      `Portal: ${PORTAL_URL}`,
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'),
+  ],
+};
+
+/** Acknowledge an INTERPRETED answer so the teacher sees what was understood. */
+export function buildInterpretedAckMessage(kind, ctx) {
+  const pool = INTERPRETED_ACK_POOLS[kind === 'yes' ? 'yes' : 'no'];
+  return pool[Math.floor(Math.random() * pool.length)](ctx);
+}
+
 /** UltraMsg official webhook payload: {event_type,instanceId,data:{id,from,
  * type,body,fromMe}}. Caller authenticates the webhook with an independent
  * URL secret. Exact references select a slot; plain YES/NO requires one
  * pending slot and a message timestamp after its send. Duplicate/replayed/
- * late replies are no-ops; other replies from a teacher with an open
- * question get a polite only-YES-or-NO reminder. */
+ * late replies are no-ops. A NATURAL-LANGUAGE reply ("g beta class ho gi")
+ * is interpreted first (rules, then Gemini) and handled like a YES/NO with
+ * an English acknowledgement; a genuinely unclear reply still gets the
+ * polite only-YES-or-NO reminder. */
 export async function handleTeacherReply(payload) {
   if (payload?.event_type !== 'message_received' ||
       String(payload?.instanceId ?? '').replace(/^instance/i, '') !==
@@ -337,7 +453,14 @@ export async function handleTeacherReply(payload) {
   const plain = /^(YES|NO)\s*[.!]?$/i.exec(body);
   const sender = String(payload.data.from ?? '').split('@')[0].replace(/\D/g, '');
   if (!sender || !payload.data.id) return false;
-  if (!exact && !plain) return hintTeacherReply(sender, payload);
+  // OWNER FEATURE: a natural-language reply is INTERPRETED first. Only a
+  // genuinely unclear reply falls back to the polite YES-or-NO reminder.
+  let interpreted = null; // 'YES' | 'NO' | null
+  if (!exact && !plain) {
+    interpreted = await interpretTeacherReply(body);
+    if (!interpreted) return hintTeacherReply(sender, payload);
+  }
+  const answer = exact ? exact[1].toUpperCase() : plain ? plain[1].toUpperCase() : interpreted;
   let slot;
   if (exact) {
     slot = await Timetable.findOne({ status: 'active', 'teacherConfirmation.code': exact[2].toUpperCase(),
@@ -367,7 +490,7 @@ export async function handleTeacherReply(payload) {
     'teacherConfirmation.phone': sender,
     'teacherConfirmation.status': exact ? { $in: ['sending', 'awaiting', 'failed'] } : 'awaiting',
   }, { $set: {
-    'teacherConfirmation.status': (exact || plain)[1].toUpperCase() === 'YES' ? 'confirmed' : 'declined',
+    'teacherConfirmation.status': answer === 'YES' ? 'confirmed' : 'declined',
     'teacherConfirmation.respondedAt': new Date(),
     'teacherConfirmation.replyId': String(payload.data.id).slice(0, 200),
   } }, { new: true }).select('_id').lean();
@@ -376,20 +499,30 @@ export async function handleTeacherReply(payload) {
     // acknowledgement twice) and hand them the student-visible portal link.
     // Best-effort: a gateway hiccup never blocks the next class question.
     try {
-      const answer = (exact || plain)[1].toUpperCase();
       const [sectionDoc, subjectDoc, teacherDoc] = await Promise.all([
         Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
         Subject.findById(slot.subject).select('name').lean(),
         Teacher.findById(slot.teacherConfirmation.teacher).select('name').lean(),
       ]);
       if (teacherDoc) {
-        await sendText(sender, buildFollowUpMessage(answer === 'YES' ? 'yes' : 'no', {
-          teacher: teacherDoc.name,
-          subject: subjectDoc?.name,
-          section: sectionDoc?.name,
-          day: fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`)),
-          time: `${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}`,
-        }));
+        // an INTERPRETED answer gets the English "here is what I understood"
+        // acknowledgement; a plain YES/NO keeps the usual thank-you pool
+        const message = interpreted
+          ? buildInterpretedAckMessage(answer === 'YES' ? 'yes' : 'no', {
+            teacher: teacherDoc.name,
+            subject: subjectDoc?.name,
+            section: sectionDoc?.name,
+            day: fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`)),
+            time: `${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}`,
+          })
+          : buildFollowUpMessage(answer === 'YES' ? 'yes' : 'no', {
+            teacher: teacherDoc.name,
+            subject: subjectDoc?.name,
+            section: sectionDoc?.name,
+            day: fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`)),
+            time: `${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}`,
+          });
+        await sendText(sender, message);
       }
     } catch (err) { console.error('[teacher follow-up]', err.message); }
     // The answer frees the queue: ask the teacher's next pending class now,

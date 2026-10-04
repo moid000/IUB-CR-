@@ -381,7 +381,9 @@ test('G1–G3. deadline within 24h → reminder; server time; idempotent', async
   // deadline more than 24h away → no reminder for a second student
   const asg2 = await cr1.api('POST', '/api/cr/assignments', {
     subject: subA1, title: 'Far deadline', instructions: 'Relax.',
-    deadline: new Date(Date.UTC(2026, 9, 5, 6, 0) + 3 * 24 * 3600 * 1000).toISOString(),
+    // far for BOTH the pinned clock and the real clock — a bare mock+3d
+    // stays far only while the real date is near Oct 5 2026
+    deadline: new Date(Math.max(Date.UTC(2026, 9, 5, 6, 0), Date.now()) + 3 * 24 * 3600 * 1000).toISOString(),
   });
   await s2.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ recipient: s2Id, refId: asg2.json.data._id, type: 'reminder' }), 0);
@@ -389,7 +391,11 @@ test('G1–G3. deadline within 24h → reminder; server time; idempotent', async
   // deadline already passed → no reminder
   const asg3 = await cr1.api('POST', '/api/cr/assignments', {
     subject: subA1, title: 'Past deadline', instructions: 'Too late.',
-    deadline: new Date(Date.UTC(2026, 9, 5, 6, 0) - 3600 * 1000).toISOString(),
+    // past for BOTH the pinned clock and the real clock — before this fix a
+    // bare mock-1h (Oct 5 05:00 UTC) turned FUTURE-due whenever the suite ran
+    // on real Oct 4, silently generating "deadline approaching" reminders in
+    // every later test and breaking the H1 unread-count maths
+    deadline: new Date(Math.min(Date.UTC(2026, 9, 5, 6, 0), Date.now()) - 3600 * 1000).toISOString(),
   });
   await s2.api('GET', '/api/student/notifications');
   assert.equal(await Notification.countDocuments({ recipient: s2Id, refId: asg3.json.data._id, type: 'reminder' }), 0);

@@ -267,8 +267,8 @@ test('unrecognized replies get a polite only-YES-or-NO hint; the question stays 
   const sentBefore = sent.length;
   const before = (await Timetable.findById(slotId)).teacherConfirmation;
 
-  // "yes betha ma aaon ga" — a real answer, but not a bare YES/NO
-  const hint = await webhook(incoming('yes betha ma aaon ga'));
+  // "acha, dekh ke bataon ga" — genuinely unclear, not a bare YES/NO
+  const hint = await webhook(incoming('acha, dekh ke bataon ga'));
   assert.equal(hint.json.data.updated, true); // handled — the teacher is no longer left in silence
   assert.equal(sent.length, sentBefore + 1);
   assert.equal(sent.at(-1).to, teacher.whatsapp);
@@ -280,8 +280,8 @@ test('unrecognized replies get a polite only-YES-or-NO hint; the question stays 
   assert.equal(after.status, 'awaiting'); // a hint never answers the question
   assert.equal(after.attempts, before.attempts); // and never consumes a retry
 
-  // an immediate second unrecognized reply is throttled — no hint spam
-  assert.equal((await webhook(incoming('g hain ma aaon ga'))).json.data.updated, false);
+  // an immediate second unclear reply is throttled — no hint spam
+  assert.equal((await webhook(incoming('pata nahi abhi, baad me bataon ga'))).json.data.updated, false);
   assert.equal(sent.length, sentBefore + 1);
 
   // the teacher can still answer normally right after the hint
@@ -298,6 +298,62 @@ test('unrecognized replies from strangers or group numbers never trigger a hint'
   assert.equal((await webhook(incoming('yes betha ma aaon ga', '923009990011@c.us'))).json.data.updated, false);
   assert.equal((await webhook(incoming('hello', '120363abc@g.us'))).json.data.updated, false);
   assert.equal(sent.length, sentBefore); // nothing sent to anyone
+});
+
+test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, English and mixed', async () => {
+  const { interpretReply } = await import('../backend/services/teacherConfirmationService.js');
+  // YES in the wild
+  for (const yes of ['g beta kl class ho gi time p ho gi', 'yes betha ma aaon ga', 'G bilkul ho gi sir',
+    'inshallah aaon ga', 'ok', 'no problem, ho gi', 'ji zaroor aaonga', 'theek hai chalega']) {
+    assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
+  }
+  // NO in the wild
+  for (const no of ['nahi ho gi, urgent kaam hai', 'cancel kar do aj ki', 'g nahi bhai, chutti hai', 'busy hoon aa nahi sakta']) {
+    assert.equal(interpretReply(no), 'NO', `expected NO: ${no}`);
+  }
+  // genuinely unclear — never guessed, hint path instead
+  for (const unclear of ['pata nahi abhi', 'acha, dekh ke bataon ga', 'acha', 'maybe', 'thori der me bataon ga']) {
+    assert.equal(interpretReply(unclear), null, `expected UNCLEAR: ${unclear}`);
+  }
+});
+
+test('OWNER FEATURE: "g beta class ho gi" is INTERPRETED as YES — class confirmed, English ack sent', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-13', startTime: '09:00', endTime: '10:00', room: 'Room 10' });
+  const slotId = r.json.data._id;
+  const sentBefore = sent.length;
+
+  const res = await webhook(incoming('g beta kl class ho gi time pe'));
+  assert.equal(res.json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+
+  // ENGLISH acknowledgement that states what was understood (owner rule)
+  const ack = sent.at(-1);
+  assert.equal(ack.to, teacher.whatsapp);
+  assert.match(ack.body, /understood your reply as a \*YES\*|reads as a confirmation/i);
+  assert.match(ack.body, /\*confirmed\*/i);
+  assert.match(ack.body, /iubcr\.vercel\.app/);
+  assert.match(ack.body, /Tri3M Class Agent/);
+  assert.equal(sent.length, sentBefore + 1); // no hint spam — interpretation replaced it
+
+  // resolved: later chatter gets no auto-reply
+  assert.equal((await webhook(incoming('acha theek hai'))).json.data.updated, false);
+});
+
+test('OWNER FEATURE: a natural-language NO is INTERPRETED — class declined, English ack sent', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-14', startTime: '09:00', endTime: '10:00', room: 'Room 11' });
+  const slotId = r.json.data._id;
+
+  assert.equal((await webhook(incoming('nahi bhai, kal leave hai'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'declined');
+
+  const ack = sent.at(-1);
+  assert.match(ack.body, /understood your reply as a \*NO\*|reads as a cancellation/i);
+  assert.match(ack.body, /\*cancelled\*/i);
+  assert.match(ack.body, /Tri3M Class Agent/);
 });
 
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
