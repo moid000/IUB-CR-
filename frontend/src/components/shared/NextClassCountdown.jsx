@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../ui/Button.jsx';
-import { IconBell, IconClock, IconMapPin } from '../icons.jsx';
+import { IconClock, IconMapPin } from '../icons.jsx';
 import { fmtRoom, fmtTime, fmtDuration } from '../../admin/format.js';
 
 /**
@@ -150,20 +150,24 @@ export default function NextClassCountdown({ slots, loading = false, className =
       </>
     );
   } else if (state.mode === 'upcoming' && state.start - live <= ALERT_WINDOW_MS) {
+    // Same restrained visual language as the "in progress" state below —
+    // a small pulsing dot + one quiet status line. Owner feedback
+    // (2026-10-05): the old giant digital-clock countdown + bell badge
+    // looked like a bomb timer, not a class app. The live mm:ss still
+    // ticks, just inline and small — same information, no alarm.
     body = (
       <>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
-              <IconBell className="size-4 [@media(hover:hover)]:animate-pulse" />
+        <div className="flex items-center gap-3">
+          <span className="relative grid size-9 shrink-0 place-items-center rounded-full bg-amber-100">
+            <span className="relative flex size-2.5">
+              <span className="absolute inline-flex size-full rounded-full bg-amber-400 opacity-75 lg:animate-ping" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-amber-500" />
             </span>
-            <p className="min-w-0 truncate break-words text-sm font-semibold text-amber-900">{name(state.slot)}</p>
+          </span>
+          <div className="min-w-0">
+            <p className="truncate break-words text-sm font-semibold text-slate-900">{name(state.slot)}</p>
+            <p className="text-xs font-medium text-amber-600">Starts in {fmtCountdown(state.start - live)}</p>
           </div>
-          <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700">30 min left</span>
-        </div>
-        <div className="mt-3 flex items-baseline gap-1.5">
-          <span className="font-mono text-3xl font-bold leading-none tracking-tight text-amber-900">{fmtCountdown(state.start - live)}</span>
-          <span className="text-xs font-medium text-amber-700">until start</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <MetaChip icon={IconClock} tone="amber">{fmtTime(state.slot.startTime)}–{fmtTime(state.slot.endTime)}</MetaChip>
