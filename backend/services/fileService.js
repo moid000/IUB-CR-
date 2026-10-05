@@ -54,6 +54,12 @@ const ALLOWED_TYPES = [
   { ext: 'xls',  mime: 'application/vnd.ms-excel',                                      resourceType: 'raw' },
   { ext: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',       resourceType: 'raw' },
   { ext: 'txt',  mime: 'text/plain',                                                    resourceType: 'raw' },
+  // Jupyter notebooks (owner 2026-10-05): .ipynb has NO consistently
+  // registered browser MIME — Chrome reports application/octet-stream,
+  // macOS/other agents may report application/json, text/plain or nothing
+  // at all. All those variants are accepted HERE ONLY: the pair rule still
+  // requires ext === 'ipynb', so this never widens any other type.
+  { ext: 'ipynb', mime: ['application/x-ipynb+json', 'application/json', 'application/octet-stream', 'text/plain', ''], resourceType: 'raw' },
   { ext: 'csv',  mime: 'text/csv',                                                      resourceType: 'raw' },
   { ext: 'rtf',  mime: ['application/rtf', 'text/rtf'],                                 resourceType: 'raw' },
   { ext: 'zip',  mime: ['application/zip', 'application/x-zip-compressed'],             resourceType: 'raw' },

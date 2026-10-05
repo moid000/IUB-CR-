@@ -255,6 +255,12 @@ test('E1. allowed academic types pass with correct resource_type', async () => {
     { originalName: 'a.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', resourceType: 'raw' },
     { originalName: 'a.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resourceType: 'raw' },
     { originalName: 'a.txt', mimeType: 'text/plain', resourceType: 'raw' },
+    // Jupyter notebooks (owner 2026-10-05): browsers report .ipynb
+    // inconsistently — every real-world variant must sign as raw.
+    { originalName: 'lab.ipynb', mimeType: 'application/x-ipynb+json', resourceType: 'raw' },
+    { originalName: 'lab.ipynb', mimeType: 'application/octet-stream', resourceType: 'raw' },
+    { originalName: 'lab.ipynb', mimeType: 'application/json', resourceType: 'raw' },
+    { originalName: 'lab.ipynb', mimeType: '', resourceType: 'raw' },
   ];
   for (const c of cases) {
     const res = await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file: c });
@@ -279,6 +285,7 @@ test('E2. dangerous extensions/MIMEs rejected; mismatch rejected', async () => {
     { originalName: 'a.pdf', mimeType: 'image/png' }, // mismatch
     { originalName: 'a.png.exe', mimeType: 'image/png' }, // real ext is exe
     { originalName: 'a.apk', mimeType: 'application/vnd.android.package-archive' }, // not in allowlist
+    { originalName: 'a.ipynb', mimeType: 'image/png' }, // notebook ext, wrong MIME — pair must fail
   ]) {
     assert.equal((await signFile(cr1, 'cr', { parentType: 'note', parentId: noteA1, file })).status, 400, file.originalName);
   }

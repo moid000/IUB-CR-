@@ -19,6 +19,10 @@ export const ALLOWED_TYPES = [
   { ext: 'xls', mime: 'application/vnd.ms-excel', label: 'XLS' },
   { ext: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', label: 'XLSX' },
   { ext: 'txt', mime: 'text/plain', label: 'TXT' },
+  // Jupyter notebooks (owner 2026-10-05) — same MIME variants as the server:
+  // browsers report .ipynb inconsistently (octet-stream / json / text/plain /
+  // empty), and matchType below still requires the .ipynb extension.
+  { ext: 'ipynb', mime: ['application/x-ipynb+json', 'application/json', 'application/octet-stream', 'text/plain', ''], label: 'IPYNB' },
   { ext: 'csv', mime: 'text/csv', label: 'CSV' },
   { ext: 'rtf', mime: ['application/rtf', 'text/rtf'], label: 'RTF' },
   { ext: 'zip', mime: ['application/zip', 'application/x-zip-compressed'], label: 'ZIP' },

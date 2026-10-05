@@ -656,7 +656,7 @@ function PhoneDelivery() {
 /* ====================== FILE TYPES ================================= *
  *  All types visible without a continuously animated marquee.
  * */
-const FILE_TYPES = ['PDF', 'DOCX', 'PPTX', 'XLSX', 'CSV', 'PNG', 'JPG', 'GIF', 'ZIP', 'RAR', '7Z', 'MP3', 'WAV', 'MP4', 'WEBM'];
+const FILE_TYPES = ['PDF', 'DOCX', 'PPTX', 'XLSX', 'CSV', 'IPYNB', 'PNG', 'JPG', 'GIF', 'ZIP', 'RAR', '7Z', 'MP3', 'WAV', 'MP4', 'WEBM'];
 
 function FileMarquee() {
   return (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thumbUrl, previewUrl, attachmentUrl, downloadName } from '../api/upload.js';
+import { thumbUrl, previewUrl, attachmentUrl, downloadName, matchType } from '../api/upload.js';
 
 // 2026-09-22: lightbox preview lag — the old lightbox loaded the RAW original
 // (some phone photos are 4000x3000px) instead of a capped-resolution version,
@@ -85,5 +85,23 @@ describe('attachmentUrl (forced-download, no popup viewer)', () => {
   it('passes through non-Cloudinary or falsy URLs unchanged', () => {
     expect(attachmentUrl(null)).toBe(null);
     expect(attachmentUrl('https://example.com/f.pdf', 'f')).toBe('https://example.com/f.pdf');
+  });
+});
+
+// 2026-10-05 (owner): .ipynb must be accepted everywhere (notes, assignments,
+// announcements). Browsers report the MIME inconsistently — the client mirror
+// of the server pair rule accepts every real-world variant for the .ipynb
+// extension, and still rejects an .ipynb name with a wrong MIME.
+describe('ipynb notebook acceptance', () => {
+  const ipynb = (mime) => matchType({ name: 'lab1.ipynb', type: mime });
+  it('accepts every real-world browser MIME variant for .ipynb', () => {
+    expect(ipynb('application/x-ipynb+json')?.label).toBe('IPYNB');
+    expect(ipynb('application/octet-stream')?.label).toBe('IPYNB');
+    expect(ipynb('application/json')?.label).toBe('IPYNB');
+    expect(ipynb('')?.label).toBe('IPYNB');
+  });
+  it('rejects a wrong MIME behind the .ipynb extension (pair rule)', () => {
+    expect(ipynb('image/png')).toBeNull();
+    expect(matchType({ name: 'evil.ipynb.exe', type: 'application/octet-stream' })).toBeNull();
   });
 });
