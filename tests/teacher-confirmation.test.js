@@ -129,7 +129,7 @@ test('matching teacher YES confirms exactly one slot; duplicate and wrong reply 
   assert.equal((await student('GET', '/api/student/timetable?date=2099-01-03&status=active')).json.data[0].teacherConfirmation.status, 'confirmed');
   // Every YES/NO answer now triggers a varied thank-you with the portal link.
   assert.equal(sent[1].to, teacher.whatsapp);
-  assert.match(sent[1].body, /iubcr\.vercel\.app/);
+  assert.match(sent[1].body, /www\.tri2m\.com/); // custom domain (owner 2026-10-05)
   assert.match(sent[1].body, /\*Dr Test\*/);
   assert.match(sent[1].body, /confirmed/i);
   assert.match(sent[1].body, /— Tri3M Class Agent/);
@@ -255,7 +255,7 @@ test('thank-you follow-ups rotate through a pool and always carry the portal lin
   assert.ok(yes.size >= 3, `YES pool should rotate across variants (got ${yes.size})`);
   assert.ok(no.size >= 3, `NO pool should rotate across variants (got ${no.size})`);
   for (const body of [...yes, ...no]) {
-    assert.match(body, /iubcr\.vercel\.app/);
+    assert.match(body, /www\.tri2m\.com/); // custom domain (owner 2026-10-05)
     assert.match(body, /Tri3M Class Agent/);
     assert.match(body, /\*Dr Test\*/);
     assert.match(body, /\*Data Structures\*/);
@@ -350,7 +350,7 @@ test('OWNER FEATURE: "g beta class ho gi" is INTERPRETED as YES — class confir
   assert.equal(ack.to, teacher.whatsapp);
   assert.match(ack.body, /understood your reply as a \*YES\*|reads as a confirmation/i);
   assert.match(ack.body, /\*confirmed\*/i);
-  assert.match(ack.body, /iubcr\.vercel\.app/);
+  assert.match(ack.body, /www\.tri2m\.com/); // custom domain (owner 2026-10-05)
   assert.match(ack.body, /Tri3M Class Agent/);
   assert.equal(sent.length, sentBefore + 1); // no hint spam — interpretation replaced it
 

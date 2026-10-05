@@ -319,7 +319,7 @@ test('config starts unlinked; refresh returns the gateway group list', async () 
   assert.equal(cfg.status, 200);
   assert.equal(cfg.json.data.group, null);
   assert.equal(cfg.json.data.gatewayPhone, '+92 300 1234567');
-  assert.ok(cfg.json.data.appUrl.includes('iubcr.vercel.app'));
+  assert.ok(cfg.json.data.appUrl.includes('www.tri2m.com')); // custom domain (was iubcr.vercel.app)
 
   const list = await cr.api('GET', '/api/cr/whatsapp-group/groups');
   assert.equal(list.status, 200);

@@ -43,7 +43,7 @@ const BATCH_SIZE = 3; // existing external 5-minute pinger, no new jobs or Base4
 const fmtDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' });
 const clean = (value, max = 65) => String(value ?? '').replace(/[\r\n\t*_~]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const bold = (value, max = 65) => `*${clean(value, max)}*`;
-const PORTAL_URL = process.env.APP_URL || 'https://iubcr.vercel.app';
+const PORTAL_URL = process.env.APP_URL || 'https://www.tri2m.com' // custom domain live 2026-10-05 (was iubcr.vercel.app);
 
 /** PKT-relative label so the greeting line never lies about the day. */
 const relativeDay = (dateStr) => {

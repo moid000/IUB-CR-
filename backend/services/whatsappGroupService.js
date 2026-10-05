@@ -24,7 +24,7 @@ import * as v from '../utils/validators.js';
  * message can never break the user's create/update flow.
  */
 
-const APP_URL = process.env.APP_URL || 'https://iubcr.vercel.app';
+const APP_URL = process.env.APP_URL || 'https://www.tri2m.com' // custom domain live 2026-10-05 (was iubcr.vercel.app);
 const GROUP_ID_RE = /^[\w.-]+@g\.us$/;
 const PKT = 'Asia/Karachi';
 
