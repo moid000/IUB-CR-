@@ -30,6 +30,7 @@ process.env.ULTRAMSG_TOKEN = 'fake-token';
 process.env.ULTRAMSG_API_URL = 'https://ultramsg.test.local';
 process.env.ULTRAMSG_INSTANCE_NUMBER = '+92 300 0000000';
 process.env.ULTRAMSG_GATEWAY_PHONE = '923001234567';
+process.env.OPENAI_API_KEY = 'sk-test-whisper';
 process.env.ULTRAMSG_WEBHOOK_SECRET = 'whsec-test';
 process.env.WHATSAPP_CHATBOT_ENABLED = 'true';
 process.env.GOOGLE_API_KEY = 'test-gemini-key';
@@ -43,6 +44,7 @@ const {
   handleGroupMessage, isTri3mTag, stripMentions, parseGeminiJson,
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
   resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply, casualReply, resolveSubjectFollowUp,
+  isVoiceAddressedToBot,
 } = chatbot;
 
 const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
@@ -57,6 +59,8 @@ const STUDENT = '923007770001';
 const waSent = [];  // UltraMsg sends: { kind, params }
 const geminiCalls = []; // Gemini requests: { body }
 let geminiResponse = null; // canned Gemini JSON per test
+let openaiTranscript = null; // canned Whisper transcript per test
+const openaiCalls = [];
 
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, opts) => {
@@ -68,6 +72,13 @@ globalThis.fetch = async (url, opts) => {
       return new Response(JSON.stringify({ sent: true }), { status: 200 });
     }
     return new Response('{}', { status: 200 });
+  }
+  if (u.includes('voice.test.local')) {
+    return new Response(new Uint8Array([79, 103, 103, 83, 0, 12]).buffer, { status: 200 }); // fake ogg bytes
+  }
+  if (u.includes('api.openai.com')) {
+    openaiCalls.push({ url: u });
+    return new Response(JSON.stringify({ text: openaiTranscript ?? '' }), { status: 200 });
   }
   if (u.includes('generativelanguage.googleapis.com')) {
     geminiCalls.push({ url: u, body: JSON.parse(opts.body) });
@@ -82,6 +93,8 @@ test.afterEach(async () => {
   waSent.length = 0;
   geminiCalls.length = 0;
   geminiResponse = null;
+  openaiCalls.length = 0;
+  openaiTranscript = null;
   chatbot.__resetGuards(); // fresh cooldown/hour/day budget per test
   await ChatbotSetting.deleteMany({}); // panel switch resets to env defaults
   await ChatbotLog.deleteMany({}); // group memory must not leak between tests
@@ -104,6 +117,19 @@ function groupMsg(body, { author = STUDENT, time = null, chatId = GROUP_ID, tagg
       id: 'TESTID123', type: 'chat', fromMe: false,
       chatId, from: chatId, author: `${author}@c.us`,
       body: text, time: time ?? nowSec(),
+    },
+  };
+}
+
+/** UltraMsg-shaped inbound VOICE note in a group. */
+function voiceMsg({ author = STUDENT, link = 'https://voice.test.local/voice.ogg' } = {}) {
+  return {
+    event_type: 'message_received',
+    instanceId: 'instance123',
+    data: {
+      id: 'VOICEID123', type: 'audio', fromMe: false,
+      chatId: GROUP_ID, from: GROUP_ID, author: `${author}@c.us`,
+      body: '', link, time: nowSec(),
     },
   };
 }
@@ -410,12 +436,61 @@ test('owner rule (2026-10-05): end-to-end — "notes bhej do" asks the subject, 
   assert.ok(waSent.some((st) => st.kind === 'document'), 'ICT note files delivered');
 });
 
+test('owner feature (2026-10-05): VOICE NOTES — transcribed voice that addresses the bot gets answered', async () => {
+  geminiResponse = null; // fallback path must answer alone
+  openaiTranscript = 'tri 3m bhai notes bhej do'; // spoken tag, no @ possible
+  assert.equal(await handleGroupMessage(voiceMsg()), true);
+  assert.equal(openaiCalls.length, 1); // Whisper was called once
+  const chat = waSent.find((st) => st.kind === 'chat');
+  assert.ok(chat, 'voice question answered');
+  assert.match(chat.params.body, /kis subject ke notes chahiye\?/i); // subject-first applies to voice too
+});
+
+test('owner rule (2026-10-05): voice that does NOT address the bot stays silent', async () => {
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{"reply":"haan haan"}' }] } }] };
+  openaiTranscript = 'yaar kal match dekhna hai, kya scene hai'; // no tri3m/bot
+  assert.equal(await handleGroupMessage(voiceMsg()), true);
+  assert.equal(openaiCalls.length, 1); // transcription still happened
+  assert.equal(waSent.length, 0); // but no reply — mention-only spirit
+});
+
+test('owner rule (2026-10-05): no OpenAI key -> voice notes are consumed silently, zero API spend', async () => {
+  const hadKey = env.chatbot.openaiApiKey;
+  env.chatbot.openaiApiKey = null;
+  try {
+    assert.equal(await handleGroupMessage(voiceMsg()), true);
+    assert.equal(openaiCalls.length, 0);
+    assert.equal(waSent.length, 0);
+  } finally {
+    env.chatbot.openaiApiKey = hadKey;
+  }
+});
+
+test('isVoiceAddressedToBot: spoken forms only, no false "trim" hits', () => {
+  assert.equal(isVoiceAddressedToBot('tri 3m bhai notes bhej do'), true);
+  assert.equal(isVoiceAddressedToBot('tri3m kal ki class batao'), true);
+  assert.equal(isVoiceAddressedToBot('tri threem salam'), true);
+  assert.equal(isVoiceAddressedToBot('bot kia scene hai'), true);
+  assert.equal(isVoiceAddressedToBot('trim the file please'), false); // 'trim' is NOT the bot
+  assert.equal(isVoiceAddressedToBot('aaj class kitni baje hai'), false);
+  assert.equal(isVoiceAddressedToBot(''), false);
+});
+
+test('isGroupMessage accepts voice/audio types (owner feature 2026-10-05)', () => {
+  assert.equal(isGroupMessage(voiceMsg()), true);
+  assert.equal(isGroupMessage(groupMsg('text', { tagged: false })), true);
+  const notGroup = { event_type: 'message_received', data: { fromMe: false, type: 'audio', from: '923001119999@c.us' } };
+  assert.equal(isGroupMessage(notGroup), false); // DM audio is teacher-flow territory
+});
+
 test('owner rule (2026-10-05): SYSTEM_PROMPT carries the subject-first intent rules', () => {
   assert.match(SYSTEM_PROMPT, /SUBJECT-FIRST/);
   assert.match(SYSTEM_PROMPT, /Kis subject ke notes chahiye\?/);
   assert.match(SYSTEM_PROMPT, /Kis subject ki assignment chahiye\?/);
   assert.match(SYSTEM_PROMPT, /never mix other subjects in/);
   assert.match(SYSTEM_PROMPT, /instead of guessing/);
+  assert.match(SYSTEM_PROMPT, /FEW-SHOT/); // owner-spec example exchanges
+  assert.match(SYSTEM_PROMPT, /VOICE \(owner feature 2026-10-05\)/);
 });
 
 test('owner rule: fallback replies NEVER send portal links or hand emojis', async () => {
