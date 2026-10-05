@@ -929,6 +929,12 @@ export default function Landing() {
           }
         } else {
           target.classList.toggle('landing-active', isIntersecting);
+          // JANK FIX (2026-10-05): entrance pops are ONE-SHOT per session.
+          // They used to replay on every scroll re-entry; the repeated layer
+          // churn mid-scroll read as stutter on Android. 'landing-seen' is
+          // sticky — the pop happens the first time, then the section stays
+          // settled and scrolling is pure static content.
+          if (isIntersecting) target.classList.add('landing-seen');
         }
       }
     }, { rootMargin: '100px 0px 100px 0px', threshold: 0 });

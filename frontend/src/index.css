@@ -330,7 +330,13 @@ body {
 .landing-fast.landing-motion-enabled .landing-reveal {
   transition: opacity .24s ease-out, transform .24s ease-out;
 }
-.landing-fast.landing-motion-enabled main section:not(.landing-active) [class*="animate-"] {
+/* Offscreen pause. GAP FIX (2026-10-05): .landing-icon-breathe and the pill
+   glow ring do NOT contain the substring "animate-", so the old rule never
+   paused them — both loops ran forever, on every section, even far offscreen.
+   They are now paused explicitly alongside every animate-* element. */
+.landing-fast.landing-motion-enabled main section:not(.landing-active) [class*="animate-"],
+.landing-fast.landing-motion-enabled main section:not(.landing-active) .landing-icon-breathe,
+.landing-fast.landing-motion-enabled main section:not(.landing-active) .landing-pill-glow::after {
   animation-play-state: paused !important;
 }
 .landing-fast .landing-card {
@@ -378,7 +384,8 @@ body {
 /* The old traveling dots animated left (layout every frame). */
 .landing-fast .animate-dot-travel { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .landing-fast [class*="animate-"], .landing-fast .landing-hero-in {
+  .landing-fast [class*="animate-"], .landing-fast .landing-hero-in,
+  .landing-fast .landing-icon-breathe, .landing-fast .landing-pill-glow::after {
     animation: none !important;
   }
   .landing-fast .landing-reveal, .landing-fast .landing-card { transition: none !important; }
@@ -391,18 +398,20 @@ body {
   aspect-ratio: 1;
   background: radial-gradient(circle, rgb(191 219 254 / .45), transparent 72%);
 }
-.landing-fast.landing-motion-enabled .landing-active .landing-preview,
-.landing-fast.landing-motion-enabled .landing-active .landing-hero-feed > div {
+.landing-fast.landing-motion-enabled .landing-seen .landing-preview,
+.landing-fast.landing-motion-enabled .landing-seen .landing-hero-feed > div {
   animation: landing-rise .3s ease-out both;
 }
-.landing-fast.landing-motion-enabled .landing-active .landing-hero-feed > div:nth-child(2) { animation-delay: .06s; }
-.landing-fast.landing-motion-enabled .landing-active .landing-hero-feed > div:nth-child(3) { animation-delay: .12s; }
+.landing-fast.landing-motion-enabled .landing-seen .landing-hero-feed > div:nth-child(2) { animation-delay: .06s; }
+.landing-fast.landing-motion-enabled .landing-seen .landing-hero-feed > div:nth-child(3) { animation-delay: .12s; }
 @media (prefers-reduced-motion: reduce) {
   .landing-fast .landing-preview, .landing-fast .landing-hero-feed > div { animation: none !important; }
 }
 
 /* Slow links / Save-Data: all marketing content remains visible, no loops. */
-.landing-fast.landing-low-motion [class*="animate-"] { animation: none !important; }
+.landing-fast.landing-low-motion [class*="animate-"],
+.landing-fast.landing-low-motion .landing-icon-breathe,
+.landing-fast.landing-low-motion .landing-pill-glow::after { animation: none !important; }
 
 /* ---------- Roles + Connected-workflow cards: motion that carries meaning,
    not decoration. Icons "breathe" only while their section is on screen (the
@@ -412,20 +421,33 @@ body {
 @keyframes landing-icon-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
 .landing-fast .landing-icon-breathe { animation: landing-icon-breathe 2.4s ease-in-out infinite; transform-origin: center; }
 
+/* JANK FIX (2026-10-05): the glow used to animate box-shadow — a main-thread
+   repaint loop that ran while the section was visible and stuttered scrolling
+   on Android. The ring below is rasterized ONCE; only its transform/opacity
+   pulse, both compositor-only. Same visual pulse, zero per-frame paint. */
 @keyframes landing-pill-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(37 99 235 / .22); }
-  50%      { box-shadow: 0 0 0 5px rgb(37 99 235 / .14); }
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.32); opacity: 0; }
 }
-.landing-fast .landing-pill-glow { animation: landing-pill-glow 2.2s ease-in-out infinite; }
+.landing-fast .landing-pill-glow { position: relative; }
+.landing-fast .landing-pill-glow::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid rgb(37 99 235 / .30);
+  animation: landing-pill-glow 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
 
-.landing-fast.landing-motion-enabled .landing-active .landing-role-line,
-.landing-fast.landing-motion-enabled .landing-active .landing-workflow-row {
+.landing-fast.landing-motion-enabled .landing-seen .landing-role-line,
+.landing-fast.landing-motion-enabled .landing-seen .landing-workflow-row {
   animation: landing-rise .3s ease-out both;
 }
-.landing-fast.landing-motion-enabled .landing-active .landing-role-line:nth-child(2),
-.landing-fast.landing-motion-enabled .landing-active .landing-workflow-row:nth-child(2) { animation-delay: .07s; }
-.landing-fast.landing-motion-enabled .landing-active .landing-role-line:nth-child(3),
-.landing-fast.landing-motion-enabled .landing-active .landing-workflow-row:nth-child(3) { animation-delay: .14s; }
+.landing-fast.landing-motion-enabled .landing-seen .landing-role-line:nth-child(2),
+.landing-fast.landing-motion-enabled .landing-seen .landing-workflow-row:nth-child(2) { animation-delay: .07s; }
+.landing-fast.landing-motion-enabled .landing-seen .landing-role-line:nth-child(3),
+.landing-fast.landing-motion-enabled .landing-seen .landing-workflow-row:nth-child(3) { animation-delay: .14s; }
 
 @media (prefers-reduced-motion: reduce) {
   .landing-fast .landing-icon-breathe,
