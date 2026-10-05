@@ -241,6 +241,7 @@ RULES:
 7. Notes questions: name the exact note titles from the data. If the student wants note FILES, also fill "send_note_titles" with those exact titles (max 3) — the system will deliver the actual files after your text. Only list titles that appear in "noteFileIndex" with hasFiles=true. If the wanted notes have no files, say so. The notes list is NEWEST-first ("date" = when shared): if asked for the LAST/most recent notes of a subject ("last time jo notes diye the", "pichli bar jo diye"), pick the newest note of that subject and fill "send_note_titles" with it.
 7b. TWO-STEP PICK: if several notes match and the student is unclear WHICH one, LIST the candidate titles and ask which one — do NOT send files yet. When the student then picks one ("ye wala", "dusra wala", a title fragment, or repeats the title), fill "send_note_titles" with that exact title and deliver it.
 7c. Assignment questions: when asked WHICH assignments, list the headlines (title + deadline). If the student picks one, reply with its subject, title and deadline (assignments have no files to send).
+7d. SUBJECT-FIRST (owner rule 2026-10-05): if the student asks for notes or an assignment WITHOUT naming a subject, do NOT send or list anything yet. Ask ONE short question, exactly: notes -> "Kis subject ke notes chahiye?" / assignments -> "Kis subject ki assignment chahiye?" (naming the class's subjects in it helps). When they answer with just a subject ("PF", "ICT wali"), use the MEMORY/history to know which resource they meant and deliver ONLY that subject's items. If the subject IS named in the original request, retrieve ONLY that subject's items — never mix other subjects in. ALL subjects' items go only when they explicitly ask for all ("sab subjects", "sare", "all"). If one subject has multiple assignments, list them (title + deadline) and ask which one they mean. If a request is vague ("kal wali cheez bhej do"), ask a short clarification question instead of guessing — accuracy beats speed.
 8. NO EMOJIS in your reply — plain text only (no folded-hands, no handshake, none at all).
 9. CASUAL CHAT (owner rule): greetings, "kaisay ho / kya haal", "dafa ho", mazak, banter — REPLY like a witty classmate: short funny badtamezi banter in Roman Urdu, 2-3 lines max. NEVER ignore, NEVER say you cannot chat, NEVER give a dry polite refusal — banter deserves banter back. If it fits, end with a light study hook ("parhai bhi chal rahi hai ya sirf shugal?").
 9c. LEADER RESPECT (owner rule): when the NOTE marks the asker as the class's CR or GR, drop ALL roasting and badtamezi toward THEM — speak with full respect (aap, adab), answer completely and promptly. Roast tone is only for regular students' questions.
@@ -372,6 +373,30 @@ export function extractOfferedTitles(replyText, dataJson, sendTitles = []) {
 }
 
 /** Student picked one of the titles the bot offered ("ye wala", "dusra", a fragment). */
+/* OWNER RULE (2026-10-05): a bare subject answer ("PF") right after the bot
+ * asked "Kis subject ke/ki ... chahiye?" resolves to that subject's notes or
+ * assignments — conversation context, not a fresh request. Freshness comes
+ * from the caller (same 30-min pick window as the title picks). */
+export function resolveSubjectFollowUp(question, lastLog, data) {
+  if (!lastLog?.reply) return null;
+  const askedNotes = /kis subject ke notes chahiye\??/i.test(lastLog.reply);
+  const askedAssign = /kis subject ki assignment chahiye\??/i.test(lastLog.reply);
+  if (!askedNotes && !askedAssign) return null;
+  const subj = subjectAsked(question, data.subjects ?? []);
+  if (!subj) return null;
+  if (askedNotes) {
+    const list = (data.noteFileIndex ?? []).filter((n) => n.subject === subj.name);
+    if (!list.length) return { reply: `Is waqt ${subj.name} ke published notes nahi mile.`, titles: [] };
+    const lines = list.slice(0, 6).map((n) => `- ${n.title}`);
+    const titles = list.filter((n) => n.hasFiles).map((n) => n.title).slice(0, 3);
+    return { reply: [`*Notes — ${subj.name}*`, '', ...lines].join('\n'), titles };
+  }
+  const upcoming = (data.assignments ?? []).filter((a) => !a.past && a.subject === subj.name);
+  if (!upcoming.length) return { reply: `Is waqt ${subj.name} ki koi pending assignment nahi hai.`, titles: [] };
+  const lines = upcoming.slice(0, 5).map((a) => `- ${a.title} (due ${a.deadline})`);
+  return { reply: [`*${subj.name} ke assignments*`, '', ...lines].join('\n'), titles: [] };
+}
+
 export function resolvePick(question, lastLog, dataJson) {
   const offered = (lastLog?.offeredTitles ?? []).filter(Boolean);
   if (!offered.length) return null;
@@ -525,17 +550,34 @@ export function buildFallbackReply(question, data, { leader = false } = {}) {
     return 'Ye personal information hai — main share nahi kar sakta. Aisi cheez ke liye apne CR se poochein.';
   }
   if (noteMatch) {
-    const subj = (data.subjects ?? []).find((s) => s.name && q.includes(String(s.name).toLowerCase()));
+    // OWNER RULE (2026-10-05): no subject named and not an explicit "all"
+    // subjects request -> ASK, never dump every subject's notes.
+    const wantsAll = /\b(sab|sare|saare|saray|sary|all|poori|poora|har)\b/.test(q);
+    const subj = subjectAsked(q, data.subjects ?? []);
+    if (!subj && !wantsAll) {
+      const names = (data.subjects ?? []).map((x) => x.name).join(', ');
+      return `Kis subject ke notes chahiye?${names ? ` Class ke subjects: ${names}` : ''}`;
+    }
     const list = subj ? (data.noteFileIndex ?? []).filter((n) => n.subject === subj.name) : (data.noteFileIndex ?? []);
-    if (!list.length) return 'Is waqt koi published notes nahi mile.';
+    if (!list.length) return `Is waqt ${subj ? `${subj.name} ke ` : 'koi '}published notes nahi mile.`;
     const lines = list.slice(0, 6).map((n) => `- ${n.title}${n.hasFiles ? ' (files mojood)' : ''}`);
     return [`*Notes*${subj ? ` — ${subj.name}` : ''}`, '', ...lines].join('\n');
   }
   if (assignMatch) {
-    const upcoming = (data.assignments ?? []).filter((a) => !a.past);
-    if (!upcoming.length) return 'Koi pending assignment nahi hai.';
+    // OWNER RULE (2026-10-05): a REQUEST ("assignment bhej do") needs a
+    // subject first — deadline-info questions still list upcoming work.
+    const wantsAll = /\b(sab|sare|saare|saray|sary|all|poori|poora|har)\b/.test(q);
+    const subj = subjectAsked(q, data.subjects ?? []);
+    const requestStyle = /assignment/.test(q)
+      && /(bhej|chahiye|chahye|chahie|chahi|send|share|dena|mang|mile|mil)\b/.test(q);
+    if (!subj && !wantsAll && requestStyle) {
+      const names = (data.subjects ?? []).map((x) => x.name).join(', ');
+      return `Kis subject ki assignment chahiye?${names ? ` Class ke subjects: ${names}` : ''}`;
+    }
+    const upcoming = (data.assignments ?? []).filter((a) => !a.past && (!subj || a.subject === subj.name));
+    if (!upcoming.length) return subj ? `Is waqt ${subj.name} ki koi pending assignment nahi hai.` : 'Koi pending assignment nahi hai.';
     const lines = upcoming.slice(0, 5).map((a) => `- ${a.subject} — ${a.title} (due ${a.deadline})`);
-    return ['*Upcoming deadlines*', '', ...lines].join('\n');
+    return [subj ? `*${subj.name} ke assignments*` : '*Upcoming deadlines*', '', ...lines].join('\n');
   }
   if (rosterWord) {
     const parts = [];
@@ -787,7 +829,9 @@ export async function handleGroupMessage(payload) {
       source = 'fallback';
     }
     if (source === 'fallback' && !game) {
-      const pick = resolvePick(question, pickLog, dataJson) ?? resolveLastNotes(question, dataJson);
+      const pick = resolveSubjectFollowUp(question, pickLog, dataJson)
+        ?? resolvePick(question, pickLog, dataJson)
+        ?? resolveLastNotes(question, dataJson);
       if (pick) {
         answer = pick.reply;
         sendTitles = pick.titles;

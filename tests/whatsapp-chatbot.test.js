@@ -42,7 +42,7 @@ const chatbot = await import('../backend/services/chatbotService.js');
 const {
   handleGroupMessage, isTri3mTag, stripMentions, parseGeminiJson,
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
-  resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply, casualReply,
+  resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply, casualReply, resolveSubjectFollowUp,
 } = chatbot;
 
 const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
@@ -355,6 +355,67 @@ test('fallback builder: classes, notes, deadlines', async () => {
   assert.match(buildFallbackReply('aj ki class?', FALLBACK_DATA), /9:00 AM/);
   assert.match(buildFallbackReply('ICT ke notes', FALLBACK_DATA), /Lecture 1/);
   assert.match(buildFallbackReply('assignments?', FALLBACK_DATA), /Assignment 1/);
+});
+
+test('owner rule (2026-10-05): notes/assignment requests ASK for the subject first — never dump all subjects', async () => {
+  // no subject -> ONE short question, zero notes listed
+  for (const q of ['notes bhej do', 'notes chahiye', 'notes send krdo', 'mujhe notes chahiye', 'bhai notes mil sakty']) {
+    const r = buildFallbackReply(q, FALLBACK_DATA);
+    assert.match(r, /kis subject ke notes chahiye\?/i, `must ask subject for: ${q}`);
+    assert.doesNotMatch(r, /Lecture 1/, `must NOT list notes for: ${q}`);
+  }
+  // subject named -> ONLY that subject's notes
+  const ict = buildFallbackReply('ICT ke notes bhej do', FALLBACK_DATA);
+  assert.match(ict, /Lecture 1/);
+  assert.match(ict, /Notes \u2014 ICT|Notes - ICT|Notes\* \u2014 ICT|Notes/i);
+  // explicit "all subjects" -> full list allowed
+  assert.match(buildFallbackReply('sab subjects ke notes bhej do', FALLBACK_DATA), /Lecture 1/);
+  // assignment request without subject -> asks; with subject -> only that subject
+  for (const q of ['assignment bhej do', 'mujhe assignment chahiye', 'assignment send krdo']) {
+    assert.match(buildFallbackReply(q, FALLBACK_DATA), /kis subject ki assignment chahiye\?/i, `must ask subject for: ${q}`);
+  }
+  assert.match(buildFallbackReply('ICT ki assignment bhej do', FALLBACK_DATA), /Assignment 1/);
+  // deadline INFO questions still list upcoming work (subjects labeled, not a guess)
+  assert.match(buildFallbackReply('kya deadlines hain?', FALLBACK_DATA), /Assignment 1/);
+});
+
+test('owner rule (2026-10-05): bare subject answer ("ICT") after the bot asked resolves via context', async () => {
+  const lastLog = { reply: 'Kis subject ke notes chahiye? Class ke subjects: ICT, Programming, Artificial Intelligence', createdAt: new Date() };
+  const r = resolveSubjectFollowUp('ICT', lastLog, FALLBACK_DATA);
+  assert.ok(r, 'follow-up resolves');
+  assert.match(r.reply, /Lecture 1/);
+  assert.deepEqual(r.titles, ['Lecture 1 - Introduction']); // hasFiles -> queued for delivery
+  // a DIFFERENT subject means the same follow-up returns that subject only
+  const r2 = resolveSubjectFollowUp('Programming', lastLog, FALLBACK_DATA);
+  assert.match(r2.reply, /published notes nahi mile/); // Programming has no notes
+  // assignment clarification resolves to assignments
+  const lastAssign = { reply: 'Kis subject ki assignment chahiye?', createdAt: new Date() };
+  const r3 = resolveSubjectFollowUp('ICT', lastAssign, FALLBACK_DATA);
+  assert.match(r3.reply, /Assignment 1/);
+  // no clarification in the last turn -> not a follow-up
+  assert.equal(resolveSubjectFollowUp('ICT', { reply: 'Aaj 9:00 AM — ICT' }, FALLBACK_DATA), null);
+});
+
+test('owner rule (2026-10-05): end-to-end — "notes bhej do" asks the subject, bare "ICT" then delivers ICT files', async () => {
+  geminiResponse = null; // Gemini down -> fallback path must handle it alone
+  assert.equal(await handleGroupMessage(groupMsg('notes bhej do')), true);
+  const ask = waSent.find((st) => st.kind === 'chat');
+  assert.ok(ask, 'clarification sent');
+  assert.match(ask.params.body, /kis subject ke notes chahiye\?/i);
+  assert.ok(!waSent.some((st) => st.kind === 'document'), 'no files sent before the subject is known');
+  chatbot.__resetGuards(); // clear the per-group cooldown
+  assert.equal(await handleGroupMessage(groupMsg('ICT')), true);
+  const after = waSent.filter((st) => st.kind === 'chat').at(-1);
+  assert.match(after.params.body, /Lecture 1/);
+  assert.ok(waSent.some((st) => st.kind === 'document'), 'ICT note files delivered');
+});
+
+test('owner rule (2026-10-05): SYSTEM_PROMPT carries the subject-first intent rules', () => {
+  assert.match(SYSTEM_PROMPT, /SUBJECT-FIRST/);
+  assert.match(SYSTEM_PROMPT, /Kis subject ke notes chahiye\?/);
+  assert.match(SYSTEM_PROMPT, /Kis subject ki assignment chahiye\?/);
+  assert.match(SYSTEM_PROMPT, /never mix other subjects in/);
+  assert.match(SYSTEM_PROMPT, /instead of guessing/);
 });
 
 test('owner rule: fallback replies NEVER send portal links or hand emojis', async () => {
