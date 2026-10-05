@@ -101,17 +101,16 @@ const KEYWORD_RE = new RegExp(
   'i'
 );
 
-/** True when the bot should answer this text. */
-export function shouldTrigger(text) {
+/* OWNER RULE (2026-10-05): the group bot speaks ONLY when explicitly
+ * @-tagged. Untagged messages - keywords, question marks, plain "tri3m"
+ * text, admin announcements - are consumed in silence. A WhatsApp tag
+ * arrives in the body as "@<gateway-digits>"; the literal "@tri3m" text
+ * form is accepted too. */
+export function isTri3mTag(text, selfPhone) {
   const t = String(text ?? '');
-  if (t.length < 2 || t.length > 400) return false;
-  if (/[?؟]/.test(t)) return true;
-  if (/@?\btri\s?3?m\b|(^|\s)bot(\s|$)/i.test(t)) return true;
-  // a short pick of a title the bot offered before ("ye wala", "dusra wala do")
-  if (/(^|\s)(ye|yeh|wo|woh|pehla|pehli|dusra|doosra|teesra|chautha|last|akhri|wahi|same)\s+wala?s?(\s|$)/i.test(t)) return true;
-  // a direct @mention of the gateway number also counts
-  if (/@\d{10,15}/.test(t)) return true;
-  return KEYWORD_RE.test(t);
+  const self = String(selfPhone ?? '').replace(/\D/g, '');
+  if (self && t.includes('@' + self)) return true;
+  return /@tri\s?3?m\b/i.test(t);
 }
 
 /** Removes WhatsApp mention tokens so the LLM sees the bare question. */
@@ -721,11 +720,13 @@ export async function handleGroupMessage(payload) {
     const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime;
     if (Number.isFinite(epoch) && epoch > 1.5e9 && Date.now() - epoch * 1000 > MESSAGE_MAX_AGE_MS) return true;
 
-    // OWNER FIX (2026-10-03): the tag must ALWAYS wake the bot. Mentions are
-    // stripped before this check, so "@Tri3M kaisay ho" became "kaisay ho"
-    // (no keyword, no ?) and was consumed silently. Check the raw body too.
+    // OWNER RULE (2026-10-05): respond ONLY to an explicit @Tri3M tag.
+    // Keywords, question marks and plain "tri3m/bot" text no longer wake the
+    // bot - admins' posts and group chatter stay silent unless the bot is
+    // directly tagged and asked something.
     const question = stripMentions(data.body);
-    if (!shouldTrigger(question) && !shouldTrigger(String(data.body ?? ''))) return true;
+    if (!isTri3mTag(data.body, selfPhone)) return true;
+    if (String(data.body ?? '').length > 400) return true;
     if (!withinBudget(groupId)) return true;
 
     // resolve the section this group belongs to (general or subject group)

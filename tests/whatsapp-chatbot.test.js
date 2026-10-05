@@ -40,7 +40,7 @@ const { default: app } = await import('../backend/app.js');
 const { env } = await import('../backend/config/env.js');
 const chatbot = await import('../backend/services/chatbotService.js');
 const {
-  handleGroupMessage, shouldTrigger, stripMentions, parseGeminiJson,
+  handleGroupMessage, isTri3mTag, stripMentions, parseGeminiJson,
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
   resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply, casualReply,
 } = chatbot;
@@ -93,14 +93,17 @@ const today = new Intl.DateTimeFormat('en-CA', {
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 /** UltraMsg-shaped inbound group message payload. */
-function groupMsg(body, { author = STUDENT, time = null, chatId = GROUP_ID } = {}) {
+function groupMsg(body, { author = STUDENT, time = null, chatId = GROUP_ID, tagged = true } = {}) {
+  // OWNER RULE (2026-10-05): the bot speaks only when tagged, so by default
+  // test payloads arrive tagged (like a real "@Tri3M" WhatsApp mention).
+  const text = tagged ? `@${process.env.ULTRAMSG_GATEWAY_PHONE} ${body}`.trim() : body;
   return {
     event_type: 'message_received',
     instanceId: 'instance123',
     data: {
       id: 'TESTID123', type: 'chat', fromMe: false,
       chatId, from: chatId, author: `${author}@c.us`,
-      body, time: time ?? nowSec(),
+      body: text, time: time ?? nowSec(),
     },
   };
 }
@@ -153,24 +156,35 @@ test.after(async () => {
 
 /* ------------------------ pure helper tests ------------------------ */
 
-test('shouldTrigger: questions/keywords wake the bot, casual chat does not', () => {
-  assert.equal(shouldTrigger('aj timetable kya hai'), true);
-  assert.equal(shouldTrigger('@923019670950 notes do'), true);
-  assert.equal(shouldTrigger('class kitni baje?'), true);
-  assert.equal(shouldTrigger('ICT ke notes bhej do'), true);
-  assert.equal(shouldTrigger('aj sir ny kia perhaya'), true);
-  assert.equal(shouldTrigger('assignment deadline?'), true);
-  assert.equal(shouldTrigger('section me kaun kaun students hain'), true);
-  assert.equal(shouldTrigger('cr kaun hai hamara'), true);
-  assert.equal(shouldTrigger('hamari section konsi hai'), true);
-  assert.equal(shouldTrigger('kya haal hai doston'), false); // casual — no keyword/?
-  assert.equal(shouldTrigger('ok'), false);
-  assert.equal(shouldTrigger('hi bot'), true); // direct address
-  assert.equal(shouldTrigger('ye wala note bhej do'), true); // pick of an offered title
-  assert.equal(shouldTrigger('dusra wala'), true); // ordinal pick
-  assert.equal(shouldTrigger('waha khana khaate hain'), false); // 'waha' is not a pick
-  assert.equal(shouldTrigger(''), false);
-  assert.equal(shouldTrigger('x'.repeat(500)), false);
+test('isTri3mTag: ONLY an explicit @tag wakes the bot (owner rule 2026-10-05)', () => {
+  const G = process.env.ULTRAMSG_GATEWAY_PHONE;
+  assert.equal(isTri3mTag(`@${G} aaj ki class?`, G), true); // real WhatsApp tag form
+  assert.equal(isTri3mTag('han @Tri3M notes do', G), true); // literal text form
+  assert.equal(isTri3mTag('aaj class kitni baje hai', G), false); // keyword, no tag
+  assert.equal(isTri3mTag('class kitni baje?', G), false); // question mark, no tag
+  assert.equal(isTri3mTag('hi bot', G), false); // address without @
+  assert.equal(isTri3mTag('tri3m bhai', G), false); // plain name text = silent
+  assert.equal(isTri3mTag('@923007770001 suno', G), false); // someone ELSE tagged
+  assert.equal(isTri3mTag('', G), false);
+});
+
+test('owner rule (2026-10-05): untagged messages never wake the bot — admins/students stay unanswered', async () => {
+  // the owner's exact complaint: other group admins post announcements and
+  // the bot used to answer with the dry "mujhe kuch nahi pata" template.
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{"reply":"nahi bataunga"}' }] } }] };
+  for (const body of [
+    'aaj class kitni baje hai', // class keyword
+    'kal ki class kitni baje?', // keyword + question mark
+    '📅 Timetable updated — class added: ICT, aaj 9:00 AM', // admin announcement
+    '📢 New announcement: quiz next week', // another admin post
+    'hi bot', // direct address, no @
+    'tri3m bhai notes do', // plain name text
+    'ye wala note bhej do', // a pick, but untagged
+  ]) {
+    assert.equal(await handleGroupMessage(groupMsg(body, { tagged: false })), true);
+  }
+  assert.equal(geminiCalls.length, 0); // zero LLM spend
+  assert.equal(waSent.length, 0); // and never a reply — silence, as ordered
 });
 
 test('stripMentions removes mention tokens', () => {
@@ -293,8 +307,10 @@ test('old/replayed message and self message are ignored', async () => {
   assert.equal(geminiCalls.length, 0);
 });
 
-test('casual chat is consumed silently — no LLM spend', async () => {
-  assert.equal(await handleGroupMessage(groupMsg('kya haal hai doston')), true);
+test('casual chat is consumed silently when untagged — no LLM spend', async () => {
+  // tagged casual always gets banter (see the TAGGED casual test below);
+  // untagged casual is silence under the 2026-10-05 owner rule
+  assert.equal(await handleGroupMessage(groupMsg('kya haal hai doston', { tagged: false })), true);
   assert.equal(geminiCalls.length, 0);
   assert.equal(waSent.length, 0);
 });
@@ -521,7 +537,7 @@ test('owner feature: TAGGED casual chat always gets a reply — casualReply help
 });
 
 test('owner feature: "@Tri3M kaisay ho" now REPLIES (mention no longer stripped before the trigger check)', async () => {
-  // regression: the tag was stripped before shouldTrigger, so tagged casual
+  // regression (2026-10-03): the tag was stripped before the trigger check, so tagged casual
   // chat was consumed silently — the exact bug the owner reported
   geminiResponse = null; // even with Gemini down the banter path answers
   assert.equal(await handleGroupMessage(groupMsg('@Tri3M kaisay ho')), true);
