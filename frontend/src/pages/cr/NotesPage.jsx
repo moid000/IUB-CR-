@@ -266,7 +266,7 @@ export default function NotesPage() {
         <SearchInput value={search} onChange={setSearch} placeholder="Search notes…" label="Search notes" />
         <FilterSelect label="Subject" value={subjectFilter} onChange={setSubjectFilter}>
           <option value="all">All subjects</option>
-          {subjects.map((s) => <option key={s._id} value={s._id}>{s.code}</option>)}
+          {subjects.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
         </FilterSelect>
         <FilterSelect label="Status" value={status} onChange={setStatus}>
           <option value="published">Published</option>
