@@ -48,7 +48,7 @@ export function SearchInput({ value, onChange, placeholder = 'Search…', label 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="block w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-300 focus:border-primary-500"
+        className="block w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-300 focus:border-primary-500"
       />
     </div>
   );
@@ -63,7 +63,7 @@ export function FilterSelect({ label, value, onChange, children, className = '' 
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="block rounded-lg border border-slate-200 bg-white py-2.5 pl-3 pr-8 text-sm text-slate-700 hover:border-slate-300 focus:border-primary-500"
+        className="block rounded-lg border border-slate-200 bg-white py-2.5 pl-3 pr-8 text-base sm:text-sm text-slate-700 hover:border-slate-300 focus:border-primary-500"
       >
         {children}
       </select>

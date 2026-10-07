@@ -25,6 +25,10 @@ export function DataTable({
   pagination = null, // { page, limit, total, totalPages }
   onPageChange,
   rowKey = (r) => r._id,
+  // table min-width strategy — default unchanged; pages with few
+  // mobile-visible columns pass e.g. "min-w-0 sm:min-w-[540px]" so the
+  // table fits small screens WITHOUT forcing a pinch-zoom (owner 2026-10-07)
+  tableClassName = 'min-w-[540px]',
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-soft">
@@ -62,7 +66,7 @@ export function DataTable({
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[540px] text-left text-sm">
+            <table className={`w-full text-left text-sm ${tableClassName}`}>
               <thead>
                 <tr className="border-b border-slate-200/80 bg-slate-50/60">
                   {columns.map((col) => (

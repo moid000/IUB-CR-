@@ -140,6 +140,7 @@ export default function StudentsPage() {
       <DataTable
         columns={columns}
         rows={filtered}
+        tableClassName="min-w-0 sm:min-w-[540px]"
         loading={loading}
         error={error}
         onRetry={reload}
