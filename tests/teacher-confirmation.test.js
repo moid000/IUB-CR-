@@ -28,8 +28,10 @@ let failNext = false;
 let geminiAnswer = null; // 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR' | null (null = API error → rules fallback)
 let geminiChatReply = null; // OWNER 2026-10-07: human conversation reply ({reply} schema) — null = API error → static fallback
 const geminiDownModels = new Set(); // OWNER 2026-10-07 night: model names serving 503 (live incident)
+const geminiBodies = []; // OWNER MASTER SPEC (night #3): every LLM call's payload (history assertions)
 globalThis.fetch = (url, options) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
+    geminiBodies.push({ url: String(url), body: String(options.body) });
     if ([...geminiDownModels].some((m) => String(url).includes(`/models/${m}:`))) {
       return Promise.resolve(new Response(JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } }), { status: 503 }));
     }
@@ -641,19 +643,19 @@ test('OWNER FEATURE (2026-10-07): QUESTION + conversation API down → professio
   }
 });
 
-test('OWNER FEATURE (2026-10-07): offline safety net — question words get the details card even when Gemini is down', async () => {
+test('OWNER FEATURE (2026-10-07): offline safety net — ONE question gets that ONE answer, broad questions get the card (MASTER SPEC §3)', async () => {
   await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
     'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
   const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-21', startTime: '09:00', endTime: '10:00' });
   const slotId = r.json.data._id;
 
-  // geminiAnswer = null → API 400 → local rules → QUESTION (English + Roman Urdu)
+  // geminiAnswer = null → API 400 → local rules → QUESTION → selective offline answer
   assert.equal((await webhook(incoming('which semester is this?'))).json.data.updated, true);
-  const card = sent.at(-1);
-  assert.match(card.body, /Semester: \*4\*/);
-  assert.match(card.body, /Alex Representative/);
-  // no room set on this class — the card simply omits the room line
-  assert.doesNotMatch(card.body, /Room:/);
+  const ans = sent.at(-1);
+  assert.match(ans.body, /Semester \*4\*/);          // exactly what was asked
+  assert.match(ans.body, /YES \* or \*NO|YES\* or \*NO/); // one soft ask while awaiting
+  assert.doesNotMatch(ans.body, /Department:/);         // no details dump (MASTER SPEC §3)
+  assert.doesNotMatch(ans.body, /Alex Representative/); // unrequested facts stay out
   // question stays open, teacher answers, class confirmed
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
   assert.equal((await webhook(incoming('NO'))).json.data.updated, true);
@@ -799,7 +801,7 @@ test('OWNER BUG FIX: ALL Gemini models down + "ap kon ho?" → SHORT honest AI-c
   const intro = sent.at(-1);
   assert.equal(intro.to, teacher.whatsapp);
   assert.match(intro.body, /Tri3M Class Agent/);
-  assert.match(intro.body, /AI chatbot/);              // honest identity (owner's exact wish)
+  assert.match(intro.body, /AI class-coordination assistant/); // honest identity, master-spec tone
   assert.match(intro.body, /Alex Representative/);     // the real CR
   assert.match(intro.body, /Room 26|9:00/);             // the class context in one line
   assert.match(intro.body, /\*YES\*/);
@@ -811,6 +813,52 @@ test('OWNER BUG FIX: ALL Gemini models down + "ap kon ho?" → SHORT honest AI-c
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
 });
 
+test('OWNER MASTER SPEC §4/§18: multi-turn conversation memory — turns recorded on the slot and replayed to the LLM', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-28', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'QUESTION';
+  geminiChatReply = 'Sir, the CR for this class is Alex Representative.';
+  try {
+    // turn 1: a question
+    assert.equal((await webhook(incoming('cr kon hai?'))).json.data.updated, true);
+    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
+
+    // turn 2: a SHORT follow-up — 'number?' only makes sense with the context
+    geminiChatReply = 'His contact number is +923009876543, Sir.';
+    assert.equal((await webhook(incoming('number?'))).json.data.updated, true);
+
+    const conv = (await Timetable.findById(slotId)).teacherConfirmation.conversation;
+    assert.equal(conv.length, 4);                        // teacher, agent, teacher, agent
+    assert.equal(conv[0].role, 'teacher');
+    assert.match(conv[0].text, /cr kon hai/);
+    assert.equal(conv[1].role, 'agent');
+    assert.match(conv[1].text, /Alex Representative/);
+    assert.equal(conv[2].role, 'teacher');
+    assert.match(conv[2].text, /number/);
+
+    // the second LLM call actually RECEIVED the earlier turns (multi-turn prompt)
+    const chatCalls = geminiBodies.filter((c) => c.body.includes('"reply"'));
+    assert.ok(chatCalls.length >= 2);
+    assert.ok(chatCalls.at(-1).body.includes('RECENT CONVERSATION'));
+    assert.ok(chatCalls.at(-1).body.includes('cr kon hai?'));
+    assert.ok(chatCalls.at(-1).body.includes('Alex Representative')); // the agent's own turn too
+
+    // turn 3: the YES answer lands in the same conversation memory
+    assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+    const conv2 = (await Timetable.findById(slotId)).teacherConfirmation.conversation;
+    assert.equal(conv2.at(-2).role, 'teacher');
+    assert.match(conv2.at(-2).text, /^YES$/);
+    assert.equal(conv2.at(-1).role, 'agent'); // the thank-you ack is recorded too
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
 test('OWNER BUG FIX (2026-10-07 night #2): "ye kis ka number hai?" → honest identity answer, NEVER the canned confusion hint', async () => {
   await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
     'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
@@ -819,7 +867,7 @@ test('OWNER BUG FIX (2026-10-07 night #2): "ye kis ka number hai?" → honest id
 
   // all models down (geminiAnswer/geminiChatReply null) → static identity intro
   assert.equal((await webhook(incoming('ye kis ka number hai?'))).json.data.updated, true);
-  assert.match(sent.at(-1).body, /AI chatbot/);
+  assert.match(sent.at(-1).body, /AI class-coordination assistant|Tri3M Class Agent/);
   assert.match(sent.at(-1).body, /Alex Representative/);
   assert.doesNotMatch(sent.at(-1).body, /Sorry for the confusion/);
 
