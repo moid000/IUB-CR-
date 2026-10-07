@@ -51,6 +51,7 @@ const timetableSchema = new Schema(
         respondedAt: { type: Date },
         replyId: { type: String },
         hintedAt: { type: Date }, // last only-YES-or-NO reminder sent to this teacher
+        questionAnsweredAt: { type: Date }, // OWNER 2026-10-07: last full-details answer card sent (teacher asked a basic question)
         // OWNER FEATURE (2026-10-04): CR confirmed the teacher on a PHONE CALL
         // (no WhatsApp reply) and set the status manually from the portal.
         manualBy: { type: ObjectId, ref: 'User' },

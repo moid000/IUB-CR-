@@ -322,6 +322,102 @@ async function hintTeacherReply(sender, payload) {
 }
 
 /* ------------------------------------------------------------------ */
+/* OWNER FEATURE (2026-10-07): teachers may ASK questions. A teacher    */
+/* who does not understand WHICH class/section/semester this is — or    */
+/* wants the CR's name and phone number — now gets ONE professional,    */
+/* data-complete details card built from the REAL awaiting class (never  */
+/* a guess, never an LLM invention). The open YES/NO question stays      */
+/* fully intact: answering costs no attempt, consumes no queue slot.     */
+/* Strangers/group numbers have no awaiting slot and stay silent.        */
+/* ------------------------------------------------------------------ */
+const QUESTION_COOLDOWN_MS = 60 * 1000;
+
+/** Full details card — answers every basic question at once: department,
+ * semester, section, subject, date, time, room, and the CR's name + phone
+ * so the teacher can even CALL the CR. Ends with the pending YES/NO ask.
+ * Exported for tests. */
+export function buildQuestionAnswerMessage({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone }) {
+  const lines = [
+    '*Tri3M Class Agent*',
+    'AI-Powered Class Management Assistant',
+    '',
+    `Assalam-o-Alaikum Respected ${bold(teacher)},`,
+    '',
+    'Of course! Here are the complete details of your scheduled class:',
+    '',
+    `🎓 Department: ${bold(department ?? '—')}`,
+    `📚 Semester: ${bold(String(semester ?? '—'))}`,
+    `🏫 Section: ${bold(section, 25)}`,
+    `📖 Subject: ${bold(subject)}`,
+    `📅 Date: ${bold(day)}`,
+    `🕐 Time: ${bold(time)}`,
+  ];
+  if (room) lines.push(`📍 Room: ${bold(room, 40)}`);
+  if (crName) {
+    lines.push('', `👤 This class was scheduled with you by ${bold(crName)} (${crRole ?? 'CR'} of ${bold(section, 25)}).`);
+    if (crPhone) lines.push(`📞 You may contact them directly: ${crPhone}`);
+  }
+  lines.push(
+    '',
+    'To update the class status for your students, please reply:',
+    '*YES* — you will take the class',
+    '*NO* — you cannot take the class',
+    '',
+    'Thank you for your cooperation.',
+    'JazakAllah Khair.',
+    '',
+    '— Tri3M Class Agent',
+    'Developed by the students of the AI Department, IUB',
+    'Semester 2 • Section 3M',
+  );
+  return lines.join('\n');
+}
+
+/** Answer a teacher's basic question with the full details card. Mirrors
+ * hintTeacherReply's guards (awaiting slot, sane timestamp, cooldown) but
+ * NEVER answers, re-queues or retries the open YES/NO question. */
+async function answerTeacherQuestion(sender, payload) {
+  const rawTime = Number(payload.data.time ?? payload.data.timestamp);
+  const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime;
+  if (!Number.isFinite(epoch) || epoch < 1_500_000_000 || epoch > Date.now() / 1000 + 300) return false;
+  const replyTime = new Date(epoch * 1000);
+  const slot = await Timetable.findOneAndUpdate({
+    status: 'active',
+    'teacherConfirmation.phone': sender,
+    'teacherConfirmation.status': 'awaiting',
+    'teacherConfirmation.sentAt': { $lte: new Date(replyTime.getTime() + 10_000) },
+    $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
+  }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() } })
+    .select('section subject date startTime endTime room createdBy teacherConfirmation').lean();
+  if (!slot) return false; // no open question for this phone — silence
+  try {
+    const [sectionDoc, subjectDoc, teacherDoc, crDoc] = await Promise.all([
+      Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
+      Subject.findById(slot.subject).select('name').lean(),
+      Teacher.findById(slot.teacherConfirmation?.teacher).select('name').lean(),
+      // the CR/GR who actually queued this class (requestedBy), falling back
+      // to the class creator — the card names a REAL person the teacher knows
+      User.findById(slot.teacherConfirmation?.requestedBy ?? slot.createdBy).select('name role phone').lean(),
+    ]);
+    if (!teacherDoc) return true; // claimed, but nothing true to say — never invent
+    await sendText(sender, buildQuestionAnswerMessage({
+      teacher: teacherDoc.name,
+      section: sectionDoc?.name,
+      department: sectionDoc?.department?.name,
+      semester: sectionDoc?.semester,
+      subject: subjectDoc?.name,
+      day: fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`)),
+      time: `${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}`,
+      room: slot.room,
+      crName: crDoc?.name,
+      crRole: crDoc?.role === 'gr' ? 'GR' : crDoc?.role === 'admin' ? 'Admin' : 'CR',
+      crPhone: crDoc?.phone ? String(crDoc.phone).replace(/[^\d+]/g, '') : null,
+    }));
+  } catch (err) { console.error('[teacher question]', err.message); } // best-effort
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
 /* OWNER FEATURE (2026-10-04): natural-language teacher replies.        */
 /* Teachers type real sentences — "g beta kl class ho gi time pe" —      */
 /* instead of a bare YES/NO, and the only-YES-or-NO reminder irritated   */
@@ -344,12 +440,24 @@ const INTERPRET_NO_RE = /\b(nahi|nahin|nay?hi|nhi|nyi|nai|ni|ny|nhn|nh|no|nahi\?
 // matches none of these the rules return UNCLEAR and Gemini judges it.
 const INTERPRET_YES_RE = /(ho|how) ?g[iay]a?|\b(g|gee|ji|haan|han|haa|hmm+|yes|yep|ok|okay|okie|sure|bilkul|zaroor|pakka|insha? ?allah|inshallah|definitely|confirmed?|ready|aaon|aaon ga|aaunga|aaonga|aa raha|aa rahi|time ?pe?|on time|theek hai|chal[ie]gi|chal[ie]ga)\b/i;
 
-/** Local rules: 'YES' | 'NO' | null (unclear → try Gemini). Exported for tests. */
+/* OWNER FEATURE (2026-10-07): a teacher asking a BASIC question — which
+ * section / department / semester, who is the CR, which room/time — gets a
+ * professional full-details answer card, never the dry only-YES-or-NO hint.
+ * Offline safety net (Gemini is the primary judge); kept broad enough for
+ * Roman Urdu + English. 'samajh nahi aa raha' is confusion → QUESTION too
+ * (it used to fall through to the NO word-list — wrong answer to a teacher
+ * who simply did not understand the message). */
+const INTERPRET_QUESTION_RE = /which (section|class|semester|department|dept|subject|room|cr|time)|what (section|class|semester|department|dept|subject|room|time|is this|is that|about)|who (is|are|this|that)\b|who are you|kons?[aiy]? (section|class|subject|semester|sem|dept|department|room|group|time|class)|kaun sa (section|class|subject|room|semester)|kaun si (class|section)|section (kon|kaun|kya|which|konsa|konsi)|semester (kon|kaun|kya|which|konsa|konsi)|department (kon|kaun|kya|which|konsa)|dept (kon|kaun|kya|which)|cr (kon|kaun|kya|who|kaun hai|kon hai|number|num)|room (kya|kon|kaun|which|kahan|kaha|number)|kab (hai|ho|lgi|legi|leni|lagna)|kahan (hai|ho|class)|samajh (nahi|nh|ni|nahin|nai)|smajh (nahi|nh|ni|nahin)|samjh (nahi|nh|ni)/i;
+
+/** Local rules: 'YES' | 'NO' | 'QUESTION' | null (unclear → try Gemini). Exported for tests. */
 export function interpretReply(body) {
   const t = String(body ?? '').toLowerCase().trim();
   if (!t || t.length > 300) return null;
   if (INTERPRET_UNCLEAR_RE.test(t)) return null;
   if (INTERPRET_NOPROBLEM_RE.test(t)) return 'YES';
+  // a basic question outranks stray yes/no words ('konsa section hai' contains
+  // 'hai', 'section hai nahi ho gi' would read as NO — a question is a question)
+  if (INTERPRET_QUESTION_RE.test(t)) return 'QUESTION';
   if (INTERPRET_NO_RE.test(t)) return 'NO';
   if (INTERPRET_YES_RE.test(t)) return 'YES';
   return null;
@@ -370,29 +478,32 @@ async function classifyReplyWithGemini(body) {
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(key)}`,
       { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come. NO = the teacher will not take it / cannot come / does not want to. UNCLEAR = genuinely cannot decide (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"UNCLEAR"}.' }] },
+          systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come. NO = the teacher will not take it / cannot come / does not want to. QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"UNCLEAR"}.' }] },
           contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
           generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
-            responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'UNCLEAR'] } }, required: ['answer'] } },
+            responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'UNCLEAR'] } }, required: ['answer'] } },
         }) },
     );
     if (!res.ok) return null;
     const json = await res.json();
     const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     const ans = String((JSON.parse(raw) ?? {}).answer ?? '').toUpperCase();
-    return ans === 'YES' || ans === 'NO' ? ans : 'UNCLEAR';
+    return ans === 'YES' || ans === 'NO' || ans === 'QUESTION' ? ans : 'UNCLEAR';
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
-/** Interpret ANY teacher reply into 'YES' | 'NO' | null.
+/** Interpret ANY teacher reply into 'YES' | 'NO' | 'QUESTION' | null.
  * OWNER RULE (2026-10-04): the teacher can type ANYTHING — Roman Urdu, Urdu,
  * English, mixed, feelings ('mera dil nahi hai') — so the LLM judges every
  * natural reply FIRST for real understanding, not a fixed word list. The
  * local rules only act as a safety net when Gemini is unavailable, and the
- * polite hint fires only when BOTH say the reply is unclear. */
+ * polite hint fires only when BOTH say the reply is unclear. OWNER RULE
+ * (2026-10-07): a QUESTION (which section/dept/semester, who is the CR,
+ * room/time confusion) routes to the full-details answer card instead. */
 export async function interpretTeacherReply(body) {
   const viaGemini = await classifyReplyWithGemini(body);
   if (viaGemini === 'YES' || viaGemini === 'NO') return viaGemini;
+  if (viaGemini === 'QUESTION') return 'QUESTION';
   // The LLM REACHED a verdict of UNCLEAR — its reading is final, the greedy
   // word rules must not second-guess it ("samajh nahi aa raha" is not a NO).
   if (viaGemini === 'UNCLEAR') return null;
@@ -472,9 +583,12 @@ export async function handleTeacherReply(payload) {
   if (!sender || !payload.data.id) return false;
   // OWNER FEATURE: a natural-language reply is INTERPRETED first. Only a
   // genuinely unclear reply falls back to the polite YES-or-NO reminder.
-  let interpreted = null; // 'YES' | 'NO' | null
+  let interpreted = null; // 'YES' | 'NO' | 'QUESTION' | null
   if (!exact && !plain) {
     interpreted = await interpretTeacherReply(body);
+    // OWNER FEATURE (2026-10-07): a teacher asking a basic question gets the
+    // professional full-details answer card — never a dry YES-or-NO hint.
+    if (interpreted === 'QUESTION') return answerTeacherQuestion(sender, payload);
     if (!interpreted) return hintTeacherReply(sender, payload);
   }
   const answer = exact ? exact[1].toUpperCase() : plain ? plain[1].toUpperCase() : interpreted;

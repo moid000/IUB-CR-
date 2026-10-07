@@ -25,7 +25,7 @@ await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'functi
 const realFetch = globalThis.fetch;
 const sent = [];
 let failNext = false;
-let geminiAnswer = null; // 'YES' | 'NO' | 'UNCLEAR' | null (null = API error → rules fallback)
+let geminiAnswer = null; // 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR' | null (null = API error → rules fallback)
 globalThis.fetch = (url, options) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
     if (geminiAnswer) {
@@ -328,6 +328,12 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
   for (const yes of ['ha beta ho gi', 'haan zaroor aaon ga']) {
     assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
   }
+  // OWNER 2026-10-07: basic QUESTIONS route to the full-details answer card
+  for (const q of ['which section is this?', 'which semester is this?', 'konsa section hai ye?',
+    'kaun sa room hai?', 'who is the CR?', 'cr kaun hai?', 'kab hai class?',
+    'mujhe samajh nahi aa raha ye konsi class hai']) {
+    assert.equal(interpretReply(q), 'QUESTION', `expected QUESTION: ${q}`);
+  }
   // genuinely unclear — never guessed, hint path instead
   for (const unclear of ['pata nahi abhi', 'acha, dekh ke bataon ga', 'acha', 'maybe', 'thori der me bataon ga']) {
     assert.equal(interpretReply(unclear), null, `expected UNCLEAR: ${unclear}`);
@@ -552,6 +558,73 @@ test('OWNER FEATURE: manual override validation + a phone-call NO also cancels',
   const nowEpoch = Date.UTC(2099, 1, 3, 5, 45); // 10:45 PKT, 15 min before 11:00
   const sweep = await runClassReminderSweep({ nowEpoch, only: slotId });
   assert.equal(sweep.due, 0, 'manually declined class gets no reminder');
+});
+
+test('OWNER FEATURE (2026-10-07): a teacher QUESTION gets the professional full-details card — and the YES/NO question stays open', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-20', startTime: '09:00', endTime: '10:00', room: 'Room 20' });
+  const slotId = r.json.data._id;
+  const sentBefore = sent.length;
+
+  // Gemini reads the MEANING: a confused teacher asking which section / CR
+  geminiAnswer = 'QUESTION';
+  try {
+    const res = await webhook(incoming('mujhe samajh nahi aa raha, ye konsa section hai aur CR kaun hai?'));
+    assert.equal(res.json.data.updated, true); // handled — the teacher got an answer, not silence
+
+    const card = sent.at(-1);
+    assert.equal(card.to, teacher.whatsapp);
+    assert.match(card.body, /Tri3M Class Agent/);
+    assert.match(card.body, /Department: \*Computer Science\*/);
+    assert.match(card.body, /Semester: \*4\*/);
+    assert.match(card.body, /Section: \*4B\*/);
+    assert.match(card.body, /Subject: \*Data Structures\*/);
+    assert.match(card.body, /Room: \*Room 20\*/);
+    assert.match(card.body, /Alex Representative/);            // the real CR's name
+    assert.match(card.body, /\+?923009876543/);                // the CR's phone number
+    assert.match(card.body, /please reply/i);                   // YES/NO still requested
+    assert.match(card.body, /\*YES\*/);
+    assert.match(card.body, /\*NO\*/);
+
+    // the open question is NEVER answered or consumed by the explanation
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+
+    // an immediate replay/throttled second question does not double-send
+    const count = sent.length;
+    assert.equal((await webhook(incoming('aur room konsa hai?'))).json.data.updated, false);
+    assert.equal(sent.length, count);
+
+    // after the cooldown unlocks, the next question is answered again
+    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
+    assert.equal((await webhook(incoming('room konsa hai?'))).json.data.updated, true);
+    assert.equal(sent.length, count + 1);
+
+    // the teacher can still answer normally right after asking questions
+    assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  } finally {
+    geminiAnswer = null; // later tests: API error → rules fallback
+  }
+});
+
+test('OWNER FEATURE (2026-10-07): offline safety net — question words get the details card even when Gemini is down', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-21', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  // geminiAnswer = null → API 400 → local rules → QUESTION (English + Roman Urdu)
+  assert.equal((await webhook(incoming('which semester is this?'))).json.data.updated, true);
+  const card = sent.at(-1);
+  assert.match(card.body, /Semester: \*4\*/);
+  assert.match(card.body, /Alex Representative/);
+  // no room set on this class — the card simply omits the room line
+  assert.doesNotMatch(card.body, /Room:/);
+  // question stays open, teacher answers, class confirmed
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+  assert.equal((await webhook(incoming('NO'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'declined');
 });
 
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
