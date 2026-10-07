@@ -144,10 +144,10 @@ export default function StudentNotesPage() {
                 role="tab"
                 aria-selected={subjectFilter === g.key}
                 onClick={() => setSubjectFilter(subjectFilter === g.key ? 'all' : g.key)}
-                className={chipClass(subjectFilter === g.key)}
+                className={`${chipClass(subjectFilter === g.key)} max-w-[260px]`}
               >
-                {g.label}
-                <span className={`rounded-full px-1.5 text-[10px] font-semibold ${subjectFilter === g.key ? 'bg-white/25' : 'bg-slate-100 text-slate-500'}`}>
+                <span className="min-w-0 truncate">{g.label}</span>
+                <span className={`shrink-0 rounded-full px-1.5 text-[10px] font-semibold ${subjectFilter === g.key ? 'bg-white/25' : 'bg-slate-100 text-slate-500'}`}>
                   {g.notes.length}
                 </span>
               </button>

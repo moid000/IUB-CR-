@@ -63,7 +63,7 @@ export function FilterSelect({ label, value, onChange, children, className = '' 
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="block rounded-lg border border-slate-200 bg-white py-2.5 pl-3 pr-8 text-base sm:text-sm text-slate-700 hover:border-slate-300 focus:border-primary-500"
+        className="block max-w-[220px] truncate rounded-lg border border-slate-200 bg-white py-2.5 pl-3 pr-8 text-base sm:text-sm text-slate-700 hover:border-slate-300 focus:border-primary-500"
       >
         {children}
       </select>
