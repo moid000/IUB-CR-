@@ -89,20 +89,34 @@ export default function StudentsPage() {
 
   if (!section) return <NoSection />;
 
-  // OWNER (2026-10-07): every column visible on EVERY screen — the table
-  // scrolls left-right inside its own card on phones (no page zoom, the
-  // 16px input fix from earlier already killed the auto-zoom).
+  // OWNER (2026-10-07): ONE table, two layouts.
+  //  - sm+ : the ORIGINAL professional table — all 6 columns, hidden per
+  //    breakpoint exactly as before, nothing changed for laptop users.
+  //  - <sm : the SAME table now fits the phone at 100% zoom (min-w-0):
+  //    the Student cell stacks ALL details (roll/email/phone/added) beneath
+  //    the name via sm:hidden, so nothing is cut off — no pinch-zoom,
+  //    no horizontal swipe. Page size/position stays fixed (owner order).
   const columns = [
     {
-      key: 'rollNo', header: 'Roll No',
-      render: (s) => <span className="font-mono text-xs font-semibold text-slate-800">{s.rollNo || '—'}</span>,
+      key: 'name', header: 'Student',
+      render: (s) => (
+        <div className="min-w-0">
+          <p className="font-medium text-slate-900">{s.name}</p>
+          <div className="mt-1 space-y-0.5 text-xs text-slate-500 sm:hidden">
+            <p className="font-mono font-semibold text-slate-700">{s.rollNo || '—'}</p>
+            <p className="break-all">{s.email}</p>
+            <p>{s.phone || '—'}</p>
+            <p>{formatDate(s.createdAt)}</p>
+          </div>
+        </div>
+      ),
     },
     {
-      key: 'name', header: 'Student',
-      render: (s) => <p className="font-medium text-slate-900">{s.name}</p>,
+      key: 'rollNo', header: 'Roll No', className: 'hidden sm:table-cell',
+      render: (s) => <span className="font-mono text-xs font-semibold text-slate-800">{s.rollNo || '—'}</span>,
     },
-    { key: 'email', header: 'Email', render: (s) => <span className="text-slate-600">{s.email}</span> },
-    { key: 'phone', header: 'Phone', render: (s) => s.phone || '—' },
+    { key: 'email', header: 'Email', className: 'hidden md:table-cell', render: (s) => <span className="text-slate-600">{s.email}</span> },
+    { key: 'phone', header: 'Phone', className: 'hidden lg:table-cell', render: (s) => s.phone || '—' },
     {
       key: 'registrationStatus', header: 'Status',
       render: (s) => (
@@ -114,7 +128,7 @@ export default function StudentsPage() {
         </div>
       ),
     },
-    { key: 'createdAt', header: 'Added', render: (s) => <span className="whitespace-nowrap text-xs text-slate-500">{formatDate(s.createdAt)}</span> },
+    { key: 'createdAt', header: 'Added', className: 'hidden lg:table-cell', render: (s) => <span className="whitespace-nowrap text-xs text-slate-500">{formatDate(s.createdAt)}</span> },
   ];
 
   return (
@@ -138,7 +152,7 @@ export default function StudentsPage() {
       <DataTable
         columns={columns}
         rows={filtered}
-        tableClassName="min-w-[720px]"
+        tableClassName="min-w-0"
         loading={loading}
         error={error}
         onRetry={reload}
