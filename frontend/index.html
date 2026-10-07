@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- OWNER (2026-10-07): page size locked — no pinch zoom-in/out on phones.
+             Inputs are 16px (no focus zoom), the image lightbox keeps its own
+             internal zoom via touch-action: none, so nothing is lost. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Tri3M — class management for CRs and students: announcements, assignments, timetable and more." />
     <link rel="icon" type="image/png" href="/frontend/logo-32.png" />

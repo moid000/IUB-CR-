@@ -27,12 +27,22 @@ describe('portal shells contain horizontal overflow without touching the documen
     expect(code).toContain('min-h-dvh overflow-x-hidden bg-slate-50');
   });
 
-  it('viewport meta stays permissive (no user-scalable=no, no maximum-scale lock)', () => {
+  // OWNER ORDER 2026-10-07: page zoom is now deliberately LOCKED (pinch in/out
+  // disabled) so the page keeps a fixed size/position on phones — the owner was
+  // accidentally pinch-zooming and the whole layout (incl. bottom tab bar)
+  // shifted. Compensations already in place: 16px form inputs (no focus zoom)
+  // and the image lightbox keeps its OWN internal zoom via touch-action: none.
+  it('viewport meta locks the page scale (owner order 2026-10-07)', () => {
     const html = readFileSync(join(__dirname, '..', '..', 'index.html'), 'utf8');
     const meta = html.split('\n').find((l) => l.includes('name="viewport"'));
     expect(meta).toContain('width=device-width, initial-scale=1.0');
-    expect(meta).not.toContain('user-scalable');
-    expect(meta).not.toContain('maximum-scale');
+    expect(meta).toContain('maximum-scale=1.0');
+    expect(meta).toContain('user-scalable=no');
+  });
+
+  it('index.css blocks native double-tap zoom (touch-action: manipulation on html)', () => {
+    const css = readFileSync(join(__dirname, '..', '..', 'src', 'index.css'), 'utf8');
+    expect(css).toMatch(/html\s*\{[^}]*touch-action:\s*manipulation/);
   });
 
   it('html/body keep default overflow (no global overflow-x:hidden that previously broke scrolling)', () => {

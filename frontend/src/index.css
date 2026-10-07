@@ -453,3 +453,12 @@ body {
   .landing-fast .landing-icon-breathe,
   .landing-fast .landing-pill-glow { animation: none !important; }
 }
+
+
+/* OWNER (2026-10-07): lock the page to its natural size on phones — blocks
+   native double-tap zoom; pinch zoom is disabled by the viewport meta.
+   The image lightbox keeps its own zoom (touch-action: none on its surface
+   overrides this), and form inputs are 16px so focus never zooms either. */
+html {
+  touch-action: manipulation;
+}
