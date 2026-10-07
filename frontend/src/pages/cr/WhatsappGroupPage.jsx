@@ -188,14 +188,14 @@ export default function WhatsappGroupPage() {
         /* ------------------------- LINKED STATE ------------------------- */
         <Card className="p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-start gap-3.5">
+            <div className="flex min-w-0 items-start gap-3.5">
               <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
                 <IconChatBubble className="size-5.5" />
               </span>
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-base font-semibold text-slate-900">{linked.name}</p>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <p className="min-w-0 truncate text-base font-semibold text-slate-900">{linked.name}</p>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
                     <IconCheck className="size-3" /> Linked
                   </span>
                 </div>
@@ -246,7 +246,7 @@ export default function WhatsappGroupPage() {
       ) : (
         /* ------------------------ UNLINKED STATE ------------------------ */
         <Card className="p-6">
-          <div className="flex items-start gap-3.5">
+          <div className="flex min-w-0 items-start gap-3.5">
             <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-primary-100">
               <IconChatBubble className="size-5.5" />
             </span>
@@ -294,7 +294,7 @@ export default function WhatsappGroupPage() {
       {/* ------------------------- SUBJECT GROUPS ------------------------- */}
       {subjects.length > 0 && !loading && (
         <Card className="mt-6 p-6">
-          <div className="flex items-start gap-3.5">
+          <div className="flex min-w-0 items-start gap-3.5">
             <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-primary-100">
               <IconChatBubble className="size-5.5" />
             </span>
@@ -317,7 +317,7 @@ export default function WhatsappGroupPage() {
                         {subject.name} <span className="font-normal text-slate-400">({subject.code})</span>
                       </p>
                       {subject.group ? (
-                        <p className="mt-0.5 flex items-center gap-1 text-xs text-emerald-700">
+                        <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-emerald-700">
                           <IconCheck className="size-3" /> {subject.group.name}
                         </p>
                       ) : (
