@@ -11,7 +11,9 @@ import { Input } from '../../components/ui/Input.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconUserPlus, IconInfo } from '../../components/icons.jsx';
+import { IconUserPlus, IconInfo, IconInbox } from '../../components/icons.jsx';
+import { EmptyState } from '../../components/ui/EmptyState.jsx';
+import { Skeleton } from '../../components/ui/Skeleton.jsx';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -61,6 +63,80 @@ function AddStudentForm({ open, onClose, onSaved }) {
         </>
       )}
     </FormModal>
+  );
+}
+
+/**
+ * MOBILE roster (<640px) — owner 2026-10-07: phones previously showed only
+ * name + status (the full table needs 540px); now EVERY student comes as a
+ * card with ALL details (roll no, email, phone, status, added date).
+ * The sm+ DataTable below stays exactly as it was.
+ */
+function StudentCards({ students, loading, error, onRetry, emptyAction }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-soft sm:hidden">
+      {error ? (
+        <div className="p-6">
+          <Alert variant="danger"><p className="font-medium">{error.message}</p></Alert>
+          {onRetry && (
+            <div className="mt-3 flex justify-center">
+              <Button variant="secondary" size="sm" onClick={onRetry}>Try again</Button>
+            </div>
+          )}
+        </div>
+      ) : loading ? (
+        <div className="p-4" role="status" aria-label="Loading students">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-2 py-3">
+              <Skeleton className="h-5 flex-1" />
+              <Skeleton className="h-5 w-24" />
+            </div>
+          ))}
+        </div>
+      ) : students.length === 0 ? (
+        <div className="p-6">
+          <EmptyState
+            icon={<IconInbox className="size-10" />}
+            title="No students have been added to your section yet."
+            description="Add your first student — they'll get an email to activate their account before they can sign in."
+            action={emptyAction}
+          />
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {students.map((s) => (
+            <li key={s._id} className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-900">{s.name}</p>
+                  <p className="mt-0.5 font-mono text-xs font-semibold text-slate-800">{s.rollNo || '—'}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                  <StatusBadge status={s.registrationStatus} />
+                  {s.registrationStatus === 'active' && !s.emailVerified && (
+                    <Badge variant="neutral">Email unverified</Badge>
+                  )}
+                </div>
+              </div>
+              <dl className="mt-2.5 space-y-1 text-sm">
+                <div className="flex gap-2">
+                  <dt className="shrink-0 text-slate-500">Email</dt>
+                  <dd className="min-w-0 flex-1 break-all text-slate-700">{s.email || '—'}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="shrink-0 text-slate-500">Phone</dt>
+                  <dd className="min-w-0 flex-1 break-all text-slate-700">{s.phone || '—'}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="shrink-0 text-slate-500">Added</dt>
+                  <dd className="min-w-0 flex-1 text-slate-700">{formatDate(s.createdAt)}</dd>
+                </div>
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -137,10 +213,10 @@ export default function StudentsPage() {
         <SearchInput value={search} onChange={setSearch} placeholder="Search name, roll no, email…" label="Search students" />
       </div>
 
+      <div className="hidden sm:block">
       <DataTable
         columns={columns}
         rows={filtered}
-        tableClassName="min-w-0 sm:min-w-[540px]"
         loading={loading}
         error={error}
         onRetry={reload}
@@ -148,6 +224,15 @@ export default function StudentsPage() {
         onPageChange={setPage}
         emptyTitle="No students have been added to this section yet."
         emptyDescription="Add your first student — they'll get an email to activate their account before they can sign in."
+        emptyAction={<Button icon={IconUserPlus} onClick={() => setModal({ mode: 'create' })}>Add student</Button>}
+      />
+      </div>
+
+      <StudentCards
+        students={filtered}
+        loading={loading}
+        error={error}
+        onRetry={reload}
         emptyAction={<Button icon={IconUserPlus} onClick={() => setModal({ mode: 'create' })}>Add student</Button>}
       />
 
