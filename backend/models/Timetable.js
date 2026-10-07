@@ -52,6 +52,7 @@ const timetableSchema = new Schema(
         replyId: { type: String },
         hintedAt: { type: Date }, // last only-YES-or-NO reminder sent to this teacher
         questionAnsweredAt: { type: Date }, // OWNER 2026-10-07: last full-details answer card sent (teacher asked a basic question)
+        lastChatMsgId: { type: String }, // OWNER MASTER SPEC night #7: dedupe key — the LAST processed chat message id (duplicate webhook deliveries must not double-reply)
         // OWNER MASTER SPEC (2026-10-07 night #3): MULTI-TURN teacher conversation —
         // the last few turns are replayed to the LLM so short follow-ups
         // ('his number?', 'okay I'll take it') stay in the same class context.

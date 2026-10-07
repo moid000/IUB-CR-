@@ -389,8 +389,13 @@ async function converseWithTeacher(sender, payload, mode) {
     'teacherConfirmation.phone': sender,
     'teacherConfirmation.status': 'awaiting',
     'teacherConfirmation.sentAt': { $lte: new Date(replyTime.getTime() + 10_000) },
-    $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
-  }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() },
+    // OWNER MASTER SPEC night #7 §1/§2/§10: EVERY new teacher message is
+    // processed — duplicate protection is by MESSAGE ID (webhook redelivery),
+    // never a time cooldown. A 60s cooldown silently ate rapid follow-up
+    // questions ('section?' right after 'time?' got NO RESPONSE).
+    $or: [{ 'teacherConfirmation.lastChatMsgId': null }, { 'teacherConfirmation.lastChatMsgId': { $ne: String(payload.data.id).slice(0, 200) } }],
+  }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(),
+    'teacherConfirmation.lastChatMsgId': String(payload.data.id).slice(0, 200) },
       $push: { 'teacherConfirmation.conversation': { $each: [{ role: 'teacher', text: String(payload.data.body ?? '').slice(0, 400), at: replyTime }], $slice: -20 } } })
     .select('section subject date startTime endTime room createdBy teacherConfirmation').lean();
   // OWNER BUG FIX (2026-10-07 night): the teacher may ask 'g kon?' in reply to
@@ -407,13 +412,15 @@ async function converseWithTeacher(sender, payload, mode) {
       'teacherConfirmation.phone': sender,
       'teacherConfirmation.status': { $in: ['confirmed', 'declined', 'queued', 'sending', 'failed'] },
       date: { $in: days },
-      $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
-    }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() },
+      $or: [{ 'teacherConfirmation.lastChatMsgId': null }, { 'teacherConfirmation.lastChatMsgId': { $ne: String(payload.data.id).slice(0, 200) } }],
+    }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(),
+      'teacherConfirmation.lastChatMsgId': String(payload.data.id).slice(0, 200) },
       $push: { 'teacherConfirmation.conversation': { $each: [{ role: 'teacher', text: String(payload.data.body ?? '').slice(0, 400), at: replyTime }], $slice: -20 } } })
       .sort({ startTime: 1 })
       .select('section subject date startTime endTime room createdBy teacherConfirmation').lean();
   }
-  if (!slot) return false; // nothing real to answer from — silence, never invent
+  if (!slot) { chatLog('NO-ACTIVE-CONTEXT', { phone: sender, msg: payload.data.body }); return false; } // nothing real to answer from — silence, never invent
+  chatLog('CLAIM', { phone: sender, classId: slot._id, state: slot.teacherConfirmation?.status ?? 'pending', msg: payload.data.body });
   try {
     const [sectionDoc, subjectDoc, teacherDoc, crDoc] = await Promise.all([
       Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
@@ -442,7 +449,9 @@ async function converseWithTeacher(sender, payload, mode) {
     // asks for the actual decision — a clear YES/NO, never assumed.
     if (mode === 'ack') {
       const message = buildAckFollowUpMessage(ctx);
+      chatLog('AI-HANDLER INVOKED (ack)', { phone: sender, classId: slot._id, state: 'PENDING_CONFIRMATION', msg: payload.data.body, reply: message });
       await sendText(sender, message);
+      chatLog('SENT', { phone: sender, send: 'SUCCESS' });
       try {
         await Timetable.updateOne({ _id: slot._id },
           { $push: { 'teacherConfirmation.conversation': { $each: [{ role: 'agent', text: message.slice(0, 400), at: new Date() }], $slice: -20 } } });
@@ -462,7 +471,9 @@ async function converseWithTeacher(sender, payload, mode) {
       : INTERPRET_IDENTITY_RE.test(String(payload.data.body ?? ''))
         ? buildIdentityMessage(ctx)
         : buildStaticTeacherAnswer(String(payload.data.body ?? ''), ctx));
+    chatLog('AI-HANDLER INVOKED', { phone: sender, classId: slot._id, state: 'PENDING_CONFIRMATION', reply: message });
     await sendText(sender, message);
+    chatLog('SENT', { phone: sender, send: 'SUCCESS' });
     try { // record the agent's own turn so follow-ups stay contextual
       await Timetable.updateOne({ _id: slot._id },
         { $push: { 'teacherConfirmation.conversation': { $each: [{ role: 'agent', text: message.slice(0, 400), at: new Date() }], $slice: -20 } } });
@@ -478,7 +489,20 @@ async function converseWithTeacher(sender, payload, mode) {
 /* question stays fully intact: answering costs no attempt, consumes    */
 /* no queue slot. Strangers/group numbers stay silent.                   */
 /* ------------------------------------------------------------------ */
-const QUESTION_COOLDOWN_MS = 60 * 1000;
+/* OWNER MASTER SPEC §11 (night #7): temporary diagnostic logging for the
+ * teacher conversation workflow — one compact line per event so the owner can
+ * watch the live flow in the Vercel logs. Phone is masked to its last 4. */
+function chatLog(event, { phone, classId, state, msg, reply, send, verdict } = {}) {
+  const masked = phone ? `…${String(phone).slice(-4)}` : '—';
+  const parts = [`[teacher-chat ${new Date().toISOString()}]`, event, `phone=${masked}`];
+  if (classId) parts.push(`class=${String(classId).slice(-6)}`);
+  if (state) parts.push(`state=${state}`);
+  if (verdict) parts.push(`verdict=${verdict}`);
+  if (msg) parts.push(`msg=${JSON.stringify(String(msg).slice(0, 120))}`);
+  if (reply) parts.push(`reply=${JSON.stringify(String(reply).slice(0, 120))}`);
+  if (send) parts.push(`send=${send}`);
+  console.log(parts.join(' '));
+}
 
 /* OWNER FEATURE (2026-10-07 night): when EVERY Gemini model is down, a
  * teacher asking "ap kon ho? / g kon?" must still get a SHORT honest intro —
@@ -930,6 +954,7 @@ export async function handleTeacherReply(payload) {
   const plain = /^(YES|NO)\s*[.!]?$/i.exec(body);
   const sender = String(payload.data.from ?? '').split('@')[0].replace(/\D/g, '');
   if (!sender || !payload.data.id) return false;
+  chatLog('INCOMING', { phone: sender, msg: body });
   // OWNER FEATURE: a natural-language reply is INTERPRETED first. Only a
   // genuinely unclear reply falls back to the polite YES-or-NO reminder.
   let interpreted = null; // 'YES' | 'NO' | 'QUESTION' | null
@@ -938,6 +963,7 @@ export async function handleTeacherReply(payload) {
     // OWNER FEATURE (2026-10-07): a teacher asking a basic question gets a
     // HUMAN conversational answer; a genuinely unclear reply politely asks
     // for YES/NO — like a real person, never robot talk.
+    chatLog('CLASSIFY', { phone: sender, verdict: interpreted ?? 'UNCLEAR' });
     if (interpreted === 'QUESTION') return converseWithTeacher(sender, payload, 'question');
     if (interpreted === 'ACK') return converseWithTeacher(sender, payload, 'ack');
     if (!interpreted) return converseWithTeacher(sender, payload, 'unclear');

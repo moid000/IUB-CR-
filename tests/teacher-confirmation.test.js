@@ -303,9 +303,9 @@ test('unrecognized replies get a polite only-YES-or-NO hint; the question stays 
   assert.equal(after.status, 'awaiting'); // a hint never answers the question
   assert.equal(after.attempts, before.attempts); // and never consumes a retry
 
-  // an immediate second unclear reply is throttled — no hint spam
-  assert.equal((await webhook(incoming('pata nahi abhi, baad me bataon ga'))).json.data.updated, false);
-  assert.equal(sent.length, sentBefore + 1);
+  // night #7: a second unclear reply is a NEW message — it gets its own hint (never silence)
+  assert.equal((await webhook(incoming('pata nahi abhi, baad me bataon ga'))).json.data.updated, true);
+  assert.equal(sent.length, sentBefore + 2);
 
   // the teacher can still answer normally right after the hint
   assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
@@ -313,7 +313,7 @@ test('unrecognized replies get a polite only-YES-or-NO hint; the question stays 
 
   // once the question is resolved, further chatter gets no auto-reply
   assert.equal((await webhook(incoming('ok theek ha'))).json.data.updated, false);
-  assert.equal(sent.length, sentBefore + 2); // only the thank-you follow-up was added
+  assert.equal(sent.length, sentBefore + 3); // two hints + the thank-you follow-up
 });
 
 test('unrecognized replies from strangers or group numbers never trigger a hint', async () => {
@@ -687,15 +687,12 @@ test('OWNER FEATURE (2026-10-07): QUESTION + conversation API down → professio
     // the open question is NEVER answered or consumed by the explanation
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
 
-    // an immediate replay/throttled second question does not double-send
+    // night #7: rapid follow-up questions are answered IMMEDIATELY (no cooldown)
     const count = sent.length;
-    assert.equal((await webhook(incoming('aur room konsa hai?'))).json.data.updated, false);
-    assert.equal(sent.length, count);
-
-    // after the cooldown unlocks, the next question is answered again
-    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
-    assert.equal((await webhook(incoming('room konsa hai?'))).json.data.updated, true);
+    assert.equal((await webhook(incoming('aur room konsa hai?'))).json.data.updated, true);
     assert.equal(sent.length, count + 1);
+    assert.equal((await webhook(incoming('room konsa hai?'))).json.data.updated, true);
+    assert.equal(sent.length, count + 2);
 
     // the teacher can still answer normally right after asking questions
     assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
@@ -744,10 +741,10 @@ test('OWNER UPGRADE (2026-10-07): teacher questions get a HUMAN conversational r
     // the open YES/NO question is still fully intact
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
 
-    // a second question within the cooldown is throttled (no double-send)
+    // night #7: a second question is a new message — answered, never silenced
     const count = sent.length;
-    assert.equal((await webhook(incoming('room konsa hai phir?'))).json.data.updated, false);
-    assert.equal(sent.length, count);
+    assert.equal((await webhook(incoming('room konsa hai phir?'))).json.data.updated, true);
+    assert.equal(sent.length, count + 1);
 
     // the teacher can still answer normally right after the conversation
     assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
@@ -879,7 +876,6 @@ test('OWNER BUG FIX: ALL Gemini models down + "ap kon ho?" → SHORT honest AI-c
   assert.match(intro.body, /\*YES\*/);
   assert.doesNotMatch(intro.body, /Department:/);      // NOT the full details card
   // detail questions still get the card, not the intro
-  await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
   assert.equal((await webhook(incoming('konsa room hai aur semester konsa hai?'))).json.data.updated, true);
   assert.match(sent.at(-1).body, /Department: \*Computer Science\*/);
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
@@ -896,12 +892,12 @@ test('OWNER MASTER SPEC §2/§7 (night #4): "OK" is NOT confirmation — the bot
   assert.equal((await webhook(incoming('ok'))).json.data.updated, true);
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
   const ask = sent.at(-1);
-  assert.match(ask.body, /will you be taking|lein ge|class lein/i); // a natural confirm-ask
+  assert.match(ask.body, /will you be taking|lein ge|class lein|confirm kar dein|conduct karein/i); // a natural confirm-ask
   assert.doesNotMatch(ask.body, /Sorry|confusion/i);                 // no robotic hint
 
-  // a second ack within the cooldown is throttled — no spam
-  assert.equal((await webhook(incoming('acha'))).json.data.updated, false);
-  assert.equal(sent.length, sentBefore + 1);
+  // night #7: a second ack is a new message — it gets its own (varied) confirm-ask
+  assert.equal((await webhook(incoming('acha'))).json.data.updated, true);
+  assert.equal(sent.length, sentBefore + 2);
 
   // a clear Roman Urdu YES now confirms the class
   assert.equal((await webhook(incoming('han class ho gi'))).json.data.updated, true);
@@ -910,6 +906,103 @@ test('OWNER MASTER SPEC §2/§7 (night #4): "OK" is NOT confirmation — the bot
 
   // after the decision, a bare 'ok' gets silence — the flow is complete (§11)
   assert.equal((await webhook(incoming('ok'))).json.data.updated, false);
+});
+
+test('OWNER MASTER SPEC §13 (night #7) ACCEPTANCE: FIVE rapid questions in a row ALL get answers, then a real YES confirms — the conversation never goes silent', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-10', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'QUESTION';
+  const answers = {
+    'time kia hai?': 'Sir, class 9:00 AM se 10:00 AM tak hai.',
+    'section konsa hai?': 'Sir, ye 4B section hai.',
+    'room?': 'Sir, class R2 mein scheduled hai.',
+    'CR kon hai?': 'Sir, is section ke CR Abdul Rehman hain.',
+    'cr ka number?': 'Sir, CR ka number 03088787753 hai.',
+  };
+  const asked = [];
+  try {
+    // back-to-back questions, NO cooldown unlocking — every one must answer
+    for (const [q, a] of Object.entries(answers)) {
+      geminiChatReply = a;
+      const before = sent.length;
+      assert.equal((await webhook(incoming(q))).json.data.updated, true, `must respond to: ${q}`);
+      assert.equal(sent.length, before + 1, `exactly one reply to: ${q}`);
+      assert.equal(sent.at(-1).body, a);
+      asked.push(q);
+      assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+    }
+    // 'ok' → asks for the real decision (never confirms)
+    const before = sent.length;
+    geminiAnswer = 'ACK';
+    assert.equal((await webhook(incoming('ok'))).json.data.updated, true);
+    assert.equal(sent.length, before + 1);
+    assert.match(sent.at(-1).body, /lein ge|conduct karein|confirm/i);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+    // clear YES → CONFIRMED, loop ends
+    geminiAnswer = null;
+    assert.equal((await webhook(incoming('han ma class loon ga'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
+test('OWNER MASTER SPEC §13 (night #7) ACCEPTANCE (decline path): questions keep flowing, then a clear NO declines', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-11', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'QUESTION';
+  try {
+    for (const q of ['time kia hai?', 'room?', 'kis ny class schedule ki?']) {
+      geminiChatReply = `Sir — jawab: ${q}`;
+      const before = sent.length;
+      assert.equal((await webhook(incoming(q))).json.data.updated, true, `must respond to: ${q}`);
+      assert.equal(sent.length, before + 1);
+      assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+    }
+    // 'no bas itna hi' → NO MORE QUESTIONS, not a decline (§21/§6)
+    geminiAnswer = 'ACK';
+    const before = sent.length;
+    assert.equal((await webhook(incoming('no bas itna hi'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+    assert.ok(sent.length >= before);
+    // clear NO → DECLINED
+    geminiAnswer = null;
+    assert.equal((await webhook(incoming('nahi sir ma class nahi loon ga'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'declined');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
+test('OWNER MASTER SPEC §10 (night #7): duplicate webhook DELIVERY of the SAME message id is answered exactly ONCE (dedupe by id, never by time)', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-12', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'QUESTION';
+  geminiChatReply = 'Sir, class 9:00 AM se 10:00 AM tak hai.';
+  try {
+    const dup = incoming('time kia hai?');
+    const before = sent.length;
+    assert.equal((await webhook(dup)).json.data.updated, true);
+    assert.equal(sent.length, before + 1);
+    // the SAME webhook payload delivered twice (network retry) → no second reply
+    const second = await webhook(dup);
+    assert.equal(sent.length, before + 1, 'duplicate id must not re-reply');
+    // a NEW message id with the SAME text still gets a fresh answer
+    assert.equal((await webhook(incoming('time kia hai?'))).json.data.updated, true);
+    assert.equal(sent.length, before + 2);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
 });
 
 test('OWNER MASTER SPEC §22-C (night #6): an information answer while PENDING always carries the confirmation ask — never a bare answer', async () => {
@@ -943,7 +1036,6 @@ test('OWNER MASTER SPEC §21 (night #5): "nahi koi detail nahi chahiye" is NOT a
   geminiChatReply = 'Wa Alaikum Assalam Sir. Main Tri3M Class Agent hoon, class coordination assistant. Aapki scheduled class ke reminder ke liye contact kar raha hoon. Agar koi aur detail chahiye to bataiyega.';
   try {
     assert.equal((await webhook(incoming('ap kon ho?'))).json.data.updated, true);
-    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
 
     // "nahi koi detail nahi chahiye" — NO MORE QUESTIONS, NOT a decline (§21-A)
     assert.equal((await webhook(incoming('nahi koi detail nahi chahiye'))).json.data.updated, true);
@@ -986,7 +1078,6 @@ test('OWNER MASTER SPEC §21-F: bare "nahi" right after a NON-question agent ans
   geminiChatReply = 'Sir, is class ka CR Abdul Rehman Bin Abdullah hai. Aur koi detail chahiye to bataiyega.';
   try {
     assert.equal((await webhook(incoming('cr kon hai?'))).json.data.updated, true);
-    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
 
     // bare 'nahi' answers "aur detail chahiye?" → no-more-questions, NOT a decline (§21-C/G)
     geminiAnswer = null; // fresh classification of the bare 'nahi' (rules path)
@@ -1010,7 +1101,6 @@ test('OWNER MASTER SPEC §4/§18: multi-turn conversation memory — turns recor
   try {
     // turn 1: a question
     assert.equal((await webhook(incoming('cr kon hai?'))).json.data.updated, true);
-    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
 
     // turn 2: a SHORT follow-up — 'number?' only makes sense with the context
     geminiChatReply = 'His contact number is +923009876543, Sir.';
@@ -1058,7 +1148,6 @@ test('OWNER BUG FIX (2026-10-07 night #2): "ye kis ka number hai?" → honest id
   assert.doesNotMatch(sent.at(-1).body, /Sorry for the confusion/);
 
   // Gemini misreads the question as UNCLEAR → still a conversation, never the hint
-  await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
   geminiAnswer = 'UNCLEAR';
   geminiChatReply = 'Sir, ye Tri3M Class Agent ka number hai — aap ke section CR ke taraf se class confirm karne ke liye. Kindly YES ya NO bata dein.';
   try {
@@ -1071,7 +1160,6 @@ test('OWNER BUG FIX (2026-10-07 night #2): "ye kis ka number hai?" → honest id
   }
 
   // a genuine maybe (no question shape) keeps the polite hint — correct behavior
-  await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
   geminiAnswer = 'UNCLEAR';
   try {
     assert.equal((await webhook(incoming('shayad bata donga'))).json.data.updated, true);
