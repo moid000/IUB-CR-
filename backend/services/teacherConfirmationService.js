@@ -443,7 +443,7 @@ const QUESTION_COOLDOWN_MS = 60 * 1000;
  * NOT the full details card. The card is only for detail questions. */
 /* sender-identity ONLY (ap/g/tum kon?, who is this?) — NOT detail questions
  * like 'CR kaun hai?' (asks the CR's name → full card). */
-const INTERPRET_IDENTITY_RE = /\b(ap|aap|tum|tu|g|ji|gee)\s+(kon|kaun|kvn)\b|^\s*(kon|kaun|kvn)\b|\b(kon|kaun|kvn)\s*\?+\s*$|\bwho\b\s*(?:is|are)?\s*(?:this|that|you|u|messaging|texting)?\b\s*(?:me|u|you)?\s*\?*\s*$/i;
+const INTERPRET_IDENTITY_RE = /\b(ap|aap|tum|tu|g|ji|gee)\s+(kon|kaun|kvn)\b|^\s*(kon|kaun|kvn)\b|\b(kon|kaun|kvn)\s*\?+\s*$|\bwho\b\s*(?:is|are)?\s*(?:this|that|you|u|messaging|texting)?\b\s*(?:me|u|you)?\s*\?*\s*$|\bkis?\s*ka\s*(number|nmbr|no)\b|\bkiska\s*(number|nmbr)\b|number\s+kis|whose\s+number/i;
 
 export function buildIdentityMessage({ teacher, section, subject, day, time, room, crName, crRole, crPhone }) {
   const lines = [
@@ -553,6 +553,17 @@ const INTERPRET_STRONG_YES_RE = /(ho|how) ?g[iay]a?|\b(haan|han|haa|yes|yep|ok|o
  * 'samajh nahi aa raha' is confusion → QUESTION too
  * (it used to fall through to the NO word-list — wrong answer to a teacher
  * who simply did not understand the message). */
+/* OWNER FIX (2026-10-07 night #2, live: 'ye kis ka number hai?' got the canned
+ * 'Sorry for the confusion' hint): an UNCLEAR verdict whose message still
+ * LOOKS like an informational question is routed to the human conversation —
+ * never the canned hint. Safe: conversing never confirms/denies anything.
+ * Checked ONLY at the UNCLEAR exit (a NO like 'nahi aa sakta kyun ke...' has
+ * already matched NO before this pattern is consulted). */
+const INTERPRET_BROAD_QUESTION_RE = /\b(kis|kisko|kisne|kis ka|kisa|kyun|kyo|kyu|kaise|kab|kahan|kon|kaun|who|whose|which|what|where|when|why|how)\b|number|\?/i;
+/* word-only variant (no bare '?') — used to outrank stray yes/no words when
+ * the message itself ends with a question mark ('class kaise hogi?') */
+const INTERPRET_QUESTION_WORD_RE = /\b(kis|kisko|kisne|kis ka|kisa|kyun|kyo|kyu|kaise|kab|kahan|kon|kaun|who|whose|which|what|where|when|why|how)\b|number/i;
+
 const INTERPRET_QUESTION_RE = /which (section|class|semester|department|dept|subject|room|cr|time)|what (section|class|semester|department|dept|subject|room|time|is this|is that|about)|who (is|are|this|that)\b|who are you|\bwho\b|\b(kon|kaun|kvn)\b|\b(aap|ap|ye|yeh|tum|tu) (kon|kaun|kvn)\b|\bkab\b|\bkahan\b|kons?[aiy]? (section|class|subject|semester|sem|dept|department|room|group|time|class)|kaun sa (section|class|subject|room|semester)|kaun si (class|section)|section (kon|kaun|kya|which|konsa|konsi)|semester (kon|kaun|kya|which|konsa|konsi)|department (kon|kaun|kya|which|konsa)|dept (kon|kaun|kya|which)|cr (kon|kaun|kya|who|kaun hai|kon hai|number|num)|room (kya|kon|kaun|which|kahan|kaha|number)|kab (hai|ho|lgi|legi|leni|lagna)|kahan (hai|ho|class)|samajh (nahi|nh|ni|nahin|nai)|smajh (nahi|nh|ni|nahin)|samjh (nahi|nh|ni)/i;
 
 /** Local rules: 'YES' | 'NO' | 'QUESTION' | null (unclear → try Gemini). Exported for tests. */
@@ -564,8 +575,15 @@ export function interpretReply(body) {
   // a basic question outranks stray yes/no words ('konsa section hai' contains
   // 'hai', 'section hai nahi ho gi' would read as NO — a question is a question)
   if (INTERPRET_QUESTION_RE.test(t)) return 'QUESTION';
+  // a message that ENDS with a question mark AND carries an interrogative
+  // word is a question even if it contains a stray yes/no word
+  // ('class kaise hogi?' contains 'hogi' — but it is asking HOW)
+  if (/[?؟]\s*$/.test(t) && INTERPRET_QUESTION_WORD_RE.test(t)) return 'QUESTION';
   if (INTERPRET_NO_RE.test(t)) return 'NO';
   if (INTERPRET_YES_RE.test(t)) return 'YES';
+  // nothing yes/no matched — but the message still LOOKS like an informational
+  // question ('ye kis ka number hai?'): answer it instead of the canned hint
+  if (INTERPRET_BROAD_QUESTION_RE.test(t)) return 'QUESTION';
   return null;
 }
 
@@ -574,7 +592,11 @@ export function interpretReply(body) {
  * fell back to the static word-list card — the owner read it as "still word-
  * trained". Same cure as the group chatbot: try the primary model, then the
  * backup models, until one answers. */
-const GEMINI_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-3.1-flash-lite')
+/* OWNER FIX (2026-10-07 night #2): flash-latest kept 503/429-ing live and the
+ * 3.1 backup took 12 SECONDS per call (owner: 'late reply a raha'). Measured
+ * live: gemini-flash-lite-latest answers correctly in ~1.5s — it is the new
+ * second hop; 3.1 stays last-resort only. */
+const GEMINI_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-flash-lite-latest,gemini-3.1-flash-lite')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
 /** POST generateContent to each model in turn; returns the parsed JSON object
@@ -641,9 +663,15 @@ export async function interpretTeacherReply(body) {
     return viaGemini;
   }
   if (viaGemini === 'QUESTION') return 'QUESTION';
-  // The LLM REACHED a verdict of UNCLEAR — its reading is final, the greedy
-  // word rules must not second-guess it ("samajh nahi aa raha" is not a NO).
-  if (viaGemini === 'UNCLEAR') return null;
+  // The LLM REACHED a verdict of UNCLEAR — its reading is final about YES/NO,
+  // the greedy word rules must not second-guess it ("samajh nahi aa raha" is
+  // not a NO). BUT if the message still looks like an informational question
+  // ('ye kis ka number hai?'), it gets the human conversation instead of the
+  // canned 'Sorry for the confusion' hint — conversing confirms nothing.
+  if (viaGemini === 'UNCLEAR') {
+    const t = String(body ?? '').toLowerCase().trim();
+    return INTERPRET_BROAD_QUESTION_RE.test(t) ? 'QUESTION' : null;
+  }
   // API unreachable → local rules as the safety net
   return interpretReply(body);
 }

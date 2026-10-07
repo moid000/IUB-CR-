@@ -354,7 +354,11 @@ Return ONLY JSON: { "reply": string, "send_note_titles": string[] (may be empty)
 // Backup models: if the primary Gemini model is overloaded (Google serves
 // "high demand" 503s), retry once, then move down this chain. Keeps the
 // bot answering instead of silently dropping to keyword fallback.
-const BACKUP_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-3.1-flash-lite')
+/* OWNER FIX (2026-10-07 night #2): 3.1-flash-lite backup measured 12s per
+ * call live; gemini-flash-lite-latest answers in ~1.5s — it REPLACES 3.1 as
+ * the group bot's second backup (the retry chain stays inside its budget and
+ * the 12s model was useless under the group latency budget anyway). */
+const BACKUP_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-flash-lite-latest')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
 async function geminiCall(url, payload, deadline = null) {

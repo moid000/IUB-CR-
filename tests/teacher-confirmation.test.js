@@ -356,6 +356,17 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
   for (const yes of ['g', 'ji', 'g sir']) {
     assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
   }
+  // OWNER BUG (2026-10-07 night #2, LIVE): 'ye kis ka number hai?' got the
+  // canned 'Sorry for the confusion' hint. Informational questions NEVER get
+  // the hint — they route to the human conversation.
+  for (const q of ['ye kis ka number hai?', 'number konsa hai?', 'ap ka number kis ka hai?',
+    'kis ka number hai ye?', 'class kaise hogi?', 'how are you?']) {
+    assert.equal(interpretReply(q), 'QUESTION', `expected QUESTION: ${q}`);
+  }
+  // genuine maybes stay UNCLEAR (hint is correct there)
+  for (const u of ['maybe', 'shayad bata donga', 'ho jaye ga dekh ke']) {
+    assert.equal(interpretReply(u), null, `expected UNCLEAR: ${u}`);
+  }
   // genuinely unclear — never guessed, hint path instead
   for (const unclear of ['pata nahi abhi', 'acha, dekh ke bataon ga', 'acha', 'maybe', 'thori der me bataon ga']) {
     assert.equal(interpretReply(unclear), null, `expected UNCLEAR: ${unclear}`);
@@ -798,6 +809,42 @@ test('OWNER BUG FIX: ALL Gemini models down + "ap kon ho?" → SHORT honest AI-c
   assert.equal((await webhook(incoming('konsa room hai aur semester konsa hai?'))).json.data.updated, true);
   assert.match(sent.at(-1).body, /Department: \*Computer Science\*/);
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+});
+
+test('OWNER BUG FIX (2026-10-07 night #2): "ye kis ka number hai?" → honest identity answer, NEVER the canned confusion hint', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-27', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  // all models down (geminiAnswer/geminiChatReply null) → static identity intro
+  assert.equal((await webhook(incoming('ye kis ka number hai?'))).json.data.updated, true);
+  assert.match(sent.at(-1).body, /AI chatbot/);
+  assert.match(sent.at(-1).body, /Alex Representative/);
+  assert.doesNotMatch(sent.at(-1).body, /Sorry for the confusion/);
+
+  // Gemini misreads the question as UNCLEAR → still a conversation, never the hint
+  await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
+  geminiAnswer = 'UNCLEAR';
+  geminiChatReply = 'Sir, ye Tri3M Class Agent ka number hai — aap ke section CR ke taraf se class confirm karne ke liye. Kindly YES ya NO bata dein.';
+  try {
+    assert.equal((await webhook(incoming('ye kis ka number hai?'))).json.data.updated, true);
+    assert.equal(sent.at(-1).body, geminiChatReply);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting'); // nothing confirmed
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+
+  // a genuine maybe (no question shape) keeps the polite hint — correct behavior
+  await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
+  geminiAnswer = 'UNCLEAR';
+  try {
+    assert.equal((await webhook(incoming('shayad bata donga'))).json.data.updated, true);
+    assert.match(sent.at(-1).body, /YES \*or\* \*NO|plain \*YES\* or \*NO/i);
+  } finally {
+    geminiAnswer = null;
+  }
 });
 
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
