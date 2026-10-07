@@ -335,38 +335,27 @@ async function chatReplyWithGemini(body, facts, { unclear = false } = {}) {
   const key = env.chatbot?.googleApiKey;
   if (!key) return null;
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TEACHER_CHAT_TIMEOUT_MS);
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(key)}`,
-      { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: [
-            'You are a real, warm, well-mannered Pakistani university student texting your respected teacher on WhatsApp on behalf of the section (you write as the "Tri3M Class Agent" for the section CR).',
-            'You are a HUMAN — never a robot, never a bot. Write exactly how a polite student texts a teacher: short, respectful, natural.',
-            'Reply in the SAME language the teacher used (Roman Urdu / English / mixed).',
-            'RULES:',
-            '1. Answer ONLY what the teacher asked — precisely, briefly (under 60 words). Never dump all details unasked.',
-            '2. Use ONLY the FACTS below. Never invent, guess or add any information. If the asked detail is not in the FACTS, say honestly that you will ask the CR to confirm it shortly — and you may give the CR name.',
-            '3. NEVER say or hint that you are an AI, bot, agent, system or automated. NEVER mention teams, offline staff, support or contacting us. No greetings-block repetition, no formal letter style — plain WhatsApp texting.',
-            '4a. If the teacher asks WHO is texting (g kon? / kon hai? / who is this?), introduce yourself once, warmly: you are texting on behalf of the CR named in the FACTS, managing the class status for the section — mention the Tri3M Class Agent by name. Never claim to be an AI.',
-            '4b. The FACTS include the current Class status — state it truthfully ONLY if relevant (e.g. the class is already confirmed, or still awaiting their YES/NO). Never mark or change anything yourself.',
-            unclear
-              ? '5. The teacher\'s message could not be understood as an answer about attending the class: very politely say you could not follow it, and request a plain YES (you will take the class) or NO (you cannot) so the students see the correct status.'
-              : '5. Only when the Class status says it is awaiting your YES or NO, end with ONE short natural line asking them to reply YES or NO whenever convenient — if the class is already confirmed or declined, never re-ask; just answer what they asked.',
-          ].join('\n') + '\n\nFACTS:\n' + facts }] },
-          contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 300, responseMimeType: 'application/json',
-            responseSchema: { type: 'OBJECT', properties: { reply: { type: 'STRING' } }, required: ['reply'] } },
-        }) },
-    );
-    if (!res.ok) return null;
-    const json = await res.json();
-    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    const reply = String((JSON.parse(raw) ?? {}).reply ?? '').trim();
+    const parsed = await geminiJson({
+      systemInstruction: { parts: [{ text: [
+        'You are the "Tri3M Class Agent" — an AI chatbot built by the section students, texting your respected teacher on WhatsApp on behalf of the section CR.',
+        'Reply in the SAME language the teacher used (Roman Urdu / English / mixed). Short, natural, full of respect — like a polite student texting a respected teacher.',
+        'RULES:',
+        '1. Answer EVERY question the teacher asks — whatever it is, never a canned dump. Brief (under 60 words). Class details (department, semester, section, subject, date, time, room, CR name/phone) come ONLY from the FACTS below — never invent class details. Small talk or any other question: answer naturally like a person.',
+        '2. If the teacher asks WHO or WHAT you are (ap kon ho? / g kon? / kon hai? / who is this?), answer honestly and simply: you are the Tri3M Class Agent — an AI chatbot made by the section students — texting on behalf of the CR named in the FACTS, to remind them about the class and get a YES/NO; then kindly ask for the YES/NO. Example: "Sir, main Tri3M ka AI chatbot hun — aap ke section CR ke taraf se reminder bheja hai ke aap ki class hai. Kindly YES ya NO bata dein." (in their language, short).',
+        '3. Without being asked, never start robot talk (AI/bot/team/offline/support). But when asked who you are, the honest AI-chatbot intro above IS the answer — never hide it.',
+        '4. The FACTS include the current Class status — state it truthfully ONLY if relevant (already confirmed / awaiting their YES/NO). Never claim you marked anything; their YES/NO reply does that.',
+        unclear
+          ? '5. The teacher\'s message could not be understood as an answer about attending the class: very politely say you could not follow it, and request a plain YES (you will take the class) or NO (you cannot) so the students see the correct status.'
+          : '5. Only when the Class status says it is awaiting your YES or NO, end with ONE short natural line asking them to reply YES or NO whenever convenient — if already confirmed or declined, never re-ask; just answer what they asked.',
+      ].join('\n') + '\n\nFACTS:\n' + facts }] },
+      contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 300, responseMimeType: 'application/json',
+        responseSchema: { type: 'OBJECT', properties: { reply: { type: 'STRING' } }, required: ['reply'] } },
+    }, TEACHER_CHAT_TIMEOUT_MS);
+    const reply = String(parsed?.reply ?? '').trim();
     return reply ? reply.slice(0, 800) : null;
-  } catch { return null; } finally { clearTimeout(timer); }
+  } catch { return null; }
 }
 
 /** Claim the open awaiting question and answer the teacher like a human:
@@ -391,12 +380,13 @@ async function converseWithTeacher(sender, payload, mode) {
   // who is texting must NEVER get silence: answer from their REAL class
   // today (facts only, status told truthfully, question never re-asked).
   if (!slot) {
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+    const karachiDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' });
+    const days = [0, 1].map((offset) => karachiDay.format(new Date(Date.now() + offset * 86_400_000))); // today + tomorrow PKT
     slot = await Timetable.findOneAndUpdate({
       status: 'active',
       'teacherConfirmation.phone': sender,
       'teacherConfirmation.status': { $in: ['confirmed', 'declined', 'queued', 'sending', 'failed'] },
-      date: today,
+      date: { $in: days },
       $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
     }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() } })
       .sort({ startTime: 1 })
@@ -431,7 +421,9 @@ async function converseWithTeacher(sender, payload, mode) {
     const reply = await chatReplyWithGemini(String(payload.data.body ?? ''), buildTeacherChatFacts(ctx), { unclear: mode === 'unclear' });
     const message = reply ?? (mode === 'unclear'
       ? buildHintMessage(teacherDoc.name)
-      : buildQuestionAnswerMessage(ctx));
+      : INTERPRET_IDENTITY_RE.test(String(payload.data.body ?? ''))
+        ? buildIdentityMessage(ctx)
+        : buildQuestionAnswerMessage(ctx));
     await sendText(sender, message);
   } catch (err) { console.error('[teacher conversation]', err.message); } // best-effort
   return true;
@@ -445,6 +437,33 @@ async function converseWithTeacher(sender, payload, mode) {
 /* no queue slot. Strangers/group numbers stay silent.                   */
 /* ------------------------------------------------------------------ */
 const QUESTION_COOLDOWN_MS = 60 * 1000;
+
+/* OWNER FEATURE (2026-10-07 night): when EVERY Gemini model is down, a
+ * teacher asking "ap kon ho? / g kon?" must still get a SHORT honest intro —
+ * NOT the full details card. The card is only for detail questions. */
+/* sender-identity ONLY (ap/g/tum kon?, who is this?) — NOT detail questions
+ * like 'CR kaun hai?' (asks the CR's name → full card). */
+const INTERPRET_IDENTITY_RE = /\b(ap|aap|tum|tu|g|ji|gee)\s+(kon|kaun|kvn)\b|^\s*(kon|kaun|kvn)\b|\b(kon|kaun|kvn)\s*\?+\s*$|\bwho\b\s*(?:is|are)?\s*(?:this|that|you|u|messaging|texting)?\b\s*(?:me|u|you)?\s*\?*\s*$/i;
+
+export function buildIdentityMessage({ teacher, section, subject, day, time, room, crName, crRole, crPhone }) {
+  const lines = [
+    `Assalam-o-Alaikum Respected ${bold(teacher)},`,
+    '',
+    `I am the ${bold('Tri3M Class Agent')} — an AI chatbot built by the students of your section, texting on behalf of ${bold(crName ?? 'your section CR')} (${crRole ?? 'CR'} of ${bold(section, 25)}).`,
+  ];
+  if (crPhone) lines.push(`You may also contact ${crName ?? 'the CR'} directly: ${crPhone}`);
+  lines.push(
+    `I sent you the reminder because your ${bold(subject)} class is scheduled for ${bold(day)} at ${bold(time)}${room ? `, ${bold(room, 40)}` : ''}.`,
+    '',
+    'Kindly reply:',
+    '*YES* — you will take the class',
+    '*NO* — you cannot take the class',
+    '',
+    'Thank you for your cooperation.',
+    'JazakAllah Khair.',
+  );
+  return lines.join('\n');
+}
 
 /** Full details card — answers every basic question at once: department,
  * semester, section, subject, date, time, room, and the CR's name + phone
@@ -550,7 +569,36 @@ export function interpretReply(body) {
   return null;
 }
 
-/** Gemini classifier: returns 'YES' | 'NO' | 'UNCLEAR', or null when the API
+/* OWNER FIX (2026-10-07 night, LIVE incident): gemini-flash-latest was serving
+ * 503 "high demand" in production, so EVERY teacher conversation silently
+ * fell back to the static word-list card — the owner read it as "still word-
+ * trained". Same cure as the group chatbot: try the primary model, then the
+ * backup models, until one answers. */
+const GEMINI_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-3.1-flash-lite')
+  .split(',').map((m) => m.trim()).filter(Boolean);
+
+/** POST generateContent to each model in turn; returns the parsed JSON object
+ * or null when every model is down/unparseable. NEVER throws. */
+async function geminiJson(payload, timeoutMs) {
+  const key = env.chatbot?.googleApiKey ?? '';
+  for (const model of GEMINI_MODELS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+        { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) continue; // 503 / 404 / overload → next model
+      const json = await res.json();
+      const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      try { return JSON.parse(raw) ?? null; } catch { continue; }
+    } catch { continue; } // timeout / network → next model
+    finally { clearTimeout(timer); }
+  }
+  return null;
+}
+
+/** Gemini classifier: returns 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR', or null when the API
  * is unreachable (no key, network, timeout, bad response). NEVER throws. */
 async function classifyReplyWithGemini(body) {
   const key = env.chatbot?.googleApiKey;
@@ -558,25 +606,17 @@ async function classifyReplyWithGemini(body) {
   // tests stay deterministic: Gemini is opt-in via ALLOW_TEST_GEMINI=1 and a
   // mocked generativelanguage fetch — production always calls the real API.
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), INTERPRET_TIMEOUT_MS);
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(key)}`,
-      { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come. NO = the teacher will not take it / cannot come / does not want to. QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"UNCLEAR"}.' }] },
-          contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
-            responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'UNCLEAR'] } }, required: ['answer'] } },
-        }) },
-    );
-    if (!res.ok) return null;
-    const json = await res.json();
-    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    const ans = String((JSON.parse(raw) ?? {}).answer ?? '').toUpperCase();
+    const parsed = await geminiJson({
+      systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come. NO = the teacher will not take it / cannot come / does not want to. QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"UNCLEAR"}.' }] },
+      contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
+        responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'UNCLEAR'] } }, required: ['answer'] } },
+    }, INTERPRET_TIMEOUT_MS);
+    if (!parsed) return null; // every model unreachable → local rules safety net
+    const ans = String(parsed?.answer ?? '').toUpperCase();
     return ans === 'YES' || ans === 'NO' || ans === 'QUESTION' ? ans : 'UNCLEAR';
-  } catch { return null; } finally { clearTimeout(timer); }
+  } catch { return null; }
 }
 
 /** Interpret ANY teacher reply into 'YES' | 'NO' | 'QUESTION' | null.

@@ -27,8 +27,12 @@ const sent = [];
 let failNext = false;
 let geminiAnswer = null; // 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR' | null (null = API error → rules fallback)
 let geminiChatReply = null; // OWNER 2026-10-07: human conversation reply ({reply} schema) — null = API error → static fallback
+const geminiDownModels = new Set(); // OWNER 2026-10-07 night: model names serving 503 (live incident)
 globalThis.fetch = (url, options) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
+    if ([...geminiDownModels].some((m) => String(url).includes(`/models/${m}:`))) {
+      return Promise.resolve(new Response(JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } }), { status: 503 }));
+    }
     const isChat = String(options.body).includes('"reply"'); // teacher conversation uses the {reply} schema
     if (isChat && geminiChatReply) {
       const payload = { candidates: [{ content: { parts: [{ text: JSON.stringify({ reply: geminiChatReply }) }] } }] };
@@ -750,6 +754,50 @@ test('OWNER BUG FIX: teacher asking "g kon?" about an ALREADY-CONFIRMED class (r
     geminiAnswer = null;
     geminiChatReply = null;
   }
+});
+
+test('OWNER BUG FIX (2026-10-07 night): primary Gemini model 503 (live incident) → BACKUP model still gives the human reply', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-25', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'QUESTION';
+  geminiChatReply = 'Sir, main Tri3M ka AI chatbot hun — CR ke taraf se class confirm karne ke liye text kar raha hun. Kindly YES ya NO bata dein.';
+  geminiDownModels.add('gemini-flash-latest'); // the exact live 503 failure
+  try {
+    const res = await webhook(incoming('ap kon ho?'));
+    assert.equal(res.json.data.updated, true);
+    assert.equal(sent.at(-1).body, geminiChatReply); // backup model answered
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+    geminiDownModels.clear();
+  }
+});
+
+test('OWNER BUG FIX: ALL Gemini models down + "ap kon ho?" → SHORT honest AI-chatbot intro, never the details card', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-26', startTime: '09:00', endTime: '10:00', room: 'Room 26' });
+  const slotId = r.json.data._id;
+
+  // geminiAnswer/geminiChatReply null → every model 400 → offline fallbacks
+  assert.equal((await webhook(incoming('ap kon ho?'))).json.data.updated, true);
+  const intro = sent.at(-1);
+  assert.equal(intro.to, teacher.whatsapp);
+  assert.match(intro.body, /Tri3M Class Agent/);
+  assert.match(intro.body, /AI chatbot/);              // honest identity (owner's exact wish)
+  assert.match(intro.body, /Alex Representative/);     // the real CR
+  assert.match(intro.body, /Room 26|9:00/);             // the class context in one line
+  assert.match(intro.body, /\*YES\*/);
+  assert.doesNotMatch(intro.body, /Department:/);      // NOT the full details card
+  // detail questions still get the card, not the intro
+  await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
+  assert.equal((await webhook(incoming('konsa room hai aur semester konsa hai?'))).json.data.updated, true);
+  assert.match(sent.at(-1).body, /Department: \*Computer Science\*/);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
 });
 
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
