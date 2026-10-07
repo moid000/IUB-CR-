@@ -341,6 +341,17 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
     'mujhe samajh nahi aa raha ye konsi class hai']) {
     assert.equal(interpretReply(q), 'QUESTION', `expected QUESTION: ${q}`);
   }
+  // OWNER BUG (2026-10-07 night, LIVE incident): teacher replied 'g kon?'
+  // (who is this?) to the pre-class reminder and the class got CONFIRMED —
+  // 'g' (polite ji) matched the YES list. Identity questions now outrank.
+  for (const q of ['g kon?', 'g kaun?', 'kon?', 'kon ho tum?', 'aap kon?', 'g who?',
+    'who is this?', 'who?', 'kab?', 'kahan?']) {
+    assert.equal(interpretReply(q), 'QUESTION', `expected QUESTION: ${q}`);
+  }
+  // a lone polite 'g'/'ji' with no question is still a YES
+  for (const yes of ['g', 'ji', 'g sir']) {
+    assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
+  }
   // genuinely unclear — never guessed, hint path instead
   for (const unclear of ['pata nahi abhi', 'acha, dekh ke bataon ga', 'acha', 'maybe', 'thori der me bataon ga']) {
     assert.equal(interpretReply(unclear), null, `expected UNCLEAR: ${unclear}`);
@@ -684,6 +695,57 @@ test('OWNER UPGRADE (2026-10-07): an unclear reply gets a human clarification re
     assert.equal(reply.body, geminiChatReply);
     assert.doesNotMatch(reply.body, /offline|team|AI (agent|assistant)|automated|bot\b/i);
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
+test('OWNER BUG FIX (2026-10-07 night): "g kon?" after a reminder can NEVER confirm a class — human answer instead', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-24', startTime: '09:00', endTime: '10:00', room: 'Room 24' });
+  const slotId = r.json.data._id;
+
+  // Gemini MISREADS the question as YES (the exact live failure mode)
+  geminiAnswer = 'YES';
+  geminiChatReply = 'Assalam-o-Alaikum sir! Main [CR] ki taraf se text kar raha hun — section ka class agent (Tri3M Class Agent). Aap ki class ki status update ke liye YES ya NO bhej dein.';
+  try {
+    // unit level: the guard flips a question-looking YES verdict to QUESTION
+    const { interpretTeacherReply } = await import('../backend/services/teacherConfirmationService.js');
+    assert.equal(await interpretTeacherReply('g konsa room hai?'), 'QUESTION'); // NO misread guarded too
+    assert.equal(await interpretTeacherReply('haan ji konsa room hai?'), 'YES'); // a REAL yes still stands
+
+    // live flow: question → human conversation, class NOT confirmed
+    const res = await webhook(incoming('g kon?'));
+    assert.equal(res.json.data.updated, true);
+    assert.equal(sent.at(-1).body, geminiChatReply);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+
+    // the teacher can still confirm normally afterwards
+    assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
+test('OWNER BUG FIX: teacher asking "g kon?" about an ALREADY-CONFIRMED class (reminder case) still gets a human answer', async () => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: today, startTime: '23:00', endTime: '23:50' });
+  const slotId = r.json.data._id;
+  assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+
+  geminiAnswer = 'QUESTION';
+  geminiChatReply = 'Ji sir, main aap ke section CR ki taraf se text kar raha hun — Tri3M Class Agent. Aap ki 11:00 wali class already confirmed hai.';
+  try {
+    const res = await webhook(incoming('g kon?'));
+    assert.equal(res.json.data.updated, true);
+    assert.equal(sent.at(-1).body, geminiChatReply);
+    // status untouched by the conversation
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
   } finally {
     geminiAnswer = null;
     geminiChatReply = null;

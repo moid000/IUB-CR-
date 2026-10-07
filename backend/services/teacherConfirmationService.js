@@ -303,7 +303,16 @@ export async function dispatchPendingTeacherConfirmations() {
 const TEACHER_CHAT_TIMEOUT_MS = 8_000;
 
 /* Grounded facts block for the conversation — the ONLY truth the model may use. */
-function buildTeacherChatFacts({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone }) {
+function classStatusLine(status) {
+  switch (status) {
+    case 'awaiting': return 'awaiting your YES or NO reply';
+    case 'confirmed': return 'already CONFIRMED — students already see it as confirmed';
+    case 'declined': return 'currently marked NOT confirmed (declined)';
+    default: return 'pending — not confirmed yet';
+  }
+}
+
+function buildTeacherChatFacts({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone, classStatus }) {
   return [
     `Teacher: ${teacher}`,
     `Subject: ${subject}`,
@@ -315,6 +324,7 @@ function buildTeacherChatFacts({ teacher, section, department, semester, subject
     `Section: ${section ?? '—'}`,
     `The class was scheduled by: ${crName ?? 'the section CR'} (${crRole ?? 'CR'})`,
     crPhone ? `CR's contact number (may be shared with the teacher on request): ${crPhone}` : 'CR contact number: not available',
+    `Class status: ${classStatusLine(classStatus)}`,
   ].join('\n');
 }
 
@@ -340,9 +350,11 @@ async function chatReplyWithGemini(body, facts, { unclear = false } = {}) {
             '1. Answer ONLY what the teacher asked — precisely, briefly (under 60 words). Never dump all details unasked.',
             '2. Use ONLY the FACTS below. Never invent, guess or add any information. If the asked detail is not in the FACTS, say honestly that you will ask the CR to confirm it shortly — and you may give the CR name.',
             '3. NEVER say or hint that you are an AI, bot, agent, system or automated. NEVER mention teams, offline staff, support or contacting us. No greetings-block repetition, no formal letter style — plain WhatsApp texting.',
+            '4a. If the teacher asks WHO is texting (g kon? / kon hai? / who is this?), introduce yourself once, warmly: you are texting on behalf of the CR named in the FACTS, managing the class status for the section — mention the Tri3M Class Agent by name. Never claim to be an AI.',
+            '4b. The FACTS include the current Class status — state it truthfully ONLY if relevant (e.g. the class is already confirmed, or still awaiting their YES/NO). Never mark or change anything yourself.',
             unclear
-              ? '4. The teacher\'s message could not be understood as an answer about attending the class: very politely say you could not follow it, and request a plain YES (you will take the class) or NO (you cannot) so the students see the correct status.'
-              : '4. If the class is still unconfirmed, end with ONE short natural line asking them to reply YES or NO whenever convenient — do not lecture them.',
+              ? '5. The teacher\'s message could not be understood as an answer about attending the class: very politely say you could not follow it, and request a plain YES (you will take the class) or NO (you cannot) so the students see the correct status.'
+              : '5. Only when the Class status says it is awaiting your YES or NO, end with ONE short natural line asking them to reply YES or NO whenever convenient — if the class is already confirmed or declined, never re-ask; just answer what they asked.',
           ].join('\n') + '\n\nFACTS:\n' + facts }] },
           contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
           generationConfig: { temperature: 0.4, maxOutputTokens: 300, responseMimeType: 'application/json',
@@ -365,7 +377,7 @@ async function converseWithTeacher(sender, payload, mode) {
   const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime;
   if (!Number.isFinite(epoch) || epoch < 1_500_000_000 || epoch > Date.now() / 1000 + 300) return false;
   const replyTime = new Date(epoch * 1000);
-  const slot = await Timetable.findOneAndUpdate({
+  let slot = await Timetable.findOneAndUpdate({
     status: 'active',
     'teacherConfirmation.phone': sender,
     'teacherConfirmation.status': 'awaiting',
@@ -373,7 +385,24 @@ async function converseWithTeacher(sender, payload, mode) {
     $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
   }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() } })
     .select('section subject date startTime endTime room createdBy teacherConfirmation').lean();
-  if (!slot) return false; // no open question for this phone — silence
+  // OWNER BUG FIX (2026-10-07 night): the teacher may ask 'g kon?' in reply to
+  // the 20-min PRE-CLASS REMINDER, not to a confirmation question — the class
+  // can already be confirmed/declined (no awaiting slot). A teacher asking
+  // who is texting must NEVER get silence: answer from their REAL class
+  // today (facts only, status told truthfully, question never re-asked).
+  if (!slot) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+    slot = await Timetable.findOneAndUpdate({
+      status: 'active',
+      'teacherConfirmation.phone': sender,
+      'teacherConfirmation.status': { $in: ['confirmed', 'declined', 'queued', 'sending', 'failed'] },
+      date: today,
+      $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
+    }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() } })
+      .sort({ startTime: 1 })
+      .select('section subject date startTime endTime room createdBy teacherConfirmation').lean();
+  }
+  if (!slot) return false; // nothing real to answer from — silence, never invent
   try {
     const [sectionDoc, subjectDoc, teacherDoc, crDoc] = await Promise.all([
       Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
@@ -396,6 +425,7 @@ async function converseWithTeacher(sender, payload, mode) {
       crName: crDoc?.name,
       crRole: crDoc?.role === 'gr' ? 'GR' : crDoc?.role === 'admin' ? 'Admin' : 'CR',
       crPhone: crDoc?.phone ? String(crDoc.phone).replace(/[^\d+]/g, '') : null,
+      classStatus: slot.teacherConfirmation?.status ?? null,
     };
     // HUMAN conversation first; offline → professional static fallbacks
     const reply = await chatReplyWithGemini(String(payload.data.body ?? ''), buildTeacherChatFacts(ctx), { unclear: mode === 'unclear' });
@@ -420,7 +450,7 @@ const QUESTION_COOLDOWN_MS = 60 * 1000;
  * semester, section, subject, date, time, room, and the CR's name + phone
  * so the teacher can even CALL the CR. Ends with the pending YES/NO ask.
  * Exported for tests. */
-export function buildQuestionAnswerMessage({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone }) {
+export function buildQuestionAnswerMessage({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone, classStatus }) {
   const lines = [
     '*Tri3M Class Agent*',
     'AI-Powered Class Management Assistant',
@@ -441,11 +471,18 @@ export function buildQuestionAnswerMessage({ teacher, section, department, semes
     lines.push('', `👤 This class was scheduled with you by ${bold(crName)} (${crRole ?? 'CR'} of ${bold(section, 25)}).`);
     if (crPhone) lines.push(`📞 You may contact them directly: ${crPhone}`);
   }
+  lines.push('');
+  if (classStatus === 'confirmed') {
+    lines.push(`Your class status is already *CONFIRMED* — no reply needed. Your students of ${bold(section, 25)} are informed.`);
+  } else if (classStatus === 'declined') {
+    lines.push('Your class is currently marked *NOT confirmed* for your students.', 'If that has changed, please reply *YES* or *NO*.');
+  } else {
+    lines.push(
+      'To update the class status for your students, please reply:',
+      '*YES* — you will take the class',
+      '*NO* — you cannot take the class');
+  }
   lines.push(
-    '',
-    'To update the class status for your students, please reply:',
-    '*YES* — you will take the class',
-    '*NO* — you cannot take the class',
     '',
     'Thank you for your cooperation.',
     'JazakAllah Khair.',
@@ -480,14 +517,24 @@ const INTERPRET_NO_RE = /\b(nahi|nahin|nay?hi|nhi|nyi|nai|ni|ny|nhn|nh|no|nahi\?
 // matches none of these the rules return UNCLEAR and Gemini judges it.
 const INTERPRET_YES_RE = /(ho|how) ?g[iay]a?|\b(g|gee|ji|haan|han|haa|hmm+|yes|yep|ok|okay|okie|sure|bilkul|zaroor|pakka|insha? ?allah|inshallah|definitely|confirmed?|ready|aaon|aaon ga|aaunga|aaonga|aa raha|aa rahi|time ?pe?|on time|theek hai|chal[ie]gi|chal[ie]ga)\b/i;
 
+/* OWNER BUG FIX (2026-10-07 night): strong, UNMISTAKABLE yes words. 'g'/'gee'/
+ * 'ji'/'hmm' are polite particles — on their own, especially next to a
+ * question ('g kon?'), they are NOT agreement. Used to guard a Gemini
+ * YES/NO verdict on a question-looking reply (see interpretTeacherReply). */
+const INTERPRET_STRONG_YES_RE = /(ho|how) ?g[iay]a?|\b(haan|han|haa|yes|yep|ok|okay|okie|sure|bilkul|zaroor|pakka|insha ?llah|inshallah|definitely|confirmed|ready|theek hai|aaon|aaon ga|aaunga|aaonga|aa raha|aa rahi|time ?pe|on time|ho ga|ho gi|ho gya|ho gaya|ho gayi|chal[ie]ga|chal[ie]gi)\b/i;
+
 /* OWNER FEATURE (2026-10-07): a teacher asking a BASIC question — which
  * section / department / semester, who is the CR, which room/time — gets a
  * professional full-details answer card, never the dry only-YES-or-NO hint.
  * Offline safety net (Gemini is the primary judge); kept broad enough for
- * Roman Urdu + English. 'samajh nahi aa raha' is confusion → QUESTION too
+ * Roman Urdu + English. OWNER BUG FIX (2026-10-07 night): a teacher replied
+ * 'g kon?' (who is this?) to the pre-class reminder and the class got
+ * CONFIRMED — 'g' (polite ji) matched the YES list and a bare kon/kaun/who
+ * was not a question, so identity questions now ALWAYS outrank yes/no.
+ * 'samajh nahi aa raha' is confusion → QUESTION too
  * (it used to fall through to the NO word-list — wrong answer to a teacher
  * who simply did not understand the message). */
-const INTERPRET_QUESTION_RE = /which (section|class|semester|department|dept|subject|room|cr|time)|what (section|class|semester|department|dept|subject|room|time|is this|is that|about)|who (is|are|this|that)\b|who are you|kons?[aiy]? (section|class|subject|semester|sem|dept|department|room|group|time|class)|kaun sa (section|class|subject|room|semester)|kaun si (class|section)|section (kon|kaun|kya|which|konsa|konsi)|semester (kon|kaun|kya|which|konsa|konsi)|department (kon|kaun|kya|which|konsa)|dept (kon|kaun|kya|which)|cr (kon|kaun|kya|who|kaun hai|kon hai|number|num)|room (kya|kon|kaun|which|kahan|kaha|number)|kab (hai|ho|lgi|legi|leni|lagna)|kahan (hai|ho|class)|samajh (nahi|nh|ni|nahin|nai)|smajh (nahi|nh|ni|nahin)|samjh (nahi|nh|ni)/i;
+const INTERPRET_QUESTION_RE = /which (section|class|semester|department|dept|subject|room|cr|time)|what (section|class|semester|department|dept|subject|room|time|is this|is that|about)|who (is|are|this|that)\b|who are you|\bwho\b|\b(kon|kaun|kvn)\b|\b(aap|ap|ye|yeh|tum|tu) (kon|kaun|kvn)\b|\bkab\b|\bkahan\b|kons?[aiy]? (section|class|subject|semester|sem|dept|department|room|group|time|class)|kaun sa (section|class|subject|room|semester)|kaun si (class|section)|section (kon|kaun|kya|which|konsa|konsi)|semester (kon|kaun|kya|which|konsa|konsi)|department (kon|kaun|kya|which|konsa)|dept (kon|kaun|kya|which)|cr (kon|kaun|kya|who|kaun hai|kon hai|number|num)|room (kya|kon|kaun|which|kahan|kaha|number)|kab (hai|ho|lgi|legi|leni|lagna)|kahan (hai|ho|class)|samajh (nahi|nh|ni|nahin|nai)|smajh (nahi|nh|ni|nahin)|samjh (nahi|nh|ni)/i;
 
 /** Local rules: 'YES' | 'NO' | 'QUESTION' | null (unclear → try Gemini). Exported for tests. */
 export function interpretReply(body) {
@@ -542,7 +589,17 @@ async function classifyReplyWithGemini(body) {
  * room/time confusion) routes to the full-details answer card instead. */
 export async function interpretTeacherReply(body) {
   const viaGemini = await classifyReplyWithGemini(body);
-  if (viaGemini === 'YES' || viaGemini === 'NO') return viaGemini;
+  if (viaGemini === 'YES' || viaGemini === 'NO') {
+    // OWNER BUG FIX (2026-10-07 night): a question-looking reply with NO strong
+    // yes/no word can NEVER confirm/deny a class ('g kon?' was confirmed YES).
+    // It becomes a QUESTION and gets a human conversational answer instead.
+    const t = String(body ?? '').toLowerCase().trim();
+    if (INTERPRET_QUESTION_RE.test(t) || t.endsWith('?')) {
+      if (viaGemini === 'YES' && !INTERPRET_STRONG_YES_RE.test(t)) return 'QUESTION';
+      if (viaGemini === 'NO' && !INTERPRET_NO_RE.test(t)) return 'QUESTION';
+    }
+    return viaGemini;
+  }
   if (viaGemini === 'QUESTION') return 'QUESTION';
   // The LLM REACHED a verdict of UNCLEAR — its reading is final, the greedy
   // word rules must not second-guess it ("samajh nahi aa raha" is not a NO).
