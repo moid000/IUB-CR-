@@ -45,11 +45,15 @@ describe('portal shells contain horizontal overflow without touching the documen
     expect(css).toMatch(/html\s*\{[^}]*touch-action:\s*manipulation/);
   });
 
-  it('html/body keep default overflow (no global overflow-x:hidden that previously broke scrolling)', () => {
+  // OWNER ORDER 2026-10-07 (Students page pan report): the page must never
+  // pan left-right — the root now hard-clips horizontal overflow with
+  // overflow-x: clip. CLIP is the safe primitive: unlike overflow-x:hidden
+  // (which made html/body a scroll container and broke all mobile scrolling,
+  // reverted), clip clips WITHOUT creating a scroll container, so vertical
+  // scrolling is untouched. hidden/scroll/auto at the root stay banned.
+  it('root hard-clips horizontal pan with overflow-x: clip (never hidden/scroll/auto)', () => {
     const css = readFileSync(join(__dirname, '..', 'index.css'), 'utf8');
-    const htmlBlock = css.slice(css.indexOf('html {'), css.indexOf('body {'));
-    const bodyBlock = css.slice(css.indexOf('body {'), css.indexOf('body {') + 200);
-    expect(htmlBlock).not.toContain('overflow-x');
-    expect(bodyBlock).not.toContain('overflow-x');
+    expect(css).toMatch(/html,\s*body\s*\{\s*overflow-x:\s*clip\s*;?\s*\}/);
+    expect(css).not.toMatch(/overflow-x:\s*(hidden|scroll|auto)\s*;/);
   });
 });

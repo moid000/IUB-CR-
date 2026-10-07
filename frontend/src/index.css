@@ -462,3 +462,17 @@ body {
 html {
   touch-action: manipulation;
 }
+
+/* OWNER (2026-10-07): the PAGE itself must NEVER pan left-right on phones —
+   only inner scrollers (the Students table card, chip strips) scroll, each
+   with its own overflow-x-auto + overscroll-x-contain. overflow-x: clip on
+   the document root hard-clips any stray horizontal overflow. CLIP, not
+   HIDDEN: overflow-x:hidden on html/body turned the root into a scroll
+   container and broke ALL mobile page scrolling once before (fully reverted,
+   see shellOverflowContainment history); clip never creates a scroll
+   container, overflow-y stays visible, so vertical scrolling, sticky
+   headers, fixed bottom bars and pull-to-refresh behave exactly as before. */
+html,
+body {
+  overflow-x: clip;
+}
