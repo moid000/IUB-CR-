@@ -324,16 +324,26 @@ test('unrecognized replies from strangers or group numbers never trigger a hint'
 });
 
 test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, English and mixed', async () => {
-  const { interpretReply } = await import('../backend/services/teacherConfirmationService.js');
+  const { interpretReply, interpretTeacherReply } = await import('../backend/services/teacherConfirmationService.js');
   // YES in the wild
   for (const yes of ['g beta kl class ho gi time p ho gi', 'yes betha ma aaon ga', 'G bilkul ho gi sir',
-    'inshallah aaon ga', 'ok', 'no problem, ho gi', 'ji zaroor aaonga', 'theek hai chalega']) {
+    'inshallah aaon ga', 'no problem, ho gi', 'ji zaroor aaonga', 'theek hai chalega',
+    'theek ha ma class loon ga', 'yes sir ma aa jaon ga', 'han class ho gi', 'jee class ho gi',
+    'ma class loon ga']) {
     assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
+  }
+  // OWNER MASTER SPEC (night #4) §2: "OK" IS NOT CLASS CONFIRMATION — bare
+  // acknowledgements are ACK, they must never confirm a class
+  for (const ack of ['ok', 'okay', 'okay sir', 'ok sir', 'acha', 'achha', 'alright',
+    'got it', 'understood', 'fine', 'thanks', 'thank you sir', 'shukriya', 'theek ha',
+    'theek hai', 'ok got it', 'acha sir', 'sahi hai']) {
+    assert.equal(interpretReply(ack), 'ACK', `expected ACK: ${ack}`);
   }
   // NO in the wild — OWNER BUG CASE (2026-10-04): 'mera dil ni ha' was wrongly
   // confirmed as YES ('ni' missing from negation, 'ha' falsely read as haan)
   for (const no of ['mera dil ni ha', 'mera dil nahi hai class ka', 'mujy maan ni ha class ki',
     'mood nahi hai', 'ma a ni aa sakta', 'nahi ho gi, urgent kaam hai', 'cancel kar do aj ki',
+    'ma class ni loon ga', 'ma class ni le sakta', 'aj class possible ni',
     'g nahi bhai, chutti hai', 'busy hoon aa nahi sakta']) {
     assert.equal(interpretReply(no), 'NO', `expected NO: ${no}`);
   }
@@ -341,6 +351,20 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
   for (const yes of ['ha beta ho gi', 'haan zaroor aaon ga']) {
     assert.equal(interpretReply(yes), 'YES', `expected YES: ${yes}`);
   }
+  // OWNER MASTER SPEC night #4: Gemini's ACK verdict passes through
+  geminiAnswer = 'ACK';
+  try {
+    assert.equal(await interpretTeacherReply('acha'), 'ACK');
+    assert.equal(await interpretTeacherReply('ok got it sir'), 'ACK');
+  } finally { geminiAnswer = null; }
+  // ...and a Gemini YES on a bare acknowledgement is overridden to ACK (§2)
+  geminiAnswer = 'YES';
+  try {
+    assert.equal(await interpretTeacherReply('okay sir'), 'ACK');
+    assert.equal(await interpretTeacherReply('ok'), 'ACK');
+    // a real YES still stands
+    assert.equal(await interpretTeacherReply('ok sir, ma class loon ga'), 'YES');
+  } finally { geminiAnswer = null; }
   // OWNER 2026-10-07: basic QUESTIONS route to the full-details answer card
   for (const q of ['which section is this?', 'which semester is this?', 'konsa section hai ye?',
     'kaun sa room hai?', 'who is the CR?', 'cr kaun hai?', 'kab hai class?',
@@ -370,7 +394,7 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
     assert.equal(interpretReply(u), null, `expected UNCLEAR: ${u}`);
   }
   // genuinely unclear — never guessed, hint path instead
-  for (const unclear of ['pata nahi abhi', 'acha, dekh ke bataon ga', 'acha', 'maybe', 'thori der me bataon ga']) {
+  for (const unclear of ['pata nahi abhi', 'acha, dekh ke bataon ga', 'maybe', 'thori der me bataon ga']) {
     assert.equal(interpretReply(unclear), null, `expected UNCLEAR: ${unclear}`);
   }
 });
@@ -749,8 +773,18 @@ test('OWNER BUG FIX (2026-10-07 night): "g kon?" after a reminder can NEVER conf
 });
 
 test('OWNER BUG FIX: teacher asking "g kon?" about an ALREADY-CONFIRMED class (reminder case) still gets a human answer', async () => {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
-  const r = await cr('POST', '/api/cr/timetable', { subject, date: today, startTime: '23:00', endTime: '23:50' });
+  // TIME-FLAKE FIX: a fixed 'today 23:00' slot is in the PAST when the suite
+  // runs after 23:00 PKT (queueTeacherConfirmation refuses past classes →
+  // status 'none' → the whole test collapses). Always schedule ~90 min ahead
+  // in PKT — still today-or-tomorrow, so the reminder fallback path matches.
+  const pkf = (d, o) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', ...o }).format(d);
+  const startAt = new Date(Date.now() + 90 * 60_000);
+  const r = await cr('POST', '/api/cr/timetable', {
+    subject,
+    date: pkf(startAt),
+    startTime: pkf(startAt, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
+    endTime: pkf(new Date(startAt.getTime() + 50 * 60_000), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
+  });
   const slotId = r.json.data._id;
   assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
@@ -811,6 +845,33 @@ test('OWNER BUG FIX: ALL Gemini models down + "ap kon ho?" → SHORT honest AI-c
   assert.equal((await webhook(incoming('konsa room hai aur semester konsa hai?'))).json.data.updated, true);
   assert.match(sent.at(-1).body, /Department: \*Computer Science\*/);
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+});
+
+test('OWNER MASTER SPEC §2/§7 (night #4): "OK" is NOT confirmation — the bot asks for the real decision, and a real YES still works', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-29', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+  const sentBefore = sent.length;
+
+  // "ok" acknowledges — it must NOT confirm the class
+  assert.equal((await webhook(incoming('ok'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+  const ask = sent.at(-1);
+  assert.match(ask.body, /will you be taking|lein ge|class lein/i); // a natural confirm-ask
+  assert.doesNotMatch(ask.body, /Sorry|confusion/i);                 // no robotic hint
+
+  // a second ack within the cooldown is throttled — no spam
+  assert.equal((await webhook(incoming('acha'))).json.data.updated, false);
+  assert.equal(sent.length, sentBefore + 1);
+
+  // a clear Roman Urdu YES now confirms the class
+  assert.equal((await webhook(incoming('han class ho gi'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  assert.match(sent.at(-1).body, /YES/i); // the understood-as-YES ack
+
+  // after the decision, a bare 'ok' gets silence — the flow is complete (§11)
+  assert.equal((await webhook(incoming('ok'))).json.data.updated, false);
 });
 
 test('OWNER MASTER SPEC §4/§18: multi-turn conversation memory — turns recorded on the slot and replayed to the LLM', async () => {
