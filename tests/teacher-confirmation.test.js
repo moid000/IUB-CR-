@@ -26,13 +26,19 @@ const realFetch = globalThis.fetch;
 const sent = [];
 let failNext = false;
 let geminiAnswer = null; // 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR' | null (null = API error → rules fallback)
+let geminiChatReply = null; // OWNER 2026-10-07: human conversation reply ({reply} schema) — null = API error → static fallback
 globalThis.fetch = (url, options) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
-    if (geminiAnswer) {
+    const isChat = String(options.body).includes('"reply"'); // teacher conversation uses the {reply} schema
+    if (isChat && geminiChatReply) {
+      const payload = { candidates: [{ content: { parts: [{ text: JSON.stringify({ reply: geminiChatReply }) }] } }] };
+      return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
+    }
+    if (!isChat && geminiAnswer) {
       const payload = { candidates: [{ content: { parts: [{ text: JSON.stringify({ answer: geminiAnswer }) }] } }] };
       return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
     }
-    return Promise.resolve(new Response(JSON.stringify({}), { status: 400 })); // API down → rules fallback
+    return Promise.resolve(new Response(JSON.stringify({}), { status: 400 })); // API down → fallbacks
   }
   if (String(url).startsWith('https://api.ultramsg.com/test-instance/messages/chat')) {
     const data = new URLSearchParams(options.body);
@@ -282,10 +288,11 @@ test('unrecognized replies get a polite only-YES-or-NO hint; the question stays 
   assert.equal(hint.json.data.updated, true); // handled — the teacher is no longer left in silence
   assert.equal(sent.length, sentBefore + 1);
   assert.equal(sent.at(-1).to, teacher.whatsapp);
-  assert.match(sent.at(-1).body, /I'm an (AI|automated) (agent|assistant)/);
-  assert.match(sent.at(-1).body, /plain \*YES\* or \*NO\*/);
   assert.match(sent.at(-1).body, /Assalam-o-Alaikum Respected \*Dr Test\*/);
-  assert.match(sent.at(-1).body, /— Tri3M Class Agent\nDeveloped by the students of the AI Department, IUB/);
+  assert.match(sent.at(-1).body, /plain \*YES\* or \*NO\*/);
+  // OWNER 2026-10-07: human tone — no robot talk, no team/offline canned text
+  assert.doesNotMatch(sent.at(-1).body, /AI (agent|assistant)|automated|offline|team|support/i);
+  assert.match(sent.at(-1).body, /— Tri3M Class Agent/);
   const after = (await Timetable.findById(slotId)).teacherConfirmation;
   assert.equal(after.status, 'awaiting'); // a hint never answers the question
   assert.equal(after.attempts, before.attempts); // and never consumes a retry
@@ -560,7 +567,7 @@ test('OWNER FEATURE: manual override validation + a phone-call NO also cancels',
   assert.equal(sweep.due, 0, 'manually declined class gets no reminder');
 });
 
-test('OWNER FEATURE (2026-10-07): a teacher QUESTION gets the professional full-details card — and the YES/NO question stays open', async () => {
+test('OWNER FEATURE (2026-10-07): QUESTION + conversation API down → professional full-details card fallback (YES/NO stays open)', async () => {
   await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
     'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
   const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-20', startTime: '09:00', endTime: '10:00', room: 'Room 20' });
@@ -627,6 +634,62 @@ test('OWNER FEATURE (2026-10-07): offline safety net — question words get the 
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'declined');
 });
 
+test('OWNER UPGRADE (2026-10-07): teacher questions get a HUMAN conversational reply — answers only what was asked', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-22', startTime: '09:00', endTime: '10:00', room: 'Room 22' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'QUESTION'; // classifier: the teacher is asking a question
+  geminiChatReply = 'Ji sir, ye aap ki Data Structures ki class hai — Section 4B, Semester 4 (CS). Room 22, 9:00 se. Aur kuch poochhna ho to batain.';
+  try {
+    const res = await webhook(incoming('ye konsi class hai aur konsa section hai?'));
+    assert.equal(res.json.data.updated, true);
+
+    const reply = sent.at(-1);
+    assert.equal(reply.to, teacher.whatsapp);
+    // the human reply is sent VERBATIM — no canned wrapper, no robot talk
+    assert.equal(reply.body, geminiChatReply);
+    assert.doesNotMatch(reply.body, /offline|team|contact karen|AI (agent|assistant)|automated/i);
+    // the open YES/NO question is still fully intact
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+
+    // a second question within the cooldown is throttled (no double-send)
+    const count = sent.length;
+    assert.equal((await webhook(incoming('room konsa hai phir?'))).json.data.updated, false);
+    assert.equal(sent.length, count);
+
+    // the teacher can still answer normally right after the conversation
+    assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
+test('OWNER UPGRADE (2026-10-07): an unclear reply gets a human clarification request — never robot talk or team-offline text', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-23', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'UNCLEAR'; // classifier could not read it as YES/NO/QUESTION
+  geminiChatReply = 'Sir aap ka paighaam theek se samajh nahi aaya. Class confirm karni ho to bas YES ya NO likh dein — students ko foran status nazar aa jata hai.';
+  try {
+    const res = await webhook(incoming('acha haan wo bhi aur ye bhi'));
+    assert.equal(res.json.data.updated, true);
+
+    const reply = sent.at(-1);
+    assert.equal(reply.body, geminiChatReply);
+    assert.doesNotMatch(reply.body, /offline|team|AI (agent|assistant)|automated|bot\b/i);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
 test('hint reminders rotate through a pool so repeats never read identical', async () => {
   const { buildHintMessage } = await import('../backend/services/teacherConfirmationService.js');
   const pool = new Set(Array.from({ length: 40 }, () => buildHintMessage('Dr Test')));
@@ -634,8 +697,9 @@ test('hint reminders rotate through a pool so repeats never read identical', asy
   for (const body of pool) {
     assert.match(body, /plain \*YES\* or \*NO\*/);
     assert.match(body, /\*Dr Test\*/);
-    assert.match(body, /reply just \*YES\* if you will take the class, or \*NO\* if you cannot/);
-    assert.match(body, /— Tri3M Class Agent\nDeveloped by the students of the AI Department, IUB\nSemester 2 • Section 3M/);
+    assert.match(body, /— Tri3M Class Agent/);
+    // OWNER 2026-10-07: human tone — no robot talk, no canned team/offline text
+    assert.doesNotMatch(body, /AI (agent|assistant)|automated|offline|team|support/i);
   }
 });
 

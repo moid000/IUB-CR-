@@ -9,34 +9,32 @@ const MAX_ATTEMPTS = 3;
  * ("yes betha ma aaon ga") instead of a bare YES/NO — the agent used to
  * stay silent and the question went nowhere. Unrecognized replies from a
  * teacher with an open question now get ONE polite reminder that this is
- * an AI agent which reads only a plain YES or NO. Throttled so repeated
- * messages never spam, and it never answers, re-queues or retries the
- * underlying question. */
+ * one polite reminder — OWNER REWRITE (2026-10-07): the teacher must feel
+ * a HUMAN is texting, never robot talk ('I am an AI agent' is banned).
+ * This is only the OFFLINE fallback; the live path answers like a person.
+ * Throttled so repeated messages never spam, and it never answers,
+ * re-queues or retries the underlying question. */
 const HINT_COOLDOWN_MS = 2 * 60 * 1000;
 
 const HINT_POOLS = [
-  "I'm an AI agent and can only read a plain *YES* or *NO* — I couldn't understand your last message.",
-  "I'm an automated assistant, so I understand only a plain *YES* or *NO* reply.",
-  "I'm an AI agent and I received your message, but I can act only on a plain *YES* or *NO*.",
-  "I'm an AI assistant, not a person — I can read only a plain *YES* or *NO* from you.",
+  "Sorry, aap ka paighaam samajh nahi aa saka. Class ka status students tak pohanchane ke liye sirf ek plain *YES* or *NO* likh dein.",
+  "Maazrat — aap ka matlab theek se samajh nahi aaya. Class hogi to plain *YES* or *NO* likh dein, students ko foran status nazar aa jata hai.",
+  "Sorry for the confusion — I could not follow your last message. A plain *YES* or *NO* reply updates the class status for your students right away.",
+  "Aap ka paighaam clear nahi hua. Sirf ek plain *YES* or *NO* likh dein — YES matlab aap class leinge, NO matlab aap nahi aa sakte.",
 ];
 
-/** Random pick so repeated reminders never read identical. Exported for tests. */
+/** Random pick so repeated reminders never read identical. Exported for tests.
+ * Human voice (owner 2026-10-07): reads like a student politely asking the
+ * teacher for a one-word answer — short, no AI/robot claims, no heavy
+ * signature, exactly how a person texts. */
 export function buildHintMessage(teacherName) {
   const line = HINT_POOLS[Math.floor(Math.random() * HINT_POOLS.length)];
   return [
-    '*Tri3M Class Agent*',
-    'AI-Powered Class Management Assistant',
-    '',
     `Assalam-o-Alaikum Respected *${teacherName || 'Teacher'}*!`,
     '',
     line,
     '',
-    'Please reply just *YES* if you will take the class, or *NO* if you cannot — that updates the class status for your students right away.',
-    '',
     '— Tri3M Class Agent',
-    'Developed by the students of the AI Department, IUB',
-    'Semester 2 • Section 3M',
   ].join('\n');
 }
 const BATCH_SIZE = 3; // existing external 5-minute pinger, no new jobs or Base44 usage
@@ -293,13 +291,76 @@ export async function dispatchPendingTeacherConfirmations() {
   return { configured: true, processed: results.filter((r) => r.status === 'fulfilled' && r.value).length };
 }
 
-/* An unrecognized reply from a teacher who has an open question gets one
- * only-YES-or-NO reminder (throttled to one per HINT_COOLDOWN_MS per phone,
- * recorded on the awaiting slot). Stray messages from anyone else — group
- * chatter, strangers, stale replays — stay completely ignored, and the
- * open question itself is never answered, retried or re-queued by a hint.
- * Returns true so the webhook knows the message was handled (no retry). */
-async function hintTeacherReply(sender, payload) {
+/* OWNER UPGRADE (2026-10-07 evening): HUMAN-LIKE teacher conversation.
+ * A teacher asking ANY question — CR kaun hai, section/semester kya hai,
+ * room/time kya hai — must feel a real, respectful human student is
+ * answering. Gemini writes the reply from the REAL awaiting class facts
+ * (never invented), answers ONLY what was asked, in the teacher's own
+ * language, and gently steers back to YES/NO. Offline fallbacks keep the
+ * professional human-worded card/hint. The open question is never
+ * answered, consumed or re-queued; strangers stay silent; replays are
+ * throttled by questionAnsweredAt (60s). */
+const TEACHER_CHAT_TIMEOUT_MS = 8_000;
+
+/* Grounded facts block for the conversation — the ONLY truth the model may use. */
+function buildTeacherChatFacts({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone }) {
+  return [
+    `Teacher: ${teacher}`,
+    `Subject: ${subject}`,
+    `Day/Date: ${day}`,
+    `Time: ${time}`,
+    room ? `Room: ${room}` : 'Room: not recorded',
+    `Department: ${department ?? '—'}`,
+    `Semester: ${semester ?? '—'}`,
+    `Section: ${section ?? '—'}`,
+    `The class was scheduled by: ${crName ?? 'the section CR'} (${crRole ?? 'CR'})`,
+    crPhone ? `CR's contact number (may be shared with the teacher on request): ${crPhone}` : 'CR contact number: not available',
+  ].join('\n');
+}
+
+/** One conversational Gemini turn. Returns a human-like reply string, or
+ * null when the API is unreachable/invalid (caller falls back to the
+ * professional static card). NEVER throws. */
+async function chatReplyWithGemini(body, facts, { unclear = false } = {}) {
+  const key = env.chatbot?.googleApiKey;
+  if (!key) return null;
+  if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TEACHER_CHAT_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(key)}`,
+      { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: [
+            'You are a real, warm, well-mannered Pakistani university student texting your respected teacher on WhatsApp on behalf of the section (you write as the "Tri3M Class Agent" for the section CR).',
+            'You are a HUMAN — never a robot, never a bot. Write exactly how a polite student texts a teacher: short, respectful, natural.',
+            'Reply in the SAME language the teacher used (Roman Urdu / English / mixed).',
+            'RULES:',
+            '1. Answer ONLY what the teacher asked — precisely, briefly (under 60 words). Never dump all details unasked.',
+            '2. Use ONLY the FACTS below. Never invent, guess or add any information. If the asked detail is not in the FACTS, say honestly that you will ask the CR to confirm it shortly — and you may give the CR name.',
+            '3. NEVER say or hint that you are an AI, bot, agent, system or automated. NEVER mention teams, offline staff, support or contacting us. No greetings-block repetition, no formal letter style — plain WhatsApp texting.',
+            unclear
+              ? '4. The teacher\'s message could not be understood as an answer about attending the class: very politely say you could not follow it, and request a plain YES (you will take the class) or NO (you cannot) so the students see the correct status.'
+              : '4. If the class is still unconfirmed, end with ONE short natural line asking them to reply YES or NO whenever convenient — do not lecture them.',
+          ].join('\n') + '\n\nFACTS:\n' + facts }] },
+          contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 300, responseMimeType: 'application/json',
+            responseSchema: { type: 'OBJECT', properties: { reply: { type: 'STRING' } }, required: ['reply'] } },
+        }) },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    const reply = String((JSON.parse(raw) ?? {}).reply ?? '').trim();
+    return reply ? reply.slice(0, 800) : null;
+  } catch { return null; } finally { clearTimeout(timer); }
+}
+
+/** Claim the open awaiting question and answer the teacher like a human:
+ * Gemini conversation first, static professional fallback when offline.
+ * mode: 'question' (teacher asked something) | 'unclear' (could not follow). */
+async function converseWithTeacher(sender, payload, mode) {
   const rawTime = Number(payload.data.time ?? payload.data.timestamp);
   const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime;
   if (!Number.isFinite(epoch) || epoch < 1_500_000_000 || epoch > Date.now() / 1000 + 300) return false;
@@ -309,26 +370,49 @@ async function hintTeacherReply(sender, payload) {
     'teacherConfirmation.phone': sender,
     'teacherConfirmation.status': 'awaiting',
     'teacherConfirmation.sentAt': { $lte: new Date(replyTime.getTime() + 10_000) },
-    $or: [{ 'teacherConfirmation.hintedAt': null }, { 'teacherConfirmation.hintedAt': { $lt: new Date(Date.now() - HINT_COOLDOWN_MS) } }],
-  }, { $set: { 'teacherConfirmation.hintedAt': new Date() } })
-    .select('teacherConfirmation.teacher').lean();
+    $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
+  }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() } })
+    .select('section subject date startTime endTime room createdBy teacherConfirmation').lean();
   if (!slot) return false; // no open question for this phone — silence
   try {
-    const teacherDoc = slot.teacherConfirmation?.teacher
-      ? await Teacher.findById(slot.teacherConfirmation.teacher).select('name').lean() : null;
-    await sendText(sender, buildHintMessage(teacherDoc?.name));
-  } catch (err) { console.error('[teacher hint]', err.message); } // best-effort
+    const [sectionDoc, subjectDoc, teacherDoc, crDoc] = await Promise.all([
+      Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
+      Subject.findById(slot.subject).select('name').lean(),
+      Teacher.findById(slot.teacherConfirmation?.teacher).select('name').lean(),
+      // the CR/GR who actually queued this class (requestedBy), falling back
+      // to the class creator — the conversation names a REAL person
+      User.findById(slot.teacherConfirmation?.requestedBy ?? slot.createdBy).select('name role phone').lean(),
+    ]);
+    if (!teacherDoc) return true; // claimed, but nothing true to say — never invent
+    const ctx = {
+      teacher: teacherDoc.name,
+      section: sectionDoc?.name,
+      department: sectionDoc?.department?.name,
+      semester: sectionDoc?.semester,
+      subject: subjectDoc?.name,
+      day: fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`)),
+      time: `${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}`,
+      room: slot.room,
+      crName: crDoc?.name,
+      crRole: crDoc?.role === 'gr' ? 'GR' : crDoc?.role === 'admin' ? 'Admin' : 'CR',
+      crPhone: crDoc?.phone ? String(crDoc.phone).replace(/[^\d+]/g, '') : null,
+    };
+    // HUMAN conversation first; offline → professional static fallbacks
+    const reply = await chatReplyWithGemini(String(payload.data.body ?? ''), buildTeacherChatFacts(ctx), { unclear: mode === 'unclear' });
+    const message = reply ?? (mode === 'unclear'
+      ? buildHintMessage(teacherDoc.name)
+      : buildQuestionAnswerMessage(ctx));
+    await sendText(sender, message);
+  } catch (err) { console.error('[teacher conversation]', err.message); } // best-effort
   return true;
 }
 
 /* ------------------------------------------------------------------ */
-/* OWNER FEATURE (2026-10-07): teachers may ASK questions. A teacher    */
-/* who does not understand WHICH class/section/semester this is — or    */
-/* wants the CR's name and phone number — now gets ONE professional,    */
-/* data-complete details card built from the REAL awaiting class (never  */
-/* a guess, never an LLM invention). The open YES/NO question stays      */
-/* fully intact: answering costs no attempt, consumes no queue slot.     */
-/* Strangers/group numbers have no awaiting slot and stay silent.        */
+/* OWNER FEATURE (2026-10-07): teachers may ASK questions. Facts and     */
+/* cooldown for the conversational engine above; the static card below   */
+/* is the OFFLINE fallback when Gemini is unreachable. The open YES/NO   */
+/* question stays fully intact: answering costs no attempt, consumes    */
+/* no queue slot. Strangers/group numbers stay silent.                   */
 /* ------------------------------------------------------------------ */
 const QUESTION_COOLDOWN_MS = 60 * 1000;
 
@@ -371,50 +455,6 @@ export function buildQuestionAnswerMessage({ teacher, section, department, semes
     'Semester 2 • Section 3M',
   );
   return lines.join('\n');
-}
-
-/** Answer a teacher's basic question with the full details card. Mirrors
- * hintTeacherReply's guards (awaiting slot, sane timestamp, cooldown) but
- * NEVER answers, re-queues or retries the open YES/NO question. */
-async function answerTeacherQuestion(sender, payload) {
-  const rawTime = Number(payload.data.time ?? payload.data.timestamp);
-  const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime;
-  if (!Number.isFinite(epoch) || epoch < 1_500_000_000 || epoch > Date.now() / 1000 + 300) return false;
-  const replyTime = new Date(epoch * 1000);
-  const slot = await Timetable.findOneAndUpdate({
-    status: 'active',
-    'teacherConfirmation.phone': sender,
-    'teacherConfirmation.status': 'awaiting',
-    'teacherConfirmation.sentAt': { $lte: new Date(replyTime.getTime() + 10_000) },
-    $or: [{ 'teacherConfirmation.questionAnsweredAt': null }, { 'teacherConfirmation.questionAnsweredAt': { $lt: new Date(Date.now() - QUESTION_COOLDOWN_MS) } }],
-  }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date() } })
-    .select('section subject date startTime endTime room createdBy teacherConfirmation').lean();
-  if (!slot) return false; // no open question for this phone — silence
-  try {
-    const [sectionDoc, subjectDoc, teacherDoc, crDoc] = await Promise.all([
-      Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
-      Subject.findById(slot.subject).select('name').lean(),
-      Teacher.findById(slot.teacherConfirmation?.teacher).select('name').lean(),
-      // the CR/GR who actually queued this class (requestedBy), falling back
-      // to the class creator — the card names a REAL person the teacher knows
-      User.findById(slot.teacherConfirmation?.requestedBy ?? slot.createdBy).select('name role phone').lean(),
-    ]);
-    if (!teacherDoc) return true; // claimed, but nothing true to say — never invent
-    await sendText(sender, buildQuestionAnswerMessage({
-      teacher: teacherDoc.name,
-      section: sectionDoc?.name,
-      department: sectionDoc?.department?.name,
-      semester: sectionDoc?.semester,
-      subject: subjectDoc?.name,
-      day: fmtDate.format(new Date(`${slot.date}T12:00:00+05:00`)),
-      time: `${fmtTime(slot.startTime)} – ${fmtTime(slot.endTime)}`,
-      room: slot.room,
-      crName: crDoc?.name,
-      crRole: crDoc?.role === 'gr' ? 'GR' : crDoc?.role === 'admin' ? 'Admin' : 'CR',
-      crPhone: crDoc?.phone ? String(crDoc.phone).replace(/[^\d+]/g, '') : null,
-    }));
-  } catch (err) { console.error('[teacher question]', err.message); } // best-effort
-  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -586,10 +626,11 @@ export async function handleTeacherReply(payload) {
   let interpreted = null; // 'YES' | 'NO' | 'QUESTION' | null
   if (!exact && !plain) {
     interpreted = await interpretTeacherReply(body);
-    // OWNER FEATURE (2026-10-07): a teacher asking a basic question gets the
-    // professional full-details answer card — never a dry YES-or-NO hint.
-    if (interpreted === 'QUESTION') return answerTeacherQuestion(sender, payload);
-    if (!interpreted) return hintTeacherReply(sender, payload);
+    // OWNER FEATURE (2026-10-07): a teacher asking a basic question gets a
+    // HUMAN conversational answer; a genuinely unclear reply politely asks
+    // for YES/NO — like a real person, never robot talk.
+    if (interpreted === 'QUESTION') return converseWithTeacher(sender, payload, 'question');
+    if (!interpreted) return converseWithTeacher(sender, payload, 'unclear');
   }
   const answer = exact ? exact[1].toUpperCase() : plain ? plain[1].toUpperCase() : interpreted;
   let slot;
