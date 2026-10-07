@@ -339,6 +339,27 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
     'theek hai', 'ok got it', 'acha sir', 'sahi hai']) {
     assert.equal(interpretReply(ack), 'ACK', `expected ACK: ${ack}`);
   }
+  // OWNER MASTER SPEC §21-A (night #5): "NO MORE QUESTIONS" IS NOT A DECLINE
+  for (const nomore of ['nahi', 'nahi koi nahi', 'nahi koi question nahi', 'nahi kuch nahi poochna',
+    'no, nothing', 'no thank you', 'nahi sir', 'bas itna hi', 'aur kuch nahi', 'kuch nahi',
+    'nothing else', 'no more questions', "that's all", 'that is it', 'nahi chahiye',
+    'nahi koi detail nahi chahiye', 'no nothing', 'bas']) {
+    const v = interpretReply(nomore);
+    assert.ok(v === 'ACK' || v === 'NO', `bare-no family must never confirm: ${nomore} -> ${v}`);
+  }
+  // explicit "no more questions" phrasings are context-free ACK (§21-A)
+  for (const nomore of ['nahi koi nahi', 'nahi koi detail nahi chahiye', 'kuch nahi', 'bas itna hi',
+    'aur kuch nahi', 'nothing else', 'no more questions', 'nahi chahiye', 'no thank you']) {
+    assert.equal(interpretReply(nomore), 'ACK', `expected ACK (no more questions): ${nomore}`);
+  }
+  // but a REAL decline is still a decline (§21-D)
+  for (const no of ['nahi sir ma class nahi loon ga', 'ma class nahi le sakta', 'aj ma available nahi hoon',
+    'nahi, class nahi ho gi', 'i cannot take the class', "i won't be able to make it", 'please mark me unavailable']) {
+    assert.equal(interpretReply(no), 'NO', `expected NO (clear decline): ${no}`);
+  }
+  // and a real acceptance outranks stray 'nahi' words
+  assert.equal(interpretReply('nahi kuch nahi poochna, ma class le loon ga'), 'YES');
+  assert.equal(interpretReply('nahi chahiye detail, bas aaon ga'), 'YES');
   // NO in the wild — OWNER BUG CASE (2026-10-04): 'mera dil ni ha' was wrongly
   // confirmed as YES ('ni' missing from negation, 'ha' falsely read as haan)
   for (const no of ['mera dil ni ha', 'mera dil nahi hai class ka', 'mujy maan ni ha class ki',
@@ -364,6 +385,14 @@ test('OWNER FEATURE: interpretReply — natural-language YES/NO in Roman Urdu, E
     assert.equal(await interpretTeacherReply('ok'), 'ACK');
     // a real YES still stands
     assert.equal(await interpretTeacherReply('ok sir, ma class loon ga'), 'YES');
+  } finally { geminiAnswer = null; }
+  // §21-A: a Gemini NO on a "no more questions" reply is overridden to ACK
+  geminiAnswer = 'NO';
+  try {
+    assert.equal(await interpretTeacherReply('nahi koi nahi'), 'ACK');
+    assert.equal(await interpretTeacherReply('nothing else'), 'ACK');
+    // a real decline still stands
+    assert.equal(await interpretTeacherReply('ma class nahi loon ga'), 'NO');
   } finally { geminiAnswer = null; }
   // OWNER 2026-10-07: basic QUESTIONS route to the full-details answer card
   for (const q of ['which section is this?', 'which semester is this?', 'konsa section hai ye?',
@@ -561,7 +590,7 @@ test('OWNER FEATURE: CR manual override — teacher confirmed on a phone call (n
   await Timetable.updateMany({ 'teacherConfirmation.status': { $in: ['queued', 'sending', 'awaiting', 'failed'] } },
     { $set: { 'teacherConfirmation.status': 'none' } });
   // a class with a live WhatsApp question the teacher never answers
-  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-02-01', startTime: '09:00', endTime: '10:00', room: 'Room 1' });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-02-02', startTime: '09:00', endTime: '10:00', room: 'Room 1' });
   const slotId = r.json.data._id;
   // creation auto-dispatches the WhatsApp question → teacher goes silent
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
@@ -868,10 +897,77 @@ test('OWNER MASTER SPEC §2/§7 (night #4): "OK" is NOT confirmation — the bot
   // a clear Roman Urdu YES now confirms the class
   assert.equal((await webhook(incoming('han class ho gi'))).json.data.updated, true);
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
-  assert.match(sent.at(-1).body, /YES/i); // the understood-as-YES ack
+  assert.match(sent.at(-1).body, /confirm/i); // the understood-as-YES ack (pool variants say confirmed/YES)
 
   // after the decision, a bare 'ok' gets silence — the flow is complete (§11)
   assert.equal((await webhook(incoming('ok'))).json.data.updated, false);
+});
+
+test('OWNER MASTER SPEC §21 (night #5): "nahi koi detail nahi chahiye" is NOT a decline — the class stays PENDING until a real decision', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-30', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  // teacher asks who this is, then says they don't need details
+  geminiAnswer = 'QUESTION';
+  geminiChatReply = 'Wa Alaikum Assalam Sir. Main Tri3M Class Agent hoon, class coordination assistant. Aapki scheduled class ke reminder ke liye contact kar raha hoon. Agar koi aur detail chahiye to bataiyega.';
+  try {
+    assert.equal((await webhook(incoming('ap kon ho?'))).json.data.updated, true);
+    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
+
+    // "nahi koi detail nahi chahiye" — NO MORE QUESTIONS, NOT a decline (§21-A)
+    assert.equal((await webhook(incoming('nahi koi detail nahi chahiye'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+    const ask = sent.at(-1);
+    assert.match(ask.body, /lein ge|will you be taking/i); // warm confirm-ask
+    assert.doesNotMatch(ask.body, /unavailable|decline/i);
+
+    // a real YES now confirms (§21-E) — fresh classification, rules say YES
+    geminiAnswer = null;
+    assert.equal((await webhook(incoming('han sir class loon ga'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
+});
+
+test('OWNER MASTER SPEC §21-C/G: a bare "nahi" AFTER THE CLASS QUESTION declines, but after a plain answer it just asks again', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-01-31', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  // CASE 1: the agent's last turn was the class-question ask → bare 'nahi' = DECLINE (§21-G)
+  assert.equal((await webhook(incoming('ok'))).json.data.updated, true); // ack → confirm-ask (agent turn asks the class question)
+  assert.equal((await webhook(incoming('nahi'))).json.data.updated, true);
+  assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'declined');
+  assert.match(sent.at(-1).body, /unavailable|decline|understood/i); // decline ack
+});
+
+test('OWNER MASTER SPEC §21-F: bare "nahi" right after a NON-question agent answer means no-more-questions — class stays PENDING', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp,
+    'teacherConfirmation.status': 'awaiting' }, { $set: { 'teacherConfirmation.status': 'declined' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-02-03', startTime: '14:00', endTime: '15:00' });
+  const slotId = r.json.data._id;
+
+  geminiAnswer = 'QUESTION';
+  // an answer with NO class-ask in it (agent offered details)
+  geminiChatReply = 'Sir, is class ka CR Abdul Rehman Bin Abdullah hai. Aur koi detail chahiye to bataiyega.';
+  try {
+    assert.equal((await webhook(incoming('cr kon hai?'))).json.data.updated, true);
+    await Timetable.updateOne({ _id: slotId }, { $set: { 'teacherConfirmation.questionAnsweredAt': new Date(Date.now() - 120_000) } });
+
+    // bare 'nahi' answers "aur detail chahiye?" → no-more-questions, NOT a decline (§21-C/G)
+    geminiAnswer = null; // fresh classification of the bare 'nahi' (rules path)
+    assert.equal((await webhook(incoming('nahi'))).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+    assert.match(sent.at(-1).body, /lein ge|will you be taking/i); // asks for the real decision
+  } finally {
+    geminiAnswer = null;
+    geminiChatReply = null;
+  }
 });
 
 test('OWNER MASTER SPEC §4/§18: multi-turn conversation memory — turns recorded on the slot and replayed to the LLM', async () => {

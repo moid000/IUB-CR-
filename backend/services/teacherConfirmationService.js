@@ -365,6 +365,8 @@ async function chatReplyWithGemini(body, facts, { unclear = false, history = [] 
         unclear
           ? '11. This message could not be read as an answer about attending: reply warmly that you do not want to guess, and ask in one short line for a plain YES (they will take the class) or NO (they cannot).'
           : '11. If the message is a genuine maybe about attending, ask for the plain YES or NO in one short natural line — briefly, not robotically.',
+        '12. A "no" answers the question it follows: "nahi" / "kuch nahi" / "nahi chahiye" / "nothing else" right after an offer of details means NO MORE QUESTIONS — acknowledge warmly, keep the class PENDING, and ask for the class decision in the same message. Only a clear statement that they will NOT conduct the class declines it; never decline from a bare "no" unless the last question you asked was the class decision.',
+        '12. A "no" answers the question it follows: "nahi" / "kuch nahi" / "nahi chahiye" / "nothing else" right after an offer of details means NO MORE QUESTIONS — acknowledge warmly, keep the class PENDING, and ask for the class decision in the same message. Only a clear statement that they will NOT conduct the class declines it; never decline from a bare "no" unless the last question you asked was the class decision.',
       ].join('\n') + '\n\nACTIVE CLASS FACTS:\n' + facts + transcript }] },
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
       generationConfig: { temperature: 0.4, maxOutputTokens: 300, responseMimeType: 'application/json',
@@ -522,6 +524,8 @@ export function buildAckFollowUpMessage({ subject, time }) {
     `Ji Sir, ek confirmation chahiye — kya aap ye scheduled ${bold(subject)} class (${time}) lein ge?`,
     `Thank you, Sir. Kya aap ${time} wali ${bold(subject)} class lein ge as scheduled?`,
     `Ji Sir — class ka status students tak pohanchane ke liye: kya aap ye ${bold(subject)} class (${time}) lein ge?`,
+    `Ji Sir, thank you. Sirf confirmation ke liye bata dein — kya aap ye scheduled ${bold(subject)} class (${time}) lein ge?`,
+    `Ji Sir, koi masla nahi. Sirf confirm karein — kya aap ye ${bold(subject)} class (${time}) lein ge?`,
   ];
   return asks[Math.floor(Math.random() * asks.length)];
 }
@@ -649,7 +653,30 @@ const INTERPRET_TIMEOUT_MS = 5_000;
  * is a YES; any negation wins over affirmation ("haan nahi ho gi" = NO). */
 const INTERPRET_UNCLEAR_RE = /pata nahi|pata nh\b|abhi (nahi|nh)\b|maybe|shayad|dekh(te|ta|ta hai| ke|kar)|soch( kar| ke)|baad (me|men) bata|let you know|i'?ll confirm later|wait|inta ?zar|thori der/i;
 const INTERPRET_NOPROBLEM_RE = /no problem|no issue|no worries|koi (masla|baat) nahi/i;
-const INTERPRET_NO_RE = /\b(nahi|nahin|nay?hi|nhi|nyi|nai|ni|ny|nhn|nh|no|nahi\?)\b|cancel|postpone|can'?t|cannot|not possible|impossible|busy ho|urgent|emergency|khali nahi|chutti|strike|ho (nahi|nhi|ni) (ga|gi)|mera dil (nahi|ni|nhi)|mood (nahi|ni|nhi)/i;
+const INTERPRET_NO_RE = /\b(nahi|nahin|nay?hi|nhi|nyi|nai|ni|ny|nhn|nh|no|nahi\?)\b|cancel|postpone|can'?t|cannot|not possible|impossible|busy ho|urgent|emergency|khali nahi|chutti|strike|ho (nahi|nhi|ni) (ga|gi)|mera dil (nahi|ni|nhi)|mood (nahi|ni|nhi)|class (nahi|nahin|nhi|ni|ny|no)\b|(nahi|nhi|ni) (aa sakta|aa sakte|le sakta|le sakte)|aa nahi (sakta|sakte)|unavailable|not able to/i;
+
+/* OWNER MASTER SPEC §21 (night #5): there are TWO different "NO"s.
+ * STRONG = the teacher clearly will not conduct the class. A bare 'no'/'nahi'
+ * on its own is context-dependent (§21-C/G) and a "no more questions /
+ * nothing else / nahi chahiye" reply is NOT a decline at all (§21-A/F). */
+const INTERPRET_STRONG_NO_RE = /cancel|postpone|can'?t|cannot|won'?t (be able|make it|come|attend|take|be there)|not possible|impossible|busy ho|urgent|emergency|khali nahi|chutti|strike|ho (nahi|nhi|ni) (ga|gi)|mera dil (nahi|ni|nhi)|mood (nahi|ni|nhi)|class (nahi|nahin|nhi|ni|ny|no)\b|(nahi|nhi|ni) (aa sakta|aa sakte|le sakta|le sakte)|aa nahi (sakta|sakte)|unavailable|not able to|mark me unavailable|decline/i;
+const INTERPRET_NO_MORE_RE = /kuch nahi|kuch nhi|kuch ni\b|koi (question|sawal|query|detail) (nahi|nhi|ni)|koi (nahi|nhi|ni)\b|aur kuch (nahi|nhi|ni)|bas itna hi|bas itna|bus itna|bas\b|that'?s all|thats all|that is all|that'?s it|thats it|that is it|nothing (else|more|at all)|\bnothing\b|no more (questions|queries)|no more\b|no thank|nahi chahiye|nhi chahiye|nahi chahiye tha|no nothing|khatam|\benough\b/i;
+const isBareNoMessage = (t) => String(t ?? '')
+  .replace(/\b(nahi|nahin|nay|nhi|nyi|nai|ni|ny|nhn|nh|no|nope|nah|sir|sahab|madam|ji|gee|g)\b/gi, ' ')
+  .replace(/[\s\p{P}\p{S}]/gu, '')
+  .length === 0;
+/* §21-G: a bare 'no' is linked to the question it answers — it declines
+ * the class ONLY when the last agent turn (or the original reminder, when
+ * the teacher has not heard back from the agent yet) asked for the class
+ * decision. */
+const ASKED_CLASS_RE = /will you (be )?tak|kya aap|class lein|as scheduled|reply.{0,12}yes|yes.{0,8}ya.{0,8}no|confirm|aa rahe|le rahe|taking the|class lein ge|lin ge/i;
+const lastAgentTurnAskedClass = (conversation) => {
+  const conv = Array.isArray(conversation) ? conversation : [];
+  for (let i = conv.length - 1; i >= 0; i--) {
+    if (conv[i]?.role === 'agent') return ASKED_CLASS_RE.test(String(conv[i].text ?? ''));
+  }
+  return true; // no agent turn yet → the pending question is the reminder itself (YES/NO ask)
+};
 // YES words stay SOLID — weak words are deliberately excluded: bare 'ha'
 // is usually just 'hai' (mera dil NI HA = NO), 'ya' means 'or'. If a reply
 // matches none of these the rules return UNCLEAR and Gemini judges it.
@@ -710,8 +737,14 @@ export function interpretReply(body) {
   // word is a question even if it contains a stray yes/no word
   // ('class kaise hogi?' contains 'hogi' — but it is asking HOW)
   if (/[?؟]\s*$/.test(t) && INTERPRET_QUESTION_WORD_RE.test(t)) return 'QUESTION';
-  if (INTERPRET_NO_RE.test(t)) return 'NO';
+  // §21-D: a clear decline always wins...
+  if (INTERPRET_STRONG_NO_RE.test(t)) return 'NO';
+  // ...but a real acceptance ALSO wins before 'nahi chahiye'-style words
   if (INTERPRET_STRONG_YES_RE.test(t)) return 'YES';
+  // §21-A/F: 'no more questions / nothing else / nahi chahiye' is NOT a
+  // decline — the teacher is just done with questions, the class stays PENDING
+  if (INTERPRET_NO_MORE_RE.test(t)) return 'ACK';
+  if (INTERPRET_NO_RE.test(t)) return 'NO';
   // MASTER SPEC §2/§7: a bare acknowledgement ('ok', 'acha', 'theek hai',
   // 'got it', 'thanks') is NEVER a class decision
   if (isBareAcknowledgement(t)) return 'ACK';
@@ -765,7 +798,7 @@ async function classifyReplyWithGemini(body) {
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
   try {
     const parsed = await geminiJson({
-      systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come (a clear decision: "yes", "haan class ho gi", "ma class loon ga", "aaon ga", "sure", "I will take it"). NO = the teacher will not take it / cannot come / does not want to (a clear decision). QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). ACK = the teacher is ONLY acknowledging the message — "ok", "okay", "alright", "fine", "acha", "theek hai", "got it", "understood", "thanks", "thank you". An acknowledgement is NEVER a YES: "ok" does not mean the teacher agreed to conduct the class; when in doubt between YES and ACK for a bare "ok"/"acha"/"theek hai", answer ACK. If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question or say ok. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"ACK"|"UNCLEAR"}.' }] },
+      systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come (a clear decision: "yes", "haan class ho gi", "ma class loon ga", "aaon ga", "sure", "I will take it"). NO = the teacher will not take it / cannot come / does not want to (a clear decision). QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). ACK = the teacher is ONLY acknowledging the message — "ok", "okay", "alright", "fine", "acha", "theek hai", "got it", "understood", "thanks", "thank you". An acknowledgement is NEVER a YES: "ok" does not mean the teacher agreed to conduct the class; when in doubt between YES and ACK for a bare "ok"/"acha"/"theek hai", answer ACK. ACK also covers "no more questions" replies ("nahi koi nahi", "kuch nahi", "bas itna hi", "that\'s all", "nothing else", "nahi chahiye", "no thank you"): they mean the teacher is done asking, NOT that they decline the class; when in doubt between NO and ACK for such a reply, answer ACK. NO is only a clear refusal to conduct the class ("ma class nahi loon ga", "aa nahi sakta", "cancel"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question or say ok. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"ACK"|"UNCLEAR"}.' }] },
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
         responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'ACK', 'UNCLEAR'] } }, required: ['answer'] } },
@@ -786,6 +819,7 @@ async function classifyReplyWithGemini(body) {
  * room/time confusion) routes to the full-details answer card instead. */
 export async function interpretTeacherReply(body) {
   const viaGemini = await classifyReplyWithGemini(body);
+  const t = String(body ?? '').toLowerCase().trim();
   if (viaGemini === 'YES' || viaGemini === 'NO') {
     // OWNER BUG FIX (2026-10-07 night): a question-looking reply with NO strong
     // yes/no word can NEVER confirm/deny a class ('g kon?' was confirmed YES).
@@ -798,8 +832,15 @@ export async function interpretTeacherReply(body) {
     // MASTER SPEC §2: Gemini misreads a bare 'ok' as YES → the class must
     // STILL not be confirmed by an acknowledgement
     if (viaGemini === 'YES' && isBareAcknowledgement(t)) return 'ACK';
+    // §21-A: 'nahi koi nahi', 'nothing else', 'that's all' — Gemini may read
+    // the stray 'no' as a decline; a no-more-questions reply is NOT one
+    if (viaGemini === 'NO' && INTERPRET_NO_MORE_RE.test(t) && !INTERPRET_STRONG_NO_RE.test(t)) return 'ACK';
     return viaGemini;
   }
+  // §21-A: 'nahi koi detail nahi chahiye' can look like a question to
+  // the classifier ('chahiye') — it is NOT, and it is NEVER a decline
+  if (viaGemini === 'QUESTION' && INTERPRET_NO_MORE_RE.test(t)
+    && !INTERPRET_STRONG_NO_RE.test(t) && !INTERPRET_QUESTION_RE.test(t) && !/[?؟]\s*$/.test(t)) return 'ACK';
   if (viaGemini === 'QUESTION') return 'QUESTION';
   if (viaGemini === 'ACK') return 'ACK';
   // The LLM REACHED a verdict of UNCLEAR — its reading is final about YES/NO,
@@ -810,6 +851,7 @@ export async function interpretTeacherReply(body) {
   if (viaGemini === 'UNCLEAR') {
     const t = String(body ?? '').toLowerCase().trim();
     if (isBareAcknowledgement(t)) return 'ACK';
+    if (INTERPRET_NO_MORE_RE.test(t) && !INTERPRET_STRONG_NO_RE.test(t)) return 'ACK';
     return INTERPRET_BROAD_QUESTION_RE.test(t) ? 'QUESTION' : null;
   }
   // API unreachable → local rules as the safety net
@@ -899,6 +941,17 @@ export async function handleTeacherReply(payload) {
     if (!interpreted) return converseWithTeacher(sender, payload, 'unclear');
   }
   const answer = exact ? exact[1].toUpperCase() : plain ? plain[1].toUpperCase() : interpreted;
+  // OWNER MASTER SPEC §21-C/G: a bare 'No'/'Nahi' has NO fixed meaning —
+  // it declines the class ONLY when the question it answers was the class
+  // decision. After an offer of details ('anything else?') the same word
+  // means 'no more questions' and the class must stay PENDING.
+  if (answer === 'NO' && isBareNoMessage(body)) {
+    const ctxSlot = await Timetable.findOne({ status: 'active', 'teacherConfirmation.phone': sender,
+      'teacherConfirmation.status': 'awaiting' }).lean();
+    if (ctxSlot && !lastAgentTurnAskedClass(ctxSlot.teacherConfirmation?.conversation ?? [])) {
+      return converseWithTeacher(sender, payload, 'ack'); // warm confirm-ask, status untouched
+    }
+  }
   let slot;
   if (exact) {
     slot = await Timetable.findOne({ status: 'active', 'teacherConfirmation.code': exact[2].toUpperCase(),
