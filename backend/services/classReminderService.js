@@ -29,12 +29,16 @@ const fmtTime = (time) => {
 
 /** ONE short line — deliberately no long template, no link: the teacher must
  * grasp it at a glance. Same respectful greeting as every teacher message. */
-export function buildClassReminderMessage({ teacher, subject, section, time, room }) {
-  return [
+export function buildClassReminderMessage({ teacher, subject, section, time, room, awaitingConfirmation = false }) {
+  const lines = [
     `Assalam-o-Alaikum Respected *${teacher}*`,
     `*Reminder:* your *${subject}* class (${section}) starts at *${fmtTime(time)}* today${room ? ` — ${room}` : ''}.`,
-    '— Tri3M Class Agent',
-  ].join('\n');
+  ];
+  // §22-D (owner master spec): never passively wait while the class decision
+  // is still pending — the reminder itself asks for the YES/NO once more.
+  if (awaitingConfirmation) lines.push('Kya aap ye class lein ge, Sir? Please reply *YES* or *NO*.');
+  lines.push('— Tri3M Class Agent');
+  return lines.join('\n');
 }
 
 export async function runClassReminderSweep({ nowEpoch = now(), only = null } = {}) {
@@ -65,6 +69,7 @@ export async function runClassReminderSweep({ nowEpoch = now(), only = null } = 
 
     const body = buildClassReminderMessage({
       teacher: teacher.name,
+      awaitingConfirmation: slot.teacherConfirmation?.status === 'awaiting',
       subject: slot.subject?.name ?? 'class',
       section: slot.section?.name ?? '',
       time: slot.startTime,

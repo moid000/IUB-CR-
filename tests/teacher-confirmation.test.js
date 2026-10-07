@@ -554,6 +554,15 @@ test('OWNER FEATURE: class reminder — short WhatsApp to the teacher ~20 min be
   assert.match(sample, /1:30 PM/);
 });
 
+test('OWNER MASTER SPEC §22-D (night #6): the pre-class reminder ITSELF asks for the YES/NO while confirmation is still pending', async () => {
+  const { buildClassReminderMessage } = await import('../backend/services/classReminderService.js');
+  const awaiting = buildClassReminderMessage({ teacher: 'Dr X', subject: 'AI', section: '2M', time: '13:30', room: '', awaitingConfirmation: true });
+  assert.match(awaiting, /Kya aap ye class lein ge, Sir\?/);
+  assert.match(awaiting, /YES/);
+  const decided = buildClassReminderMessage({ teacher: 'Dr X', subject: 'AI', section: '2M', time: '13:30', room: '', awaitingConfirmation: false });
+  assert.doesNotMatch(decided, /Kya aap ye class lein ge/);
+});
+
 test('OWNER FEATURE: class reminder skips slots with no teacher linked (no message, no spam)', async () => {
   const { runClassReminderSweep } = await import('../backend/services/classReminderService.js');
   const nowEpoch = Date.UTC(2026, 9, 5, 3, 45);
@@ -901,6 +910,26 @@ test('OWNER MASTER SPEC §2/§7 (night #4): "OK" is NOT confirmation — the bot
 
   // after the decision, a bare 'ok' gets silence — the flow is complete (§11)
   assert.equal((await webhook(incoming('ok'))).json.data.updated, false);
+});
+
+test('OWNER MASTER SPEC §22-C (night #6): an information answer while PENDING always carries the confirmation ask — never a bare answer', async () => {
+  const { buildStaticTeacherAnswer, buildQuestionAnswerMessage } = await import('../backend/services/teacherConfirmationService.js');
+  // offline one-topic answer (API down): answer + ask in the same message
+  const one = buildStaticTeacherAnswer('class kitny bajy hai?', { section: '2M', department: 'AI', semester: 2,
+    subject: 'SS', day: 'Thu', time: '9:00 AM', room: 'Clerk Office', crName: 'Abdul Rehman', crRole: 'CR',
+    crPhone: '03088787753', classStatus: 'awaiting' });
+  assert.match(one, /9:00 AM/);            // the question was answered
+  assert.match(one, /Kya aap ye scheduled class lein ge, Sir\?/); // AND the ask follows (§22-C)
+  // full card while awaiting: also asks
+  const card = buildQuestionAnswerMessage({ section: '2M', department: 'AI', semester: 2, subject: 'SS',
+    day: 'Thu', time: '9:00 AM', room: 'Clerk Office', crName: 'Abdul Rehman', crRole: 'CR',
+    crPhone: '03088787753', classStatus: 'awaiting' });
+  assert.match(card, /Kya aap ye scheduled class lein ge, Sir\?/);
+  // decided classes never re-ask
+  const done = buildStaticTeacherAnswer('class kitny bajy hai?', { section: '2M', department: 'AI', semester: 2,
+    subject: 'SS', day: 'Thu', time: '9:00 AM', room: 'Clerk Office', crName: 'Abdul Rehman', crRole: 'CR',
+    crPhone: '03088787753', classStatus: 'confirmed' });
+  assert.doesNotMatch(done, /Kya aap ye scheduled class lein ge/);
 });
 
 test('OWNER MASTER SPEC §21 (night #5): "nahi koi detail nahi chahiye" is NOT a decline — the class stays PENDING until a real decision', async () => {
