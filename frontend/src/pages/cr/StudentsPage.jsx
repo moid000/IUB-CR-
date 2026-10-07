@@ -11,9 +11,7 @@ import { Input } from '../../components/ui/Input.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconUserPlus, IconInfo, IconInbox } from '../../components/icons.jsx';
-import { EmptyState } from '../../components/ui/EmptyState.jsx';
-import { Skeleton } from '../../components/ui/Skeleton.jsx';
+import { IconUserPlus, IconInfo } from '../../components/icons.jsx';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -66,90 +64,6 @@ function AddStudentForm({ open, onClose, onSaved }) {
   );
 }
 
-/**
- * MOBILE (<640px) students table — owner 2026-10-07 ("dono ek sath"):
- * a REAL table with the data as COLUMNS (not stacked under the name),
- * compact enough to FIT the phone at 100% zoom — no pinch, no swipe.
- * table-fixed + percentage widths = the table can never push the page wide.
- * Shows: Student | Roll | Email | Phone | Status (everything the owner named).
- */
-function MobileStudentTable({ students, loading, error, onRetry, emptyAction }) {
-  const th = 'px-1.5 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500';
-  return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-soft sm:hidden">
-      {error ? (
-        <div className="p-6">
-          <Alert variant="danger"><p className="font-medium">{error.message}</p></Alert>
-          {onRetry && (
-            <div className="mt-3 flex justify-center">
-              <Button variant="secondary" size="sm" onClick={onRetry}>Try again</Button>
-            </div>
-          )}
-        </div>
-      ) : loading ? (
-        <div className="p-4" role="status" aria-label="Loading students">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 px-1 py-2.5">
-              <Skeleton className="h-4 flex-1" /><Skeleton className="h-4 w-14" /><Skeleton className="h-4 w-16" />
-            </div>
-          ))}
-        </div>
-      ) : students.length === 0 ? (
-        <div className="p-6">
-          <EmptyState
-            icon={<IconInbox className="size-10" />}
-            title="No students have been added to your section yet."
-            description="Add your first student — they'll get an email to activate their account before they can sign in."
-            action={emptyAction}
-          />
-        </div>
-      ) : (
-        <table className="w-full table-fixed text-left">
-          <thead>
-            <tr className="border-b border-slate-200/80 bg-slate-50/60">
-              <th scope="col" className={`${th} w-[25%]`}>Student</th>
-              <th scope="col" className={`${th} w-[19%]`}>Roll</th>
-              <th scope="col" className={`${th} w-[24%]`}>Email</th>
-              <th scope="col" className={`${th} w-[16%]`}>Phone</th>
-              <th scope="col" className={`${th} w-[16%]`}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((s) => {
-              const dot = { active: 'bg-emerald-500', pending: 'bg-amber-500', suspended: 'bg-red-500' }[s.registrationStatus] ?? 'bg-slate-400';
-              return (
-                <tr key={s._id} className="border-b border-slate-100 last:border-0 align-top">
-                  <td className="px-1.5 py-2 text-[11px] font-medium text-slate-900">
-                    <span className="break-words">{s.name}</span>
-                  </td>
-                  <td className="px-1.5 py-2 text-[10px] font-mono text-slate-700">
-                    <span className="break-words">{s.rollNo || '—'}</span>
-                  </td>
-                  <td className="px-1.5 py-2 text-[10px] text-slate-600">
-                    <span className="break-all">{s.email}</span>
-                  </td>
-                  <td className="px-1.5 py-2 text-[10px] text-slate-600">
-                    <span className="break-words">{s.phone || '—'}</span>
-                  </td>
-                  <td className="whitespace-nowrap px-1.5 py-2 text-[10px] text-slate-700">
-                    <span className="flex items-center gap-1">
-                      <span className={`inline-block size-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
-                      <span className="capitalize">{s.registrationStatus}</span>
-                    </span>
-                    {s.registrationStatus === 'active' && !s.emailVerified && (
-                      <span className="mt-0.5 block text-[9px] text-slate-400">email unverified</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
 export default function StudentsPage() {
   const { user } = useAuth();
   const section = user?.section;
@@ -175,20 +89,22 @@ export default function StudentsPage() {
 
   if (!section) return <NoSection />;
 
-  // sm+ : the ORIGINAL professional table, byte-for-byte as first built
-  // (Roll No / Student / Email / Phone / Status / Added, hidden per
-  //  breakpoint). Mobile gets its own compact table below.
+  // OWNER (2026-10-07): ONE roomy professional table on EVERY screen —
+  // all 6 columns, comfortable spacing, never congested. On phones the
+  // table scrolls LEFT-RIGHT INSIDE its own card (overflow contained by
+  // DataTable + overscroll-x-contain, so the page itself can never zoom
+  // or shift). A visible swipe hint sits under the table on <sm.
   const columns = [
     {
-      key: 'rollNo', header: 'Roll No', className: 'hidden sm:table-cell',
-      render: (s) => <span className="font-mono text-xs font-semibold text-slate-800">{s.rollNo || '—'}</span>,
+      key: 'rollNo', header: 'Roll No',
+      render: (s) => <span className="whitespace-nowrap font-mono text-xs font-semibold text-slate-800">{s.rollNo || '—'}</span>,
     },
     {
       key: 'name', header: 'Student',
       render: (s) => <p className="font-medium text-slate-900">{s.name}</p>,
     },
-    { key: 'email', header: 'Email', className: 'hidden md:table-cell', render: (s) => <span className="text-slate-600">{s.email}</span> },
-    { key: 'phone', header: 'Phone', className: 'hidden lg:table-cell', render: (s) => s.phone || '—' },
+    { key: 'email', header: 'Email', render: (s) => <span className="whitespace-nowrap text-slate-600">{s.email}</span> },
+    { key: 'phone', header: 'Phone', render: (s) => <span className="whitespace-nowrap">{s.phone || '—'}</span> },
     {
       key: 'registrationStatus', header: 'Status',
       render: (s) => (
@@ -200,7 +116,7 @@ export default function StudentsPage() {
         </div>
       ),
     },
-    { key: 'createdAt', header: 'Added', className: 'hidden lg:table-cell', render: (s) => <span className="whitespace-nowrap text-xs text-slate-500">{formatDate(s.createdAt)}</span> },
+    { key: 'createdAt', header: 'Added', render: (s) => <span className="whitespace-nowrap text-xs text-slate-500">{formatDate(s.createdAt)}</span> },
   ];
 
   return (
@@ -221,10 +137,10 @@ export default function StudentsPage() {
         <SearchInput value={search} onChange={setSearch} placeholder="Search name, roll no, email…" label="Search students" />
       </div>
 
-      <div className="hidden sm:block">
       <DataTable
         columns={columns}
         rows={filtered}
+        tableClassName="min-w-[900px]"
         loading={loading}
         error={error}
         onRetry={reload}
@@ -234,15 +150,10 @@ export default function StudentsPage() {
         emptyDescription="Add your first student — they'll get an email to activate their account before they can sign in."
         emptyAction={<Button icon={IconUserPlus} onClick={() => setModal({ mode: 'create' })}>Add student</Button>}
       />
-      </div>
 
-      <MobileStudentTable
-        students={filtered}
-        loading={loading}
-        error={error}
-        onRetry={reload}
-        emptyAction={<Button icon={IconUserPlus} onClick={() => setModal({ mode: 'create' })}>Add student</Button>}
-      />
+      <p className="mt-2 flex items-center justify-center gap-1 text-xs text-slate-400 sm:hidden" aria-hidden="true">
+        <span aria-hidden="true">&#8592;</span> Swipe the table left-right to see all details <span aria-hidden="true">&#8594;</span>
+      </p>
 
       <div className="mt-4 flex items-start gap-3 rounded-xl border border-slate-100 bg-white/70 p-4 text-sm text-slate-500">
         <IconInfo className="mt-0.5 size-4 shrink-0 text-slate-400" />

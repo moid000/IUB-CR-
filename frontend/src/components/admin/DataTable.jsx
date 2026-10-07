@@ -65,7 +65,7 @@ export function DataTable({
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overscroll-x-contain">
             <table className={`w-full text-left text-sm ${tableClassName}`}>
               <thead>
                 <tr className="border-b border-slate-200/80 bg-slate-50/60">
