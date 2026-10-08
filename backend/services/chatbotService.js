@@ -1,4 +1,5 @@
 import { Section, Subject, Note, Assignment, Timetable, User, Teacher, Announcement, ChatbotLog, ChatbotSetting } from '../models/index.js';
+import { recordVoiceDiag } from '../models/VoiceDiag.js';
 import { env } from '../config/env.js';
 import {
   isConfigured, sendText, sendImage, sendDocument, sendAudio, sendVideo,
@@ -233,23 +234,31 @@ async function transcribeWithGemini(bytes, mimeType) {
   return null;
 }
 
-export async function transcribeVoice(data, apiKey) {
+export async function transcribeVoice(data, apiKey, diag = null) {
+  const t0 = Date.now();
+  const diagAdd = (fields) => { if (diag) Object.assign(diag, fields); };
   try {
     const url = await findVoiceUrl(data);
-    if (!url) return null;
+    diagAdd({ urlFound: Boolean(url) });
+    if (!url) { diagAdd({ error: 'no media url in payload' }); return null; }
     const audioRes = await fetch(url);
-    if (!audioRes.ok) return null;
+    if (!audioRes.ok) { diagAdd({ error: `media fetch ${audioRes.status}` }); return null; }
     const bytes = new Uint8Array(await audioRes.arrayBuffer());
-    if (!bytes.length || bytes.length > VOICE_MAX_BYTES) return null;
+    diagAdd({ mediaBytes: bytes.length });
+    if (!bytes.length || bytes.length > VOICE_MAX_BYTES) {
+      diagAdd({ error: bytes.length ? `too big: ${bytes.length}` : 'empty media' });
+      return null;
+    }
     const mime = guessVoiceMime(audioRes, url);
+    diagAdd({ mime });
 
     // 1) GEMINI — free tier, zero credits needed (owner choice 2026-10-08)
     const viaGemini = await transcribeWithGemini(bytes, mime);
-    if (viaGemini) return viaGemini;
+    if (viaGemini) { diagAdd({ engine: 'gemini', transcript: viaGemini }); return viaGemini; }
 
     // 2) OpenAI Whisper fallback — needs a paid key on file
     const key = apiKey || (await resolveOpenAiKey());
-    if (!key) return null;
+    if (!key) { diagAdd({ error: 'no transcript from Gemini; no OpenAI key' }); return null; }
     const form = new FormData();
     form.append('file', new Blob([bytes], { type: mime }), 'voice.ogg');
     form.append('model', 'whisper-1'); // language auto-detect: students mix Urdu + English
@@ -258,12 +267,21 @@ export async function transcribeVoice(data, apiKey) {
       headers: { authorization: `Bearer ${key}` },
       body: form,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      diagAdd({ error: `whisper ${res.status}: ${errBody.slice(0, 160)}` });
+      return null;
+    }
     const json = await res.json();
     const text = String(json?.text ?? '').trim();
+    if (text) diagAdd({ engine: 'whisper', transcript: text });
+    else diagAdd({ error: 'whisper returned empty text' });
     return text || null;
-  } catch {
+  } catch (err) {
+    diagAdd({ error: `exception: ${String(err?.message ?? err).slice(0, 200)}` });
     return null;
+  } finally {
+    if (diag) diag.latencyMs = Date.now() - t0;
   }
 }
 
@@ -943,7 +961,9 @@ export async function handleGroupMessage(payload) {
     const isVoice = VOICE_TYPES.has(data.type);
     let question;
     if (isVoice) {
-      const transcript = await transcribeVoice(data);
+      const gdiag = { channel: 'group', phone: digitsOf(data.author || data.from), msgType: String(data.type ?? '') };
+      const transcript = await transcribeVoice(data, undefined, gdiag);
+      recordVoiceDiag(gdiag); // diagnostics write, never breaks the reply path
       if (!transcript || !isVoiceAddressedToBot(transcript)) return true; // silent
       question = transcript.slice(0, 400);
     } else {

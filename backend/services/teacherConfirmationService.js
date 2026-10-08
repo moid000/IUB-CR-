@@ -5,6 +5,7 @@ import { isConfigured, sendText } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
 // OWNER night #8: teacher VOICE NOTES reuse the group bot's Whisper helper
 import { transcribeVoice } from './chatbotService.js';
+import { recordVoiceDiag } from '../models/VoiceDiag.js';
 
 const MAX_ATTEMPTS = 3;
 
@@ -1233,8 +1234,10 @@ export async function handleTeacherReply(payload) {
   // Whisper transcribes; the transcript then runs through the EXACT same
   // pipeline as a typed message (classify → YES/NO/question/ack/escalation).
   if (msgType !== 'chat') {
-    const transcript = await transcribeVoice(payload.data);
-    chatLog('VOICE NOTE', { phone: String(payload.data.from ?? '').split('@')[0].replace(/\D/g, ''), msg: transcript ?? '(could not transcribe — ignored)' });
+    const diag = { channel: 'teacher', phone: String(payload.data.from ?? '').split('@')[0].replace(/\D/g, ''), msgType };
+    const transcript = await transcribeVoice(payload.data, undefined, diag);
+    recordVoiceDiag(diag); // owner incident 2026-10-08: silent failures must become visible
+    chatLog('VOICE NOTE', { phone: diag.phone, msg: transcript ?? `(no transcript — ${diag.error ?? 'unknown'})` });
     if (!transcript) return false; // no key / transcription failure → never guess content
     payload = { ...payload, data: { ...payload.data, body: transcript, type: 'chat' } };
   }

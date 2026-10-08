@@ -1022,6 +1022,31 @@ test('OWNER night #8 VOICE NOTES: a spoken YES confirms the class — the transc
   }
 });
 
+test('OWNER 2026-10-08 VOICE DIAG: silent transcription failure is now VISIBLE in VoiceDiag + voice-log endpoint', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-22', startTime: '09:00', endTime: '10:00' });
+  voiceTranscript = null; geminiVoiceTranscript = null; // every engine fails
+  try {
+    assert.equal((await webhook(voiceMsg())).json.data.updated, false); // still silent to the teacher
+    const { VoiceDiag } = await import('../backend/models/index.js');
+    const diag = await VoiceDiag.findOne({ channel: 'teacher' }).sort({ createdAt: -1 }).lean();
+    assert.ok(diag, 'diag row recorded');
+    assert.equal(diag.phone, '923001112233');
+    assert.equal(diag.urlFound, true); // the link was in the payload
+    assert.ok(diag.error, `failure reason captured: ${diag.error}`);
+    // the owner-only diagnostic endpoint returns the row (sweep secret required)
+    const sec = process.env.DEADLINE_SWEEP_SECRET;
+    const res = await fetch(`${base}/api/whatsapp/voice-log?secret=${sec}`);
+    assert.equal(res.status, 200);
+    const rows = (await res.json()).data;
+    assert.ok(rows.some((row) => row.channel === 'teacher' && row.error));
+    const denied = await fetch(`${base}/api/whatsapp/voice-log?secret=wrong`);
+    assert.equal(denied.status, 401);
+  } finally {
+    voiceTranscript = null;
+  }
+});
+
 test('OWNER night #8 VOICE NOTES: transcription failure is SILENT — never guessed, nothing breaks', async () => {
   await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
   const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-18', startTime: '09:00', endTime: '10:00' });

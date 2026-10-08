@@ -82,6 +82,19 @@ const watchdogHandle = async (req, res, next) => {
 };
 
 router.get('/watchdog', watchdogHandle);
+/* VOICE NOTE DIAGNOSTICS (owner incident 2026-10-08): the same secret guard
+ * as the sweep — returns the latest voice-note pipeline records so a voice
+ * incident can be pinpointed without runtime logs. Read-only. */
+router.get('/voice-log', async (req, res, next) => {
+  try {
+    assertSweepSecret(req);
+
+    const { VoiceDiag } = await import('../models/index.js');
+    const rows = await VoiceDiag.find({}).sort({ createdAt: -1 }).limit(30).lean();
+    res.json({ success: true, data: rows.map(({ _id, __v, ...r }) => r) });
+  } catch (err) { next(err); }
+});
+
 router.post('/watchdog', watchdogHandle);
 
 /** UltraMsg inbound replies. Secret lives ONLY in Vercel and in the gateway's
