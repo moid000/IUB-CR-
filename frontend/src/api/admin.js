@@ -66,5 +66,10 @@ export const adminApi = {
     // Never returns the Gemini key — only whether one is configured.
     get: () => api.get('/api/admin/chatbot'),
     update: (body) => api.put('/api/admin/chatbot', body), // { enabled?, apiKey? }
+  experience: {
+    // Teacher-agent learning examples (Administration page).
+    get: () => api.get('/api/admin/experience'),
+    refresh: () => api.post('/api/admin/experience/refresh'),
+  },
   },
 };

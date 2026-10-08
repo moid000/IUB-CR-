@@ -15,7 +15,7 @@ import { parsePagination, paginationMeta, searchFilter } from '../utils/paginati
 
 const NAME_MAX = 80;
 const WHATSAPP_MAX = 160;
-const TEACHER_FIELDS = 'name subject section whatsapp email designation createdBy createdAt updatedAt';
+const TEACHER_FIELDS = 'name subject section whatsapp email designation chatProfile createdBy createdAt updatedAt';
 
 /**
  * Normalizes a WhatsApp number to international digits WITHOUT '+'.
@@ -113,15 +113,34 @@ export async function listTeachersCr(req) {
   return { items, pagination: paginationMeta(total, { page, limit }) };
 }
 
+const CHAT_LANGUAGES = ['auto', 'english', 'roman_urdu', 'urdu'];
+
+/** OWNER night #8: CR can pin the teacher's reminder language manually.
+ * 'auto' = the agent learns it from the teacher's own messages. */
+function assertChatProfile(value, teacher) {
+  if (value === undefined) return;
+  const lang = value?.preferredLanguage;
+  if (lang === undefined) return;
+  if (!CHAT_LANGUAGES.includes(lang)) {
+    throw new ApiError(400, 'Invalid reminder language');
+  }
+  if (teacher) {
+    if (!teacher.chatProfile) teacher.chatProfile = {};
+    teacher.chatProfile.preferredLanguage = lang;
+  }
+  return lang;
+}
+
 export async function createTeacherCr(req) {
   const sectionId = req.user.section;
   if (!sectionId) throw new ApiError(400, 'You are not assigned to a section');
   await assertSectionActive(sectionId);
 
-  const body = v.pick(req.body, ['name', 'subject', 'whatsapp', 'email', 'designation']);
+  const body = v.pick(req.body, ['name', 'subject', 'whatsapp', 'email', 'designation', 'chatProfile']);
   const name = assertTeacherName(body.name);
   const subject = await assertOwnActiveSubject(body.subject, sectionId);
   const whatsapp = assertWhatsApp(body.whatsapp);
+  const chatLang = assertChatProfile(body.chatProfile);
 
   const existing = await Teacher.findOne({ subject: subject._id });
   if (existing) {
@@ -136,6 +155,7 @@ export async function createTeacherCr(req) {
     email: assertOptionalEmail(body.email),
     designation: assertOptionalText(body.designation, 'designation', WHATSAPP_MAX),
     createdBy: req.user._id,
+    ...(chatLang && chatLang !== 'auto' ? { chatProfile: { preferredLanguage: chatLang } } : {}),
   });
 
   await auditFromReq(req, {
@@ -150,7 +170,7 @@ export async function updateTeacherCr(req) {
   if (!sectionId) throw new ApiError(400, 'You are not assigned to a section');
 
   const teacher = await findOwnTeacher(req.params.id, sectionId);
-  const body = v.pick(req.body, ['name', 'subject', 'whatsapp', 'email', 'designation']);
+  const body = v.pick(req.body, ['name', 'subject', 'whatsapp', 'email', 'designation', 'chatProfile']);
 
   if (body.name !== undefined) teacher.name = assertTeacherName(body.name);
   if (body.subject !== undefined && String(body.subject) !== String(teacher.subject)) {
@@ -166,6 +186,8 @@ export async function updateTeacherCr(req) {
   if (body.designation !== undefined) {
     teacher.designation = assertOptionalText(body.designation, 'designation', WHATSAPP_MAX);
   }
+  // OWNER night #8: CR can pin the teacher's reminder language manually
+  assertChatProfile(body.chatProfile, teacher);
 
   await teacher.save();
   await auditFromReq(req, {

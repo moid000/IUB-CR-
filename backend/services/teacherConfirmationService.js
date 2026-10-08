@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
-import { Section, Subject, Teacher, Timetable, User } from '../models/index.js';
+import { createHash, randomBytes } from 'node:crypto';
+import { ExperienceExample, Section, Subject, Teacher, Timetable, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { isConfigured, sendText } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
@@ -344,6 +344,127 @@ const EXPERIENCE_LIBRARY = {
   ],
 };
 
+/* OWNER night #8 follow-up — EXPERIENCE LIBRARY is DB-backed: the seeds below
+ * bootstrap the ExperienceExample collection once; refreshExperienceLibrary()
+ * adds REAL examples mined from live teacher conversations. The prompts load
+ * them with a 10-minute cache and fall back to the static seeds offline. */
+let experienceCache = null;
+let experienceCacheAt = 0;
+const EXPERIENCE_CACHE_MS = 10 * 60 * 1000;
+
+async function seedExperienceExamples() {
+  const rows = [
+    ...EXPERIENCE_LIBRARY.classify.map(([input, output], i) =>
+      ({ kind: 'classify', input, output, source: 'seed', active: true, dedupeKey: `seed:classify:${i}` })),
+    ...EXPERIENCE_LIBRARY.chat.map(([input, output], i) =>
+      ({ kind: 'chat', input, output, source: 'seed', active: true, dedupeKey: `seed:chat:${i}` })),
+  ];
+  try {
+    await ExperienceExample.insertMany(rows, { ordered: false });
+  } catch (err) {
+    if (err?.code !== 11000 && err?.code !== 11000n) throw err; // duplicates fine
+  }
+}
+
+/** Active examples for a prompt, freshest (real) first. Falls back to the
+ * static seeds when the DB is unreachable. NEVER throws. */
+async function loadExperienceExamples(kind) {
+  try {
+    if (!experienceCache || Date.now() - experienceCacheAt > EXPERIENCE_CACHE_MS) {
+      if ((await ExperienceExample.countDocuments({})) === 0) await seedExperienceExamples();
+      const docs = await ExperienceExample.find({ active: true })
+        .sort({ source: 1, createdAt: 1 }).limit(60).lean();
+      experienceCache = {
+        classify: docs.filter((d) => d.kind === 'classify').slice(0, 20).map((d) => [d.input, d.output]),
+        chat: docs.filter((d) => d.kind === 'chat').slice(0, 20).map((d) => [d.input, d.output]),
+      };
+      experienceCacheAt = Date.now();
+    }
+    return experienceCache[kind] ?? [];
+  } catch {
+    return EXPERIENCE_LIBRARY[kind] ?? [];
+  }
+}
+
+/** Infer the verdict of a REAL teacher message from what the agent actually
+ * did next (the interpreted-ack card / escalation ack / question answer). */
+function inferRealVerdict(teacherText, agentReply) {
+  const reply = String(agentReply ?? '');
+  const t = String(teacherText ?? '').toLowerCase().trim();
+  if (reply.includes('understood your reply as a *YES*')) return 'YES';
+  if (reply.includes('understood your reply as a *NO*')) return 'NO';
+  if (reply.includes('pohncha diya hai')) return 'ESCALATION';
+  // BUG FIX (owner night #8 follow-up, caught by test): bare acknowledgements
+  // ('acha theek hai') have NO provable classifier verdict — 'ACK' is not a
+  // category the classifier ever outputs, so training it would poison the
+  // prompt. Only provable verdicts are ever trained.
+  if (INTERPRET_BROAD_QUESTION_RE.test(t) || /[?؟]\s*$/.test(t)) return 'QUESTION';
+  return null; // genuinely ambiguous — never train a guess
+}
+
+/** OWNER night #8 follow-up: mine the live teacher conversations (last 30
+ * days) for REAL examples — verbatim teacher messages paired with the actual
+ * agent replies — and store them as few-shots. Deterministic (no LLM call),
+ * deduped by message hash, real examples capped. Admin-triggered. */
+export async function refreshExperienceLibrary() {
+  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  const slots = await Timetable.find({ 'teacherConfirmation.conversation.0': { $exists: true }, updatedAt: { $gte: since } })
+    .select('teacherConfirmation.conversation').lean();
+  const pairs = [];
+  for (const slot of slots) {
+    const conv = slot.teacherConfirmation?.conversation ?? [];
+    for (let i = 0; i < conv.length - 1; i += 1) {
+      if (conv[i]?.role === 'teacher' && conv[i + 1]?.role === 'agent') {
+        pairs.push({ input: String(conv[i].text ?? '').trim(), output: String(conv[i + 1].text ?? '').trim() });
+      }
+    }
+  }
+  const clean = pairs.filter((p) => p.input.length >= 2 && p.input.length <= 250
+    && p.output.length >= 5 && p.output.length <= 400);
+  let chatAdded = 0; let classifyAdded = 0;
+  const hash = (t) => createHash('sha1').update(t.toLowerCase().replace(/\s+/g, ' ')).digest('hex');
+  for (const pair of clean) {
+    // chat example: the agent's REAL reply is the ideal style reference
+    try {
+      const doc = await ExperienceExample.create({ kind: 'chat', input: pair.input.slice(0, 300),
+        output: pair.output.slice(0, 400), source: 'real', active: true, dedupeKey: `real:chat:${hash(pair.input)}` });
+      if (doc) chatAdded += 1;
+    } catch (err) { if (err?.code !== 11000 && err?.code !== 11000n) throw err; }
+    // classify example: only when the verdict is provable from the outcome
+    const verdict = inferRealVerdict(pair.input, pair.output);
+    if (verdict) {
+      try {
+        const doc = await ExperienceExample.create({ kind: 'classify', input: pair.input.slice(0, 300),
+          output: verdict, source: 'real', active: true, dedupeKey: `real:classify:${hash(pair.input)}` });
+        if (doc) classifyAdded += 1;
+      } catch (err) { if (err?.code !== 11000 && err?.code !== 11000n) throw err; }
+    }
+  }
+  // cap the real library: keep the newest 30 per kind active
+  for (const kind of ['classify', 'chat']) {
+    const real = await ExperienceExample.find({ kind, source: 'real', active: true })
+      .sort({ createdAt: -1 }).select('_id').lean();
+    if (real.length > 30) {
+      await ExperienceExample.updateMany({ _id: { $in: real.slice(30).map((d) => d._id) } }, { $set: { active: false } });
+    }
+  }
+  experienceCache = null; experienceCacheAt = 0; // reload fresh examples
+  return { pairsScanned: clean.length, chatAdded, classifyAdded };
+}
+
+/** Stats for the admin card. */
+export async function getExperienceStats() {
+  const [classifySeed, classifyReal, chatSeed, chatReal, last] = await Promise.all([
+    ExperienceExample.countDocuments({ kind: 'classify', source: 'seed', active: true }),
+    ExperienceExample.countDocuments({ kind: 'classify', source: 'real', active: true }),
+    ExperienceExample.countDocuments({ kind: 'chat', source: 'seed', active: true }),
+    ExperienceExample.countDocuments({ kind: 'chat', source: 'real', active: true }),
+    ExperienceExample.findOne({ source: 'real' }).sort({ updatedAt: -1 }).select('updatedAt').lean(),
+  ]);
+  return { classify: { seed: classifySeed, real: classifyReal }, chat: { seed: chatSeed, real: chatReal },
+    lastRefreshAt: last?.updatedAt ?? null };
+}
+
 /* OWNER night #8 — PER-TEACHER MEMORY: language detector (Urdu script →
  * roman-vs-english word markers). Returns 'urdu' | 'roman_urdu' | 'english'
  * or null when the message is too short to judge. */
@@ -397,7 +518,7 @@ function buildCrEscalationAlert(ctx, teacherBody) {
   ].join('\n');
 }
 
-function buildTeacherChatFacts({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone, classStatus, teacherLanguage }) {
+function buildTeacherChatFacts({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone, classStatus, teacherLanguage, chatExamples }) {
   return [
     `Teacher: ${teacher}`,
     `Subject: ${subject}`,
@@ -417,7 +538,7 @@ function buildTeacherChatFacts({ teacher, section, department, semester, subject
       : teacherLanguage === 'english'
         ? [`Teacher's usual language: English — reply in English.`]
         : []),
-    'EXAMPLES of good replies (style reference):\n' + EXPERIENCE_LIBRARY.chat.map(([q, a]) => `${q} → "${a}"`).join('\n'),
+    'EXAMPLES of good replies (style reference):\n' + (chatExamples ?? EXPERIENCE_LIBRARY.chat).map(([q, a]) => `${q} → "${a}"`).join('\n'),
   ].join('\n');
 }
 
@@ -561,6 +682,7 @@ async function converseWithTeacher(sender, payload, mode) {
           ? prof.preferredLanguage : (prof.detectedLanguage ?? null);
       }
     } catch { /* best-effort */ }
+    const chatExamples = await loadExperienceExamples('chat');
     // OWNER night #8 — ESCALATION context: the teacher's message needs a
     // human. Shared conversation history so the CR sees the full context.
     const history = (slot.teacherConfirmation?.conversation ?? [])
@@ -589,7 +711,7 @@ async function converseWithTeacher(sender, payload, mode) {
     //     stays with the teacher (YES/NO) and the CR (manual override).
     if (mode === 'escalation') {
       const teacherBody = String(payload.data.body ?? '');
-      const reply = await chatReplyWithGemini(teacherBody, buildTeacherChatFacts({ ...ctx, teacherLanguage }),
+      const reply = await chatReplyWithGemini(teacherBody, buildTeacherChatFacts({ ...ctx, teacherLanguage, chatExamples }),
         { history, escalation: true });
       const message = reply ?? buildEscalationMessage(ctx);
       chatLog('AI-HANDLER INVOKED (escalation)', { phone: sender, classId: slot._id, state: 'PENDING_CONFIRMATION', msg: teacherBody, reply: message });
@@ -617,7 +739,7 @@ async function converseWithTeacher(sender, payload, mode) {
     // HUMAN conversation first; offline → professional static fallbacks.
     // MASTER SPEC: the last turns are replayed so the conversation is MULTI-TURN
     // ('his number?', 'okay I'll take it' keep the same class context).
-    const reply = await chatReplyWithGemini(String(payload.data.body ?? ''), buildTeacherChatFacts({ ...ctx, teacherLanguage }), { unclear: mode === 'unclear', history });
+    const reply = await chatReplyWithGemini(String(payload.data.body ?? ''), buildTeacherChatFacts({ ...ctx, teacherLanguage, chatExamples }), { unclear: mode === 'unclear', history });
     const message = reply ?? (mode === 'unclear'
       ? buildHintMessage(teacherDoc.name)
       : INTERPRET_IDENTITY_RE.test(String(payload.data.body ?? ''))
@@ -976,7 +1098,7 @@ async function classifyReplyWithGemini(body) {
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
   try {
     const parsed = await geminiJson({
-        systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come (a clear decision: "yes", "haan class ho gi", "ma class loon ga", "aaon ga", "sure", "I will take it"). NO = the teacher will not take it / cannot come / does not want to (a clear decision). ESCALATION = the teacher asks for something that needs a human/CR action or a change the assistant cannot make: rescheduling or shifting the class, sending an alternate/replacement teacher, passing a message to the CR or students, emergencies asking for arrangement ("meri car kharab hai, CR se keh do", "class 10 baje tak shift kar dein", "ma hospital me hun, CR ko bata dein"). A CLEAR YES or NO about conducting the class still wins over ESCALATION when both are present. QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). ACK = the teacher is ONLY acknowledging the message — "ok", "okay", "alright", "fine", "acha", "theek hai", "got it", "understood", "thanks", "thank you". An acknowledgement is NEVER a YES: "ok" does not mean the teacher agreed to conduct the class; when in doubt between YES and ACK for a bare "ok"/"acha"/"theek hai", answer ACK. ACK also covers "no more questions" replies ("nahi koi nahi", "kuch nahi", "bas itna hi", "that\'s all", "nothing else", "nahi chahiye", "no thank you"): they mean the teacher is done asking, NOT that they decline the class; when in doubt between NO and ACK for such a reply, answer ACK. NO is only a clear refusal to conduct the class ("ma class nahi loon ga", "aa nahi sakta", "cancel"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question or say ok. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter).  EXAMPLES (real teacher replies → the correct verdict): ' + EXPERIENCE_LIBRARY.classify.map(([msg, verdict]) => `"${msg}" → ${verdict}`).join('; ') + '. Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"ACK"|"ESCALATION"|"UNCLEAR"}.' }] },
+        systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come (a clear decision: "yes", "haan class ho gi", "ma class loon ga", "aaon ga", "sure", "I will take it"). NO = the teacher will not take it / cannot come / does not want to (a clear decision). ESCALATION = the teacher asks for something that needs a human/CR action or a change the assistant cannot make: rescheduling or shifting the class, sending an alternate/replacement teacher, passing a message to the CR or students, emergencies asking for arrangement ("meri car kharab hai, CR se keh do", "class 10 baje tak shift kar dein", "ma hospital me hun, CR ko bata dein"). A CLEAR YES or NO about conducting the class still wins over ESCALATION when both are present. QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). ACK = the teacher is ONLY acknowledging the message — "ok", "okay", "alright", "fine", "acha", "theek hai", "got it", "understood", "thanks", "thank you". An acknowledgement is NEVER a YES: "ok" does not mean the teacher agreed to conduct the class; when in doubt between YES and ACK for a bare "ok"/"acha"/"theek hai", answer ACK. ACK also covers "no more questions" replies ("nahi koi nahi", "kuch nahi", "bas itna hi", "that\'s all", "nothing else", "nahi chahiye", "no thank you"): they mean the teacher is done asking, NOT that they decline the class; when in doubt between NO and ACK for such a reply, answer ACK. NO is only a clear refusal to conduct the class ("ma class nahi loon ga", "aa nahi sakta", "cancel"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question or say ok. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter).  EXAMPLES (real teacher replies → the correct verdict): ' + (await loadExperienceExamples('classify')).map(([msg, verdict]) => `"${msg}" → ${verdict}`).join('; ') + '. Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"ACK"|"ESCALATION"|"UNCLEAR"}.' }] },
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
         responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'ACK', 'ESCALATION', 'UNCLEAR'] } }, required: ['answer'] } },

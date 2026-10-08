@@ -44,7 +44,7 @@ const {
   handleGroupMessage, isTri3mTag, stripMentions, parseGeminiJson,
   buildFallbackReply, pickNotesForDelivery, isGroupMessage, groupIdOf, contextData, subjectAsked,
   resolvePick, resolveLastNotes, extractOfferedTitles, SYSTEM_PROMPT, miniGameReply, casualReply, resolveSubjectFollowUp,
-  isVoiceAddressedToBot,
+  isVoiceAddressedToBot, transcribeVoice, resolveOpenAiKey,
 } = chatbot;
 
 const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
@@ -77,7 +77,7 @@ globalThis.fetch = async (url, opts) => {
     return new Response(new Uint8Array([79, 103, 103, 83, 0, 12]).buffer, { status: 200 }); // fake ogg bytes
   }
   if (u.includes('api.openai.com')) {
-    openaiCalls.push({ url: u });
+    openaiCalls.push({ url: u, auth: String(opts?.headers?.authorization ?? '') });
     return new Response(JSON.stringify({ text: openaiTranscript ?? '' }), { status: 200 });
   }
   if (u.includes('generativelanguage.googleapis.com')) {
@@ -1021,4 +1021,70 @@ test('chatbot switch: non-boolean enabled is rejected', async () => {
     body: JSON.stringify({ enabled: 'yes' }),
   });
   assert.equal(put.status, 400);
+});
+
+test('voice key (owner fix 2026-10-08): panel-saved OpenAI key wins over env, used by Whisper, never leaked', async () => {
+  // the switch's current state must be untouched by a key-only update
+  const before = await (await fetch(`${BASE}/api/admin/chatbot`, { headers: { cookie: adminCookie } })).json();
+  const enabledBefore = before.data.enabled === true;
+
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ openaiApiKey: 'sk-panel-secret-key-12345' }),
+  });
+  assert.equal(put.status, 200);
+  const json = await put.json();
+  assert.equal(json.data.openaiKeyConfigured, true);
+  assert.equal(json.data.openaiKeySource, 'panel');
+  assert.equal(json.data.enabled, enabledBefore); // key-only update does not flip the switch
+  assert.ok(!JSON.stringify(json).includes('sk-panel-secret-key-12345'), 'PUT never echoes the key');
+
+  const get = await fetch(`${BASE}/api/admin/chatbot`, { headers: { cookie: adminCookie } });
+  const getJson = await get.json();
+  assert.equal(getJson.data.openaiKeySource, 'panel');
+  assert.ok(!JSON.stringify(getJson).includes('sk-panel-secret-key-12345'), 'GET never returns the key');
+
+  // Whisper uses the PANEL key even when the env var is unset
+  const hadKey = env.chatbot.openaiApiKey;
+  env.chatbot.openaiApiKey = null;
+  try {
+    openaiTranscript = 'tri 3m bhai kal ki class ka time batao';
+    openaiCalls.length = 0;
+    const transcript = await transcribeVoice({ link: 'https://voice.test.local/voice.ogg' });
+    assert.equal(transcript, 'tri 3m bhai kal ki class ka time batao');
+    assert.ok(openaiCalls.length >= 1, 'Whisper was called');
+    assert.equal(openaiCalls[0].auth, 'Bearer sk-panel-secret-key-12345');
+    assert.equal(await resolveOpenAiKey(), 'sk-panel-secret-key-12345');
+  } finally {
+    env.chatbot.openaiApiKey = hadKey;
+    openaiTranscript = null;
+  }
+
+  // clearing the panel key falls back to the env var
+  const clear = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ openaiApiKey: '' }),
+  });
+  assert.equal(clear.status, 200);
+  const clearJson = await clear.json();
+  assert.equal(clearJson.data.openaiKeyConfigured, true); // env sk-test-whisper still there
+  assert.equal(clearJson.data.openaiKeySource, 'env');
+  assert.equal(await resolveOpenAiKey(), 'sk-test-whisper');
+});
+
+test('voice key (owner fix 2026-10-08): invalid key values and empty updates rejected', async () => {
+  for (const [label, body] of [
+    ['no sk- prefix', { openaiApiKey: 'not-a-real-key-aaaaaaaaaa' }],
+    ['too short', { openaiApiKey: 'sk-short' }],
+    ['nothing to update', {}],
+  ]) {
+    const put = await fetch(`${BASE}/api/admin/chatbot`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie: adminCookie },
+      body: JSON.stringify(body),
+    });
+    assert.equal(put.status, 400, label);
+  }
 });

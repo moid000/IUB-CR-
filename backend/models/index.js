@@ -23,3 +23,4 @@ export { default as AdminProfile } from './AdminProfile.js';
 export { default as WipeVerification } from './WipeVerification.js';
 export { default as ChatbotLog } from './ChatbotLog.js';
 export { default as ChatbotSetting } from './ChatbotSetting.js';
+export { default as ExperienceExample } from './ExperienceExample.js';

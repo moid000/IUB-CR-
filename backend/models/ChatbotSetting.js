@@ -19,6 +19,10 @@ const chatbotSettingSchema = new Schema(
   {
     key: { type: String, required: true, unique: true, trim: true },
     enabled: { type: Boolean, default: false },
+    // OWNER 2026-10-08 — OpenAI key for VOICE-NOTE transcription (Whisper).
+    // Panel value wins over the OPENAI_API_KEY env var. Stored here, NEVER
+    // returned by any API (only openaiKeyConfigured/openaiKeySource flags).
+    openaiApiKey: { type: String, default: '' },
   },
   { timestamps: true },
 );

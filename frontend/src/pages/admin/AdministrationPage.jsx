@@ -16,8 +16,18 @@ import { IconShield, IconChatBubble } from '../../components/icons.jsx';
  * delete button anywhere in the admin panel anymore.
  */
 export default function AdministrationPage() {
+  const [expStats, setExpStats] = useState(null);
+  const [expBusy, setExpBusy] = useState(false);
+  const [expError, setExpError] = useState(null);
+  const [expDone, setExpDone] = useState(null);
   const { items: data, loading, error } = useAdminQuery(() => adminApi.administration.getProfile(), []);
   const { items: botData, loading: botLoading, error: botQueryError } = useAdminQuery(() => adminApi.chatbot.get(), []);
+  // Teacher-agent learning examples (owner night #8)
+  useEffect(() => {
+    let alive = true;
+    adminApi.experience.get().then((res) => { if (alive) setExpStats(res.data); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const profile = data?.configured ? data.profile : null;
 
@@ -30,8 +40,23 @@ export default function AdministrationPage() {
 
   // Tri3M WhatsApp chatbot master switch state
   const [bot, setBot] = useState({ enabled: false, apiKeyConfigured: false, apiKeySource: 'none' });
+  const [openaiKeyInput, setOpenaiKeyInput] = useState('');
   const [botBusy, setBotBusy] = useState(false);
   const [botError, setBotError] = useState(null);
+
+  const refreshExperience = async () => {
+    setExpBusy(true); setExpError(null); setExpDone(null);
+    try {
+      const res = await adminApi.experience.refresh();
+      setExpDone(`Scanned ${res.data.pairsScanned} exchanges — added ${res.data.chatAdded} reply and ${res.data.classifyAdded} verdict examples.`);
+      const stats = await adminApi.experience.get();
+      setExpStats(stats.data);
+    } catch (err) {
+      setExpError(err?.message ?? 'Could not refresh the learning examples.');
+    } finally {
+      setExpBusy(false);
+    }
+  };
   const [botSaved, setBotSaved] = useState(false);
 
   useEffect(() => {
@@ -40,6 +65,8 @@ export default function AdministrationPage() {
         enabled: botData.enabled === true,
         apiKeyConfigured: botData.apiKeyConfigured === true,
         apiKeySource: botData.apiKeySource ?? 'none',
+        openaiKeyConfigured: botData.openaiKeyConfigured === true,
+        openaiKeySource: botData.openaiKeySource ?? 'none',
       });
     }
   }, [botData]);
@@ -52,7 +79,27 @@ export default function AdministrationPage() {
         enabled: res.enabled === true,
         apiKeyConfigured: res.apiKeyConfigured === true,
         apiKeySource: res.apiKeySource ?? 'none',
+        openaiKeyConfigured: res.openaiKeyConfigured === true,
+        openaiKeySource: res.openaiKeySource ?? 'none',
       });
+      setBotSaved(true);
+    } catch (err) {
+      setBotError(err);
+    } finally {
+      setBotBusy(false);
+    }
+  };
+
+  // Save the OpenAI (voice-note transcription) key — panel value wins over env
+  const saveOpenaiKey = async (e) => {
+    e.preventDefault();
+    if (!openaiKeyInput.trim()) return;
+    setBotBusy(true); setBotError(null); setBotSaved(false);
+    try {
+      const res = await adminApi.chatbot.update({ openaiApiKey: openaiKeyInput.trim() });
+      setBot((b) => ({ ...b, openaiKeyConfigured: res.openaiKeyConfigured === true,
+        openaiKeySource: res.openaiKeySource ?? 'none' }));
+      setOpenaiKeyInput('');
       setBotSaved(true);
     } catch (err) {
       setBotError(err);
@@ -216,6 +263,66 @@ export default function AdministrationPage() {
                     {bot.apiKeyConfigured
                       ? 'configured on the server'
                       : 'not set — the bot will use built-in answers only'}
+                  </p>
+                  <p className="w-full text-xs text-slate-400">
+                    OpenAI (voice) key:{' '}
+                    {bot.openaiKeyConfigured
+                      ? bot.openaiKeySource === 'panel'
+                        ? 'saved — voice notes are live'
+                        : 'configured on the server'
+                      : 'not set — voice notes stay silent'}
+                  </p>
+                </div>
+
+                <form onSubmit={saveOpenaiKey} className="mt-4 flex flex-wrap items-end gap-3">
+                  <div className="w-full sm:w-80">
+                    <Input
+                      label="OpenAI API key (voice notes)" id="openai-voice-key" type="password"
+                      placeholder={bot.openaiKeyConfigured ? '•••••••• (saved — leave blank to keep)' : 'sk-…'}
+                      value={openaiKeyInput} onChange={(e) => setOpenaiKeyInput(e.target.value)}
+                      autoComplete="off"
+                    />
+                    <p className="mt-1 text-xs text-slate-400">Whisper voice-note transcription — teacher replies and group voice notes both need it.</p>
+                  </div>
+                  <Button type="submit" variant="secondary" disabled={botBusy || !openaiKeyInput.trim()}>
+                    Save voice key
+                  </Button>
+                </form>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft sm:p-6" aria-label="Teacher agent learning">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                <IconChatBubble className="size-4.5" />
+              </span>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">Teacher-agent learning (experience library)</h2>
+                    <p className="mt-1 max-w-2xl text-xs text-slate-500">
+                      The teacher WhatsApp agent answers better with every conversation. Refresh mines the last
+                      30 days of real teacher chats into learning examples — verbatim teacher messages paired
+                      with the agent's actual good replies — and injects them into the agent's prompts.
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
+                    {expStats ? `${(expStats.classify?.real ?? 0) + (expStats.chat?.real ?? 0)} live examples` : '—'}
+                  </span>
+                </div>
+
+                {expError && <Alert variant="danger" className="mt-4">{expError}</Alert>}
+                {expDone && <Alert variant="success" className="mt-4">{expDone}</Alert>}
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <Button onClick={refreshExperience} disabled={expBusy}>
+                    {expBusy ? 'Refreshing…' : 'Refresh learning examples'}
+                  </Button>
+                  <p className="text-xs text-slate-400">
+                    Verdict examples: {expStats ? `${expStats.classify?.real ?? 0} real + ${expStats.classify?.seed ?? 0} seed` : '—'}
+                    {' · '}Reply-style examples: {expStats ? `${expStats.chat?.real ?? 0} real + ${expStats.chat?.seed ?? 0} seed` : '—'}
+                    {expStats?.lastRefreshAt ? ` · last refresh ${new Date(expStats.lastRefreshAt).toLocaleDateString()}` : ''}
                   </p>
                 </div>
               </div>

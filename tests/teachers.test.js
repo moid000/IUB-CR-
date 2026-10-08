@@ -174,6 +174,56 @@ test('T8. update teacher (name + whatsapp), subject swap allowed to free subject
   assert.equal(res.json.data.name, 'Dr. Ahmed Raza Khan');
 });
 
+/* ============ OWNER night #8: MANUAL REMINDER LANGUAGE (chatProfile) ============ */
+
+test('T8a. CR pins a teacher reminder language on create', async () => {
+  const langSub = (await admin.api('POST', '/api/admin/subjects', { section: secA, name: 'Linear Algebra', code: 'LA-101' })).json.data._id;
+  const res = await cr1.api('POST', '/api/cr/teachers', {
+    name: 'Dr. English Speaker', subject: langSub, whatsapp: '923012220000',
+    chatProfile: { preferredLanguage: 'english' },
+  });
+  assert.equal(res.status, 200);
+  const doc = await Teacher.findById(res.json.data._id);
+  assert.equal(doc.chatProfile?.preferredLanguage, 'english');
+});
+
+test('T8b. invalid reminder language rejected', async () => {
+  const langSub2 = (await admin.api('POST', '/api/admin/subjects', { section: secA, name: 'Discrete Math', code: 'DM-101' })).json.data._id;
+  const res = await cr1.api('POST', '/api/cr/teachers', {
+    name: 'Dr. Bad Lang', subject: langSub2, whatsapp: '923013330000',
+    chatProfile: { preferredLanguage: 'french' },
+  });
+  assert.equal(res.status, 400);
+  assert.match(res.json.message, /language/i);
+});
+
+test('T8c. create with "auto" does not pin anything (the agent learns it)', async () => {
+  const langSub3 = (await admin.api('POST', '/api/admin/subjects', { section: secA, name: 'Statistics', code: 'ST-101' })).json.data._id;
+  const res = await cr1.api('POST', '/api/cr/teachers', {
+    name: 'Dr. Auto Lang', subject: langSub3, whatsapp: '923014440000',
+    chatProfile: { preferredLanguage: 'auto' },
+  });
+  assert.equal(res.status, 200);
+  const doc = await Teacher.findById(res.json.data._id);
+  assert.equal(doc.chatProfile?.preferredLanguage ?? 'auto', 'auto'); // nothing pinned
+});
+
+test('T8d. CR can re-pin language later and detected language survives', async () => {
+  const list = await cr1.api('GET', '/api/cr/teachers');
+  const t = list.json.data.find((x) => x.name === 'Dr. Ahmed Raza Khan');
+  // simulate what the detector learned
+  await Teacher.updateOne({ _id: t._id }, { chatProfile: { preferredLanguage: 'auto', detectedLanguage: 'roman_urdu' } });
+  const res = await cr1.api('PATCH', `/api/cr/teachers/${t._id}`, { chatProfile: { preferredLanguage: 'roman_urdu' } });
+  assert.equal(res.status, 200);
+  const doc = await Teacher.findById(t._id);
+  assert.equal(doc.chatProfile.preferredLanguage, 'roman_urdu'); // pinned
+  assert.equal(doc.chatProfile.detectedLanguage, 'roman_urdu'); // learned value intact
+  // "auto" un-pins again
+  const back = await cr1.api('PATCH', `/api/cr/teachers/${t._id}`, { chatProfile: { preferredLanguage: 'auto' } });
+  assert.equal(back.status, 200);
+  assert.equal((await Teacher.findById(t._id)).chatProfile.preferredLanguage, 'auto');
+});
+
 test('T9. update blocked when target subject already taken', async () => {
   const list = await cr1.api('GET', '/api/cr/teachers');
   const free = list.json.data.find((x) => x.name === 'Prof. Sara Malik');

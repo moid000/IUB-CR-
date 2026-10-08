@@ -40,6 +40,7 @@ function TeacherForm({ open, onClose, initial, subjects, teachers, onSaved }) {
   const [whatsapp, setWhatsapp] = useState(initial?.whatsapp ?? '');
   const [email, setEmail] = useState(initial?.email ?? '');
   const [designation, setDesignation] = useState(initial?.designation ?? '');
+  const [preferredLanguage, setPreferredLanguage] = useState(initial?.chatProfile?.preferredLanguage ?? 'auto');
   const [errors, setErrors] = useState({});
 
   const intl = normalizeWhatsApp(whatsapp);
@@ -60,6 +61,8 @@ function TeacherForm({ open, onClose, initial, subjects, teachers, onSaved }) {
     const body = { name: name.trim(), subject, whatsapp: normalizeWhatsApp(whatsapp) };
     if (email.trim()) body.email = email.trim();
     if (designation.trim()) body.designation = designation.trim();
+    // Tri3M teacher agent: pin the language the agent replies in
+    body.chatProfile = { preferredLanguage };
 
     if (isEdit) await crApi.teachers.update(initial._id, body);
     else await crApi.teachers.create(body);
@@ -91,6 +94,20 @@ function TeacherForm({ open, onClose, initial, subjects, teachers, onSaved }) {
                 ))}
               </Select>
               <p className="mt-1 text-xs text-slate-500">Each subject can have exactly one teacher.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Select
+                label="Reminder language" id="cr-teacher-language"
+                value={preferredLanguage} onChange={(e) => setPreferredLanguage(e.target.value)}
+              >
+                <option value="auto">Auto — the agent learns from the teacher</option>
+                <option value="english">English</option>
+                <option value="roman_urdu">Roman Urdu</option>
+                <option value="urdu">Urdu (اردو)</option>
+              </Select>
+              <p className="mt-1 text-xs text-slate-500">How the WhatsApp class agent texts this teacher. Auto-detect learns from their own messages.</p>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

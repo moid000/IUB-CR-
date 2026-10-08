@@ -173,8 +173,18 @@ const VOICE_MAX_BYTES = 12 * 1024 * 1024; // WhatsApp voice notes are far smalle
 
 /** Downloads the voice file and transcribes it with OpenAI Whisper.
  * Returns the transcript text, or null on ANY failure (silent consume). */
+/** Voice-note key: the admin-panel value wins, env var is the fallback.
+ * Panel wins so the owner can rotate the key WITHOUT touching Vercel. */
+export async function resolveOpenAiKey() {
+  try {
+    const doc = await ChatbotSetting.findOne({ key: 'global' }).select('openaiApiKey').lean();
+    if (doc?.openaiApiKey) return doc.openaiApiKey;
+  } catch { /* fall through to the env var */ }
+  return env.chatbot.openaiApiKey;
+}
+
 export async function transcribeVoice(data, apiKey) {
-  const key = apiKey || env.chatbot.openaiApiKey;
+  const key = apiKey || (await resolveOpenAiKey());
   if (!key) return null;
   try {
     const url = await findVoiceUrl(data);

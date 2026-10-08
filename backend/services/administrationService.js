@@ -226,6 +226,19 @@ function envGoogleKey() {
   return (process.env.GOOGLE_API_KEY || '').trim();
 }
 
+function envOpenAiKey() {
+  return (process.env.OPENAI_API_KEY || '').trim();
+}
+
+/** Owner-facing flags for the voice key (panel doc wins over env). */
+function openaiKeyFlags(doc) {
+  const panelKey = Boolean(doc?.openaiApiKey);
+  return {
+    openaiKeyConfigured: panelKey || Boolean(envOpenAiKey()),
+    openaiKeySource: panelKey ? 'panel' : envOpenAiKey() ? 'env' : 'none',
+  };
+}
+
 /** Admin-only read of the effective chatbot switch state (no secrets). */
 export async function getChatbotSetting() {
   const doc = await ChatbotSetting.findOne({ key: CHATBOT_SETTING_KEY });
@@ -234,27 +247,53 @@ export async function getChatbotSetting() {
     enabled: doc ? doc.enabled === true : envChatbotEnabled(),
     apiKeyConfigured: envKey,
     apiKeySource: envKey ? 'env' : 'none',
+    ...openaiKeyFlags(doc),
     updatedAt: doc?.updatedAt ?? null,
   };
 }
 
-/** Admin-only update of the ON/OFF switch (the panel's only control). */
+/** Admin-only update of the ON/OFF switch + the OpenAI voice key.
+ * 'enabled' (boolean) and/or 'openaiApiKey' ('' clears, 'sk-…' sets).
+ * Neither field is ever echoed back — only configuration flags. */
 export async function updateChatbotSetting(req) {
-  const { enabled } = req.body ?? {};
+  const { enabled, openaiApiKey } = req.body ?? {};
 
-  if (typeof enabled !== 'boolean') {
+  if (enabled === undefined && openaiApiKey === undefined) {
+    throw new ApiError(400, 'Nothing to update: provide "enabled" and/or "openaiApiKey"');
+  }
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
     throw new ApiError(400, '"enabled" must be true or false');
   }
+  if (openaiApiKey !== undefined && typeof openaiApiKey !== 'string') {
+    throw new ApiError(400, '"openaiApiKey" must be a string');
+  }
+  const trimmedKey = openaiApiKey === undefined ? undefined : openaiApiKey.trim();
+  if (trimmedKey && !trimmedKey.startsWith('sk-')) {
+    throw new ApiError(400, 'OpenAI keys start with "sk-"');
+  }
+  if (trimmedKey && trimmedKey.length < 20) {
+    throw new ApiError(400, 'OpenAI key looks too short');
+  }
 
+  const set = { key: CHATBOT_SETTING_KEY };
+  if (enabled !== undefined) set.enabled = enabled;
+  if (trimmedKey !== undefined) set.openaiApiKey = trimmedKey;
+
+  // First-ever save with no 'enabled' in the body must INHERIT the live env
+  // state (WHATSAAP_CHATBOT_ENABLED) — a key-only update never flips the switch.
+  if (enabled === undefined) {
+    const existing = await ChatbotSetting.findOne({ key: CHATBOT_SETTING_KEY }).select('enabled').lean();
+    if (!existing) set.enabled = envChatbotEnabled();
+  }
   const doc = await ChatbotSetting.findOneAndUpdate(
     { key: CHATBOT_SETTING_KEY },
-    { key: CHATBOT_SETTING_KEY, enabled },
+    { $set: set },
     { new: true, upsert: true, setDefaultsOnInsert: true },
   );
 
   await auditFromReq(req, {
     action: 'admin.chatbot-setting-updated', entityType: 'chatbot', entityId: doc._id,
-    after: { enabled: doc.enabled },
+    after: { enabled: doc.enabled, openaiKeySet: Boolean(doc.openaiApiKey) },
   });
 
   const envKey = Boolean(envGoogleKey());
@@ -262,6 +301,7 @@ export async function updateChatbotSetting(req) {
     enabled: doc.enabled === true,
     apiKeyConfigured: envKey,
     apiKeySource: envKey ? 'env' : 'none',
+    ...openaiKeyFlags(doc),
     updatedAt: doc.updatedAt,
   };
 }

@@ -31,6 +31,9 @@ router.put('/administration/profile', ctl.updateAdminProfile);
 // Tri3M WhatsApp chatbot master switch (ON/OFF) + Gemini key, admin-only
 router.get('/chatbot', ctl.getChatbotSetting);
 router.put('/chatbot', ctl.updateChatbotSetting);
+// OWNER night #8 follow-up: teacher-agent learning examples (admin-only)
+router.get('/experience', ctl.getExperience);
+router.post('/experience/refresh', ctl.refreshExperience);
 
 // Departments
 router.post('/departments', ctl.createDepartment);

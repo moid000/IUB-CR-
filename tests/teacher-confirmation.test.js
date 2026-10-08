@@ -905,7 +905,7 @@ test('OWNER MASTER SPEC §2/§7 (night #4): "OK" is NOT confirmation — the bot
   assert.equal((await webhook(incoming('ok'))).json.data.updated, true);
   assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
   const ask = sent.at(-1);
-  assert.match(ask.body, /will you be taking|lein ge|class lein|confirm kar dein|conduct karein/i); // a natural confirm-ask
+  assert.match(ask.body, /will you be taking|lein ge|class lein|confirm|conduct karein/i); // a natural confirm-ask
   assert.doesNotMatch(ask.body, /Sorry|confusion/i);                 // no robotic hint
 
   // night #7: a second ack is a new message — it gets its own (varied) confirm-ask
@@ -1182,7 +1182,7 @@ test('OWNER MASTER SPEC §21 (night #5): "nahi koi detail nahi chahiye" is NOT a
     assert.equal((await webhook(incoming('nahi koi detail nahi chahiye'))).json.data.updated, true);
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
     const ask = sent.at(-1);
-    assert.match(ask.body, /lein ge|will you be taking|confirm kar dein|conduct karein/i); // warm confirm-ask
+    assert.match(ask.body, /lein ge|will you be taking|confirm|conduct karein/i); // warm confirm-ask
     assert.doesNotMatch(ask.body, /unavailable|decline/i);
 
     // a real YES now confirms (§21-E) — fresh classification, rules say YES
@@ -1224,7 +1224,7 @@ test('OWNER MASTER SPEC §21-F: bare "nahi" right after a NON-question agent ans
     geminiAnswer = null; // fresh classification of the bare 'nahi' (rules path)
     assert.equal((await webhook(incoming('nahi'))).json.data.updated, true);
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
-    assert.match(sent.at(-1).body, /lein ge|will you be taking|confirm kar dein|conduct karein/i); // asks for the real decision
+    assert.match(sent.at(-1).body, /lein ge|will you be taking|confirm|conduct karein/i); // asks for the real decision
   } finally {
     geminiAnswer = null;
     geminiChatReply = null;
@@ -1321,6 +1321,98 @@ test('hint reminders rotate through a pool so repeats never read identical', asy
     // OWNER 2026-10-07: human tone — no robot talk, no canned team/offline text
     assert.doesNotMatch(body, /AI (agent|assistant)|automated|offline|team|support/i);
   }
+});
+
+/* ============== OWNER night #8 follow-up: EXPERIENCE LIBRARY (DB) ============= */
+
+test('experience library: admin routes are admin-only and stats have the right shape', async () => {
+  const anon = await fetch(`${base}/api/admin/experience`);
+  assert.equal(anon.status, 401);
+  const res = await admin('GET', '/api/admin/experience');
+  assert.equal(res.status, 200);
+  const d = res.json.data;
+  assert.ok(d.classify && typeof d.classify.seed === 'number' && typeof d.classify.real === 'number');
+  assert.ok(d.chat && typeof d.chat.seed === 'number' && typeof d.chat.real === 'number');
+  assert.ok('lastRefreshAt' in d);
+});
+
+test('experience library: refresh mines REAL conversation pairs and dedupes on rerun', async () => {
+  const { ExperienceExample } = models;
+  await ExperienceExample.deleteMany({ source: 'real' });
+
+  // a real exchange: an interpreted YES ack proves the verdict
+  const slot = await Timetable.findOne({ section });
+  await Timetable.updateOne({ _id: slot._id }, {
+    $push: { 'teacherConfirmation.conversation': [
+      { role: 'teacher', text: 'mera dil nahi kar raha par aap request karo', at: new Date() },
+      { role: 'agent', text: `Thank you, Dr Test! I understood your reply as a *YES*. ✅`, at: new Date() },
+    ] },
+  });
+  await Timetable.updateOne({ _id: slot._id }, { $set: { updatedAt: new Date() } });
+
+  const res = await admin('POST', '/api/admin/experience/refresh');
+  assert.equal(res.status, 200);
+  assert.ok(res.json.data.pairsScanned >= 1, 'the pushed pair was scanned');
+  assert.ok(res.json.data.chatAdded >= 1, 'chat example stored');
+  assert.ok(res.json.data.classifyAdded >= 1, 'classify example stored');
+
+  // the real pair landed verbatim, with the PROVEN verdict
+  const chatEx = await ExperienceExample.findOne({ kind: 'chat', source: 'real',
+    input: 'mera dil nahi kar raha par aap request karo' });
+  assert.ok(chatEx, 'chat example for the pushed pair exists');
+  assert.match(chatEx.output, /understood your reply as a \*YES\*/);
+  const clsEx = await ExperienceExample.findOne({ kind: 'classify', source: 'real',
+    input: 'mera dil nahi kar raha par aap request karo' });
+  assert.ok(clsEx, 'classify example for the pushed pair exists');
+  assert.equal(clsEx.output, 'YES');
+
+  // stats reflect it
+  const stats = (await admin('GET', '/api/admin/experience')).json.data;
+  assert.ok(stats.chat.real >= Math.min(res.json.data.chatAdded, 30), 'real chat examples visible (cap: 30 active)');
+  assert.ok(stats.classify.real >= Math.min(res.json.data.classifyAdded, 30));
+
+  // rerun is idempotent — dedupeKey blocks duplicates
+  const again = await admin('POST', '/api/admin/experience/refresh');
+  assert.equal(again.status, 200);
+  assert.equal(again.json.data.chatAdded, 0, 'same pair never stored twice');
+  assert.equal(again.json.data.classifyAdded, 0);
+  assert.equal((await ExperienceExample.countDocuments({ source: 'real' })).toString(),
+    (res.json.data.chatAdded + res.json.data.classifyAdded).toString());
+});
+
+test('experience library: refreshed real examples flow into the classifier prompt', async () => {
+  geminiBodies.length = 0;
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-16', startTime: '09:00', endTime: '10:00' });
+  geminiAnswer = 'UNCLEAR';
+  try {
+    await webhook(incoming('kiya kar rahe ho'));
+    const lastClassify = geminiBodies.filter((b) => !b.body.includes('"reply"')).at(-1);
+    assert.ok(lastClassify, 'classify call happened');
+    assert.match(lastClassify.body, /mera dil nahi kar raha par aap request karo/); // REAL example injected
+    assert.match(lastClassify.body, /YES/); // with its proven verdict
+  } finally {
+    geminiAnswer = null;
+  }
+});
+
+test('experience library: refresh never trains a verdict it cannot prove', async () => {
+  const { ExperienceExample } = models;
+  const slot = await Timetable.findOne({ section });
+  await Timetable.updateOne({ _id: slot._id }, {
+    $push: { 'teacherConfirmation.conversation': [
+      { role: 'teacher', text: 'acha theek hai', at: new Date() },
+      { role: 'agent', text: 'Sir, agar aapko koi aur masla ho to zaroor batayein.', at: new Date() },
+    ] },
+  });
+  await Timetable.updateOne({ _id: slot._id }, { $set: { updatedAt: new Date() } });
+
+  const res = await admin('POST', '/api/admin/experience/refresh');
+  assert.equal(res.status, 200);
+  assert.ok(res.json.data.chatAdded >= 1, 'chat example still learned (style)');
+  // 'acha theek hai' has no provable verdict -> NO classify example for it
+  const cls = await ExperienceExample.findOne({ kind: 'classify', source: 'real', input: 'acha theek hai' });
+  assert.equal(cls, null);
 });
 
 test.after(async () => {

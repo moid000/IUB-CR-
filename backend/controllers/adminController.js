@@ -1,3 +1,4 @@
+import { auditFromReq } from '../utils/audit.js';
 import * as svc from '../services/adminService.js';
 import * as subjectSvc from '../services/subjectService.js';
 import announcementSvc from '../services/announcementService.js';
@@ -6,6 +7,7 @@ import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
 import * as attendanceSvc from '../services/attendanceService.js';
 import * as adminProfileSvc from '../services/administrationService.js';
+import * as teacherAgentSvc from '../services/teacherConfirmationService.js';
 
 /**
  * Admin API — every route sits behind protect + adminOnly (see routes/admin.js).
@@ -113,5 +115,12 @@ export const wipeAllData = wrap(svc.wipeAllData);
 export const getAdminProfile = wrap(adminProfileSvc.getAdminProfile);
 export const updateAdminProfile = wrap(adminProfileSvc.updateAdminProfile);
 export const getChatbotSetting = wrap(adminProfileSvc.getChatbotSetting);
+// OWNER night #8 follow-up: teacher-agent experience library (learning examples)
+export const getExperience = wrap(teacherAgentSvc.getExperienceStats);
+export const refreshExperience = wrap(async (req) => {
+  const result = await teacherAgentSvc.refreshExperienceLibrary();
+  await auditFromReq(req, { action: 'experience.refresh', entityType: 'experience', after: result });
+  return result;
+});
 export const updateChatbotSetting = wrap(adminProfileSvc.updateChatbotSetting);
 export const requestWipeCodes = wrap(adminProfileSvc.requestWipeCodes);
