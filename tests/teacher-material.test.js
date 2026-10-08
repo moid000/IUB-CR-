@@ -464,6 +464,28 @@ test('OWNER REQUEST: teacher DECLINES → the CR is told nothing was published',
 
 /* ================= OWNER NIGHT-2 REQUESTS (2026-10-08) ================= */
 
+/* OWNER night #3 (2026-10-08, live webhook.site capture): real UltraMsg
+ * image payloads have NO filename and NO mimetype — only type:'image' + a
+ * media URL. The old code answered a teacher's photo with "unsupported type".
+ * Regression: a bare image must flow to the approval question. */
+test('NIGHT-3: bare IMAGE (no filename, no mimetype, real capture shape) → approval question, never "unsupported"', async () => {
+  try {
+    geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'lecture photo', summary: 'board notes' };
+    const before = sent.length;
+    const r = await webhook(fileMsg({ type: 'image', filename: undefined, mime: '' }));
+    assert.equal(r.json.data.updated, true, 'consumed by the material pipeline');
+    assert.ok(sent.length > before, 'a reply was sent');
+    const bodies = sent.slice(before).map((s) => s.body).join(' ');
+    assert.ok(!/support nahi karta/i.test(bodies), 'NOT the unsupported-type reply');
+    assert.ok(/upload kar do|study material/i.test(bodies), 'approval question asked');
+    const mat = await TeacherMaterial.findOne({}).sort({ createdAt: -1 }).lean();
+    assert.equal(mat.status, 'awaiting_approval');
+    assert.equal(mat.ext, 'jpg');
+    assert.equal(mat.filename, 'attachment.jpg', 'filename never invented from a caption');
+    assert.equal(mat.caption, '', 'no caption on this message');
+  } finally { geminiClassify = null; }
+});
+
 test('NIGHT-2: UNKNOWN extension (.exe) → honest "portal support nahi karta" reply, no approval question', async () => {
   try {
     const before = sent.length;

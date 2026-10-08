@@ -319,10 +319,23 @@ export async function handleTeacherFile(payload) {
     .populate('subject', 'name code').populate('section', 'name semester department').lean();
   if (!teacherRecords.length) return false;
 
-  const rawName = String(data.filename ?? data.caption ?? '').trim();
+  // OWNER (2026-10-08 night #3, LIVE CAPTURE via webhook.site): real UltraMsg
+  // media payloads carry NEITHER a usable filename NOR a mimetype for
+  // images/videos (documents carry `filename`, images carry only `type`).
+  // A teacher PHOTO was answered "unsupported type" although images are
+  // supported. So: (1) rawName is the FILENAME only — a caption is chat text,
+  // never a file name; (2) with no filename, derive the extension from the
+  // WhatsApp `type` itself; the canonical MIME rides via EXT_MIME_FALLBACK
+  // so the Cloudinary ext+MIME pair rule still passes at upload time.
+  const rawName = String(data.filename ?? '').trim();
   const mime = String(data.mimetype ?? data.mime ?? '').trim().toLowerCase();
   let ext = extOf(rawName, mime);
   if (!ext && mime === 'image/jpeg') ext = 'jpg';
+  if (!ext) {
+    const waType = String(data.type ?? '').toLowerCase();
+    if (waType === 'image') ext = 'jpg';
+    else if (waType === 'video') ext = 'mp4';
+  }
   const filename = rawName || `attachment${ext ? '.' + ext : ''}`;
 
   // OWNER (2026-10-08 night): "sari files jo bi teacher de, support karo" —
