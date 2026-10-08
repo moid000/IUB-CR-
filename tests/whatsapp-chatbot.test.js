@@ -64,9 +64,14 @@ let geminiVoiceTranscript = null; // OWNER 2026-10-08: canned Gemini STT transcr
 const openaiCalls = [];
 
 const realFetch = globalThis.fetch;
+let messagesByIdResponse = null; // OWNER 2026-10-08: canned GET /messages?...&id= record (null = empty)
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes('ultramsg.test.local')) {
+    if (u.includes('/messages?')) {
+      // messages-by-id lookup fallback (voice with no link in payload)
+      return new Response(JSON.stringify(messagesByIdResponse ?? {}), { status: 200 });
+    }
     if (/\/messages\/(chat|image|document|audio|video)/.test(u)) {
       const params = Object.fromEntries(new URLSearchParams(opts.body));
       waSent.push({ kind: u.match(/\/messages\/(\w+)$/)[1], params });
@@ -98,6 +103,7 @@ globalThis.fetch = async (url, opts) => {
 };
 
 test.afterEach(async () => {
+  messagesByIdResponse = null;
   waSent.length = 0;
   geminiCalls.length = 0;
   geminiResponse = null;
@@ -498,6 +504,26 @@ test('owner feature (2026-10-08): GEMINI-FIRST free transcription — voice answ
   } finally {
     geminiVoiceTranscript = null;
     env.chatbot.openaiApiKey = hadKey;
+  }
+});
+
+test('OWNER INCIDENT 2026-10-08: voice with NO link in payload → messages-by-id API fallback finds it and answers', async () => {
+  // real teacher ptt arrived WITHOUT data.link and the old fallback
+  // crashed on env.ultramsg — this test pins the exact regression
+  messagesByIdResponse = { messages: [{ id: 'VOICEID123', link: 'https://voice.test.local/voice.ogg' }] };
+  geminiVoiceTranscript = '@Tri3M kis subject ke notes available hain?';
+  try {
+    const msg = voiceMsg();
+    delete msg.data.link; // the incident payload shape: no media URL at all
+    assert.equal(await handleGroupMessage(msg), true);
+    const chat = waSent.find((st) => st.kind === 'chat');
+    assert.ok(chat, 'fallback voice got answered');
+    // subject-first rule applied to the fallback transcript: clarification, not a dump
+    assert.match(chat.params.body, /kis subject ke notes chahiye\?/i);
+    assert.match(chat.params.body, /@923007770001/, 'original asker mentioned');
+  } finally {
+    geminiVoiceTranscript = null;
+    messagesByIdResponse = null;
   }
 });
 

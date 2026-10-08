@@ -150,11 +150,17 @@ async function findVoiceUrl(data) {
   }
   const body = data?.body;
   if (typeof body === 'string' && /^https?:\/\//.test(body.trim())) return body.trim();
-  // last resort: look the message record up by id — it carries the media link
-  if (data?.id && env.ultramsg.apiUrl && env.ultramsg.instanceId && env.ultramsg.token) {
+  // last resort: look the message record up by id — it carries the media link.
+  // OWNER INCIDENT 2026-10-08: this branch referenced env.ultramsg (undefined)
+  // instead of env.whatsapp and THREW before the try — a teacher ptt without
+  // a link field crashed out to the silent catch and the voice died with no
+  // trace. Real teacher ptt payloads can arrive WITHOUT data.link, so this
+  // fallback is the primary path for them, not an edge case.
+  const wa = env.whatsapp || {};
+  if (data?.id && wa.apiUrl && wa.instanceId && wa.token) {
     try {
-      const u = `${env.ultramsg.apiUrl}/${env.ultramsg.instanceId}/messages`
-        + `?token=${encodeURIComponent(env.ultramsg.token)}&page=1&limit=3&status=all&sort=desc`
+      const u = `${wa.apiUrl}/${wa.instanceId}/messages`
+        + `?token=${encodeURIComponent(wa.token)}&page=1&limit=3&status=all&sort=desc`
         + `&id=${encodeURIComponent(data.id)}`;
       const res = await fetch(u);
       if (res.ok) {

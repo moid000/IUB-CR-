@@ -66,6 +66,10 @@ globalThis.fetch = (url, options) => {
       ? Promise.resolve(new Response(JSON.stringify({ text: voiceTranscript }), { status: 200 }))
       : Promise.resolve(new Response(JSON.stringify({ error: 'stt unavailable' }), { status: 500 }));
   }
+  if (String(url).includes('api.ultramsg.com/test-instance/messages?')) {
+    // OWNER INCIDENT 2026-10-08: messages-by-id lookup for a ptt with no link
+    return Promise.resolve(new Response(JSON.stringify({ messages: [{ link: 'https://cdn.example/voice.ogg' }] })));
+  }
   if (String(url).startsWith('https://api.ultramsg.com/test-instance/messages/chat')) {
     const data = new URLSearchParams(options.body);
     sent.push({ to: data.get('to'), body: data.get('body') });
@@ -994,6 +998,38 @@ test('OWNER 2026-10-08 FREE VOICE: Gemini STT (no OpenAI credits needed) confirm
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
   } finally {
     geminiVoiceTranscript = null;
+  }
+});
+
+test('OWNER INCIDENT 2026-10-08: teacher ptt arrives with NO media link → messages-by-id fallback finds it, transcribes, confirms', async () => {
+  // the live incident: real teacher ptt had NO data.link and the fallback
+  // crashed on env.ultramsg (undefined) — voice died with no reply
+  const { env: cfg } = await import('../backend/config/env.js');
+  const had = { id: cfg.whatsapp.instanceId, token: cfg.whatsapp.token, url: cfg.whatsapp.apiUrl };
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-23', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+  voiceTranscript = null;
+  geminiVoiceTranscript = 'ji haan, main lein ge';
+  try {
+    cfg.whatsapp.instanceId = 'test-instance';
+    cfg.whatsapp.token = 'fake-token';
+    cfg.whatsapp.apiUrl = 'https://api.ultramsg.com';
+    const msg = voiceMsg();
+    delete msg.data.link; // the incident payload shape
+    assert.equal((await webhook(msg)).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+    // and the diag row shows the link was FOUND via the fallback this time
+    const { VoiceDiag } = await import('../backend/models/index.js');
+    const diag = await VoiceDiag.findOne({ channel: 'teacher' }).sort({ createdAt: -1 }).lean();
+    assert.equal(diag.urlFound, true);
+    assert.equal(diag.engine, 'gemini');
+    assert.ok(!diag.error, `no error this time: ${diag.error}`);
+  } finally {
+    geminiVoiceTranscript = null;
+    cfg.whatsapp.instanceId = had.id;
+    cfg.whatsapp.token = had.token;
+    cfg.whatsapp.apiUrl = had.url;
   }
 });
 
