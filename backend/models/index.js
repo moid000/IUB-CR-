@@ -25,3 +25,4 @@ export { default as ChatbotLog } from './ChatbotLog.js';
 export { default as VoiceDiag } from './VoiceDiag.js';
 export { default as ChatbotSetting } from './ChatbotSetting.js';
 export { default as ExperienceExample } from './ExperienceExample.js';
+export { default as TeacherMaterial } from './TeacherMaterial.js';

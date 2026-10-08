@@ -425,6 +425,71 @@ export function destroyAsset({ cloudName, apiKey, apiSecret, publicId, resourceT
 }
 
 /**
+ * OWNER MASTER UPGRADE (2026-10-08): SERVER-SIDE upload for files that arrive
+ * WITHOUT a browser — a teacher's WhatsApp attachment. Same security rules as
+ * the browser-direct flow: the SAME allowlist (extension AND mime must match),
+ * the SAME 10 MB cap, the SAME server-derived folder/publicId namespace, and
+ * the Cloudinary-reported result is VERIFIED (publicId namespace, our account
+ * URL, reported size) before the FileMeta is returned. The apiSecret never
+ * leaves this module. Returns a VERIFIED FileMeta — throws ApiError on ANY
+ * validation or upload failure (never a half-verified attachment).
+ */
+export async function uploadAttachmentFromServer({ buffer, originalName, mimeType, parentType, parentId }) {
+  const { cloudName, apiKey, apiSecret } = getConfig();
+  const type = assertTypePair(originalName, mimeType); // throws ApiError 400 on unsupported
+  const bytes = buffer?.length ?? 0;
+  if (!bytes) throw new ApiError(400, 'Empty file');
+  if (bytes > MAX_FILE_BYTES) throw new ApiError(400, 'File is larger than the allowed size');
+
+  const folder = folderFor(parentType, String(parentId));
+  const publicId = publicIdFor(parentType, String(parentId));
+  const timestamp = Math.floor(now() / 1000);
+  const signature = cloudinarySignature({ folder, public_id: publicId, timestamp }, apiSecret);
+
+  const form = new FormData();
+  form.append('file', new Blob([buffer]), String(originalName));
+  form.append('api_key', apiKey);
+  form.append('timestamp', String(timestamp));
+  form.append('folder', folder);
+  form.append('public_id', publicId);
+  form.append('signature', signature);
+
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${type.resourceType}/upload`, {
+    method: 'POST', body: form });
+  let json = null;
+  try { json = await res.json(); } catch { /* handled below */ }
+  if (!res.ok || !json?.secure_url) {
+    throw new ApiError(502, `Upload failed: ${String(json?.error?.message ?? res.status).slice(0, 200)}`);
+  }
+
+  // verify the result against everything we authorized — same invariants as confirmUpload
+  const resultPublicId = String(json.public_id ?? '');
+  if (!resultPublicId.startsWith(`${folder}/`)) throw new ApiError(502, 'Upload namespace mismatch');
+  const reportedBytes = Number(json.bytes);
+  if (!Number.isFinite(reportedBytes) || reportedBytes <= 0 || reportedBytes > MAX_FILE_BYTES) {
+    throw new ApiError(502, 'Upload size could not be verified');
+  }
+  const secureUrl = String(json.secure_url);
+  if (!secureUrl.startsWith(`https://res.cloudinary.com/${cloudName}/`)) {
+    throw new ApiError(502, 'Upload URL is not on our account');
+  }
+  const reportedFormat = String(json.format ?? '').toLowerCase() || type.ext;
+  const allowed = ALLOWED_TYPES.find((t) => t.ext === reportedFormat && t.resourceType === String(json.resource_type ?? type.resourceType));
+  if (!allowed) throw new ApiError(502, 'Uploaded file type is not allowed');
+
+  return {
+    publicId: resultPublicId,
+    url: secureUrl,
+    resourceType: String(json.resource_type ?? type.resourceType),
+    format: reportedFormat,
+    mimeType: String(mimeType ?? '').toLowerCase(),
+    folder,
+    originalName: String(originalName),
+    size: reportedBytes,
+  };
+}
+
+/**
  * Best-effort destroy of every Cloudinary asset in an array of FileMeta.
  * NEVER throws — a failed destroy must never block a database delete.
  */

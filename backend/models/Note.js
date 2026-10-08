@@ -18,6 +18,9 @@ const noteSchema = new Schema(
     section: { type: ObjectId, ref: 'Section', required: true },
     author: { type: ObjectId, ref: 'User', required: true },
     status: { type: String, enum: ['published', 'archived'], default: 'published' },
+    // OWNER MASTER UPGRADE (2026-10-08): teacher WhatsApp uploads carry the
+    // REAL uploader identity — the CR is only the technical author.
+    uploadedByTeacher: { type: Schema.Types.ObjectId, ref: 'Teacher', default: null },
     groupBroadcastAt: { type: Date, default: null }, // set once the combined group broadcast (text+media) has gone out
   },
   { timestamps: true }

@@ -143,6 +143,12 @@ export function isVoiceAddressedToBot(text) {
 /** UltraMsg puts the media URL in one of several fields depending on
  * message type/API version. Try them all, then fall back to the messages
  * API filtered by id (never throws — returns null when nothing works). */
+/* OWNER MASTER UPGRADE (2026-10-08): exported for the teacher FILE pipeline —
+ * a teacher's document/image/video needs the exact same link discovery and
+ * messages-by-id API fallback (owner incident 2026-10-08: real ptt payloads
+ * can arrive with NO link field, making the fallback the primary path). */
+export async function findMediaUrl(data) { return findVoiceUrl(data); }
+
 async function findVoiceUrl(data) {
   for (const k of ['link', 'media', 'mediaUrl', 'url']) {
     const v = data?.[k];

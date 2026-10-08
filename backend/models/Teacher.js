@@ -28,22 +28,17 @@ const teacherSchema = new Schema(
       romanCount: { type: Number, default: 0 },
       englishCount: { type: Number, default: 0 },
     },
-    // OWNER night #8 (2026-10-08): PER-TEACHER MEMORY — the agent learns each
-    // teacher's language from their own messages; 'auto' = agent detects.
-    chatProfile: {
-      preferredLanguage: { type: String, enum: ['auto', 'english', 'roman_urdu', 'urdu'], default: 'auto' },
-      detectedLanguage: { type: String },
-      romanCount: { type: Number, default: 0 },
-      englishCount: { type: Number, default: 0 },
-    },
-    // OWNER night #8 (2026-10-08): PER-TEACHER MEMORY — the agent learns each
-    // teacher's language from their own messages; 'auto' = agent detects.
-    chatProfile: {
-      preferredLanguage: { type: String, enum: ['auto', 'english', 'roman_urdu', 'urdu'], default: 'auto' },
-      detectedLanguage: { type: String },
-      romanCount: { type: Number, default: 0 },
-      englishCount: { type: Number, default: 0 },
-    },
+    // OWNER MASTER UPGRADE (2026-10-08, §1/§3): ALWAYS-ON general conversation
+    // history — independent of any class reminder/confirmation workflow. Same
+    // shape as Timetable.teacherConfirmation.conversation; capped at 20 turns.
+    // OWNER MASTER UPGRADE (2026-10-08): general-conversation duplicate guard —
+    // same message id is processed ONCE (webhook redelivery idempotency).
+    lastChatMsgId: { type: String, default: '', maxlength: 220 },
+    conversation: [{
+      role: { type: String, enum: ['teacher', 'agent'], required: true },
+      text: { type: String, required: true, maxlength: 400 },
+      at: { type: Date, default: Date.now },
+    }],
   },
   { timestamps: true }
 );

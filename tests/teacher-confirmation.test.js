@@ -832,17 +832,18 @@ test('OWNER BUG FIX (2026-10-07 night): "g kon?" after a reminder can NEVER conf
 });
 
 test('OWNER BUG FIX: teacher asking "g kon?" about an ALREADY-CONFIRMED class (reminder case) still gets a human answer', async () => {
-  // TIME-FLAKE FIX: a fixed 'today 23:00' slot is in the PAST when the suite
-  // runs after 23:00 PKT (queueTeacherConfirmation refuses past classes →
-  // status 'none' → the whole test collapses). Always schedule ~90 min ahead
-  // in PKT — still today-or-tomorrow, so the reminder fallback path matches.
+  // TIME-FLAKE FIX (v2): '+90 min from now' crosses MIDNIGHT when the suite
+  // runs late at night — assertRange rejects a 23:xx start with a next-day
+  // 00:xx end ('startTime must be before endTime'). Schedule TOMORROW
+  // 09:00–09:50 PKT instead: always valid, still today-or-tomorrow, so the
+  // reminder fallback path still matches.
   const pkf = (d, o) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', ...o }).format(d);
-  const startAt = new Date(Date.now() + 90 * 60_000);
+  const tomorrow = new Date(Date.now() + 24 * 3600_000);
   const r = await cr('POST', '/api/cr/timetable', {
     subject,
-    date: pkf(startAt),
-    startTime: pkf(startAt, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
-    endTime: pkf(new Date(startAt.getTime() + 50 * 60_000), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
+    date: pkf(tomorrow),
+    startTime: '09:00',
+    endTime: '09:50',
   });
   const slotId = r.json.data._id;
   assert.equal((await webhook(incoming('YES'))).json.data.updated, true);
