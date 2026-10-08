@@ -60,6 +60,7 @@ const waSent = [];  // UltraMsg sends: { kind, params }
 const geminiCalls = []; // Gemini requests: { body }
 let geminiResponse = null; // canned Gemini JSON per test
 let openaiTranscript = null; // canned Whisper transcript per test
+let geminiVoiceTranscript = null; // OWNER 2026-10-08: canned Gemini STT transcript (null = Gemini STT fails → Whisper)
 const openaiCalls = [];
 
 const realFetch = globalThis.fetch;
@@ -81,7 +82,14 @@ globalThis.fetch = async (url, opts) => {
     return new Response(JSON.stringify({ text: openaiTranscript ?? '' }), { status: 200 });
   }
   if (u.includes('generativelanguage.googleapis.com')) {
-    geminiCalls.push({ url: u, body: JSON.parse(opts.body) });
+    const gbody = JSON.parse(opts.body);
+    // OWNER 2026-10-08: Gemini STT (inline audio) is routed separately from chat calls
+    if (gbody?.contents?.some((c) => c.parts?.some((p) => p.inlineData))) {
+      return geminiVoiceTranscript
+        ? new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: geminiVoiceTranscript }] } }] }), { status: 200 })
+        : new Response('{}', { status: 500 });
+    }
+    geminiCalls.push({ url: u, body: gbody });
     const resp = typeof geminiResponse === 'function' ? geminiResponse(u) : geminiResponse;
     if (!resp) return new Response('{}', { status: 500 });
     return new Response(JSON.stringify(resp), { status: 200 });
@@ -474,6 +482,37 @@ test('isVoiceAddressedToBot: spoken forms only, no false "trim" hits', () => {
   assert.equal(isVoiceAddressedToBot('trim the file please'), false); // 'trim' is NOT the bot
   assert.equal(isVoiceAddressedToBot('aaj class kitni baje hai'), false);
   assert.equal(isVoiceAddressedToBot(''), false);
+});
+
+test('owner feature (2026-10-08): GEMINI-FIRST free transcription — voice answered with NO OpenAI key at all', async () => {
+  const hadKey = env.chatbot.openaiApiKey;
+  env.chatbot.openaiApiKey = null; // no Whisper possible
+  geminiVoiceTranscript = 'tri 3m bhai notes bhej do';
+  chatbot.__resetGuards();
+  try {
+    assert.equal(await handleGroupMessage(voiceMsg()), true);
+    assert.equal(openaiCalls.length, 0, 'Whisper never called — Gemini handled it, zero OpenAI spend');
+    const chat = waSent.find((st) => st.kind === 'chat');
+    assert.ok(chat, 'voice question answered via the free Gemini transcript');
+    assert.match(chat.params.body, /kis subject ke notes chahiye\?/i);
+  } finally {
+    geminiVoiceTranscript = null;
+    env.chatbot.openaiApiKey = hadKey;
+  }
+});
+
+test('owner rule (2026-10-08): Gemini STT down + OpenAI key present → Whisper fallback still answers', async () => {
+  geminiVoiceTranscript = null; // Gemini STT fails
+  openaiTranscript = 'tri3m kal ki class batao';
+  chatbot.__resetGuards();
+  try {
+    assert.equal(await handleGroupMessage(voiceMsg()), true);
+    assert.equal(openaiCalls.length, 1, 'fell back to Whisper exactly once');
+    const chat = waSent.find((st) => st.kind === 'chat');
+    assert.ok(chat, 'fallback transcript still answered');
+  } finally {
+    openaiTranscript = null;
+  }
 });
 
 test('isGroupMessage accepts voice/audio types (owner feature 2026-10-05)', () => {

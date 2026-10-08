@@ -183,9 +183,57 @@ export async function resolveOpenAiKey() {
   return env.chatbot.openaiApiKey;
 }
 
-export async function transcribeVoice(data, apiKey) {
-  const key = apiKey || (await resolveOpenAiKey());
+/* MIME map — UltraMsg voice notes are OGG/OPUS, but group "audio" files
+ * can be anything. Gemini only accepts real audio/* MIME types. */
+const AUDIO_MIME_BY_EXT = {
+  ogg: 'audio/ogg', opus: 'audio/ogg', oga: 'audio/ogg',
+  mp3: 'audio/mp3', mpeg: 'audio/mp3', wav: 'audio/wav',
+  aac: 'audio/aac', aiff: 'audio/aiff', flac: 'audio/flac',
+};
+function guessVoiceMime(res, url) {
+  const ct = String(res?.headers?.get?.('content-type') ?? '').split(';')[0].trim().toLowerCase();
+  if (/^audio\//.test(ct)) return ct;
+  const ext = (/[.](\w{2,4})$/.exec(String(url).split('?')[0])?.[1] ?? '').toLowerCase();
+  return AUDIO_MIME_BY_EXT[ext] || 'audio/ogg';
+}
+
+/* OWNER CHOICE (2026-10-08): GEMINI-FIRST TRANSCRIPTION — Gemini's free
+ * tier accepts audio input, so voice notes work with ZERO paid OpenAI
+ * credits (the owner's OpenAI key has no balance; text chat already ran
+ * on the same GOOGLE_API_KEY). Same model chain as the chat bot; if every
+ * model fails we still fall back to Whisper below. */
+const VOICE_TRANSCRIBE_PROMPT = 'Transcribe this WhatsApp voice note exactly as spoken, word for word. Keep the spoken language and script as spoken (Urdu speech in Urdu script, English in English, Roman Urdu as Roman Urdu). Output ONLY the transcript text — no labels, no quotes, no explanations.';
+
+async function transcribeWithGemini(bytes, mimeType) {
+  const key = env.chatbot.googleApiKey;
   if (!key) return null;
+  const models = [env.chatbot.model, ...BACKUP_MODELS.filter((m) => m !== env.chatbot.model)];
+  const b64 = Buffer.from(bytes).toString('base64');
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { text: VOICE_TRANSCRIBE_PROMPT },
+            { inlineData: { mimeType, data: b64 } },
+          ] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      });
+      if (!res.ok) continue; // 4xx/5xx → next model in the chain
+      const json = await res.json();
+      const text = String(json?.candidates?.[0]?.content?.parts?.map((p) => p?.text ?? '').join('') ?? '').trim();
+      if (text) return text;
+    } catch { /* timeout/network → next model */ }
+  }
+  return null;
+}
+
+export async function transcribeVoice(data, apiKey) {
   try {
     const url = await findVoiceUrl(data);
     if (!url) return null;
@@ -193,8 +241,17 @@ export async function transcribeVoice(data, apiKey) {
     if (!audioRes.ok) return null;
     const bytes = new Uint8Array(await audioRes.arrayBuffer());
     if (!bytes.length || bytes.length > VOICE_MAX_BYTES) return null;
+    const mime = guessVoiceMime(audioRes, url);
+
+    // 1) GEMINI — free tier, zero credits needed (owner choice 2026-10-08)
+    const viaGemini = await transcribeWithGemini(bytes, mime);
+    if (viaGemini) return viaGemini;
+
+    // 2) OpenAI Whisper fallback — needs a paid key on file
+    const key = apiKey || (await resolveOpenAiKey());
+    if (!key) return null;
     const form = new FormData();
-    form.append('file', new Blob([bytes], { type: 'audio/ogg' }), 'voice.ogg');
+    form.append('file', new Blob([bytes], { type: mime }), 'voice.ogg');
     form.append('model', 'whisper-1'); // language auto-detect: students mix Urdu + English
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',

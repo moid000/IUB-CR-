@@ -29,6 +29,7 @@ let failNext = false;
 let geminiAnswer = null; // 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR' | null (null = API error → rules fallback)
 let geminiChatReply = null; // OWNER 2026-10-07: human conversation reply ({reply} schema) — null = API error → static fallback
 let voiceTranscript = null; // OWNER night #8: what Whisper returns for the teacher's voice note (null = STT failure)
+let geminiVoiceTranscript = null; // OWNER 2026-10-08: Gemini STT transcript (null = Gemini STT down → Whisper fallback)
 const voiceMsg = (from = '923001112233@c.us') => ({ event_type: 'message_received', instanceId: 'test-instance',
   data: { id: `incoming-${Math.random()}`, from, body: '', type: 'voice', link: 'https://cdn.example/voice.ogg',
     fromMe: false, time: Math.floor(Date.now() / 1000) } });
@@ -36,6 +37,12 @@ const geminiDownModels = new Set(); // OWNER 2026-10-07 night: model names servi
 const geminiBodies = []; // OWNER MASTER SPEC (night #3): every LLM call's payload (history assertions)
 globalThis.fetch = (url, options) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
+    // OWNER 2026-10-08: Gemini STT (inline audio) routed separately from classify/chat calls
+    if (String(options.body).includes('"inlineData"')) {
+      return geminiVoiceTranscript
+        ? Promise.resolve(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: geminiVoiceTranscript }] } }] }), { status: 200 }))
+        : Promise.resolve(new Response(JSON.stringify({}), { status: 400 }));
+    }
     geminiBodies.push({ url: String(url), body: String(options.body) });
     if ([...geminiDownModels].some((m) => String(url).includes(`/models/${m}:`))) {
       return Promise.resolve(new Response(JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } }), { status: 503 }));
@@ -973,6 +980,20 @@ test('OWNER night #8 ESCALATION (chat model UP): Gemini words the acknowledgment
     assert.equal(sent[sent.length - 1].to, '923009876543');
   } finally {
     geminiAnswer = null; geminiChatReply = null;
+  }
+});
+
+test('OWNER 2026-10-08 FREE VOICE: Gemini STT (no OpenAI credits needed) confirms the class', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-21', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+  voiceTranscript = null; // Whisper would fail — the free Gemini path must carry it
+  geminiVoiceTranscript = 'ji haan, main lein ge';
+  try {
+    assert.equal((await webhook(voiceMsg())).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+  } finally {
+    geminiVoiceTranscript = null;
   }
 });
 
