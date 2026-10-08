@@ -2,6 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { Section, Subject, Teacher, Timetable, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { isConfigured, sendText } from './whatsappService.js';
+import { createNotification } from './notificationService.js';
+// OWNER night #8: teacher VOICE NOTES reuse the group bot's Whisper helper
+import { transcribeVoice } from './chatbotService.js';
 
 const MAX_ATTEMPTS = 3;
 
@@ -314,7 +317,87 @@ function classStatusLine(status) {
   }
 }
 
-function buildTeacherChatFacts({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone, classStatus }) {
+/* OWNER night #8 — EXPERIENCE LIBRARY (feature "real training"): curated
+ * examples distilled from the owner's LIVE teacher tests and every fixed
+ * incident. They are injected into the classifier and chat prompts as
+ * few-shots so new phrasings land in the right category. The real
+ * conversation[] history keeps accumulating for future refreshes. */
+const EXPERIENCE_LIBRARY = {
+  classify: [
+    ['mera dil nahi hai class ka', 'NO'],
+    ['inshallah ma aaon ga', 'YES'],
+    ['haan ji konsa room hai?', 'YES'],
+    ['g kon?', 'QUESTION'],
+    ['ye kis ka number hai?', 'QUESTION'],
+    ['acha theek hai', 'ACK'],
+    ['bas itna hi, kuch nahi', 'ACK'],
+    ['nahi koi aur question nahi', 'ACK'],
+    ['nahi sir ma class nahi loon ga', 'NO'],
+    ['meri car kharab hai, aap CR se keh do alternate arrange kare', 'ESCALATION'],
+    ['class 10 baje tak shift kar dein', 'ESCALATION'],
+    ['ma hospital me hun, CR ko bata dein', 'ESCALATION'],
+  ],
+  chat: [
+    ['Teacher: time kia hai?', 'Sir, class 7:00 AM se 8:30 AM tak hai. Kya aap aaj ki class lein ge, Sir?'],
+    ['Teacher: cr ka number?', 'Sir, CR ka contact number 0300-1234567 hai. Kya aap ye class lein ge, Sir?'],
+    ['Teacher: meri car kharab hai, CR se keh do alternate arrange kare', 'Ji Sir, aapka message CR ke pohncha diya hai, wo khud aapse rabta karen ge. Kya aap ye class lein ge, Sir?'],
+  ],
+};
+
+/* OWNER night #8 — PER-TEACHER MEMORY: language detector (Urdu script →
+ * roman-vs-english word markers). Returns 'urdu' | 'roman_urdu' | 'english'
+ * or null when the message is too short to judge. */
+const URDU_SCRIPT_RE = /[\u0600-\u06FF]/;
+const ROMAN_MARKERS = new Set(['hai', 'ha', 'han', 'haan', 'nahi', 'nh', 'ni', 'nahin', 'kia', 'kya', 'ky',
+  'kar', 'kr', 'karna', 'krna', 'loon', 'laon', 'aaon', 'aap', 'ap', 'ji', 'kon', 'kaun', 'konsa', 'kab',
+  'kahan', 'kha', 'dy', 'dein', 'dena', 'chahiye', 'raha', 'rah', 'mein', 'ma', 'main', 'aj', 'kal', 'nahi',
+  'ka', 'ki', 'ko', 'koi', 'ho', 'bata', 'btana']);
+const ENGLISH_MARKERS = new Set(['the', 'is', 'are', 'will', 'can', 'what', 'when', 'where', 'who', 'which',
+  'time', 'room', 'class', 'section', 'semester', 'department', 'number', 'yes', 'not', 'today',
+  'tomorrow', 'take', 'conduct', 'scheduled', 'please', 'confirm']);
+export function detectChatLanguage(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return null;
+  if (URDU_SCRIPT_RE.test(t)) return 'urdu';
+  const words = t.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+  let r = 0; let e = 0;
+  for (const w of words) { if (ROMAN_MARKERS.has(w)) r += 1; else if (ENGLISH_MARKERS.has(w)) e += 1; }
+  if (r === 0 && e === 0) return null;
+  return r > e ? 'roman_urdu' : 'english';
+}
+
+/* OWNER night #8 — ESCALATION builders. The teacher's request that needs a
+ * human is acknowledged warmly; while the class is still AWAITING, the
+ * mandatory confirmation loop (§22) keeps running. Decided classes never
+ * re-ask. Offline fallback when the chat model is unreachable. */
+function buildEscalationMessage(ctx) {
+  const lines = [
+    `Ji Sir, samajh gaye. Aapka message ${ctx.crRole ?? 'CR'} ${bold(ctx.crName ?? 'the CR')} ke pohncha diya hai — wo khud aapse rabta karen ge.`,
+  ];
+  if (ctx.classStatus === 'awaiting' || ctx.classStatus === 'sending' || ctx.classStatus === 'queued') {
+    lines.push('', 'Jab tak — *Kya aap ye scheduled class lein ge, Sir?* A plain YES or NO updates it for your students.');
+  }
+  lines.push('', '— Tri3M Class Agent');
+  return lines.join('\n');
+}
+
+/** The CR's own alert (WhatsApp + portal inbox): verbatim teacher message,
+ * the class context, and the manual-override action. */
+function buildCrEscalationAlert(ctx, teacherBody) {
+  return [
+    `Assalam-o-Alaikum ${ctx.crName ?? 'CR'}!`,
+    '',
+    `Aapke teacher *${ctx.teacher}* ne *${ctx.subject ?? 'class'}* (${ctx.section ?? '—'}, ${ctx.day} ${ctx.time}) ke liye ye message bheja hai:`,
+    `"${String(teacherBody ?? '').slice(0, 200)}"`,
+    '',
+    'Class abhi bhi *pending* hai — portal me manually status set kar dein:',
+    PORTAL_URL,
+    '',
+    '— Tri3M Class Agent',
+  ].join('\n');
+}
+
+function buildTeacherChatFacts({ teacher, section, department, semester, subject, day, time, room, crName, crRole, crPhone, classStatus, teacherLanguage }) {
   return [
     `Teacher: ${teacher}`,
     `Subject: ${subject}`,
@@ -328,6 +411,13 @@ function buildTeacherChatFacts({ teacher, section, department, semester, subject
     'The WhatsApp number texting the teacher is the Tri3M Class Agent line — an AI coordination assistant made by the section students (NOT a personal number). For anything personal, the CR contact above is the direct line.',
     crPhone ? `CR's contact number (may be shared with the teacher on request): ${crPhone}` : 'CR contact number: not available',
     `Class status: ${classStatusLine(classStatus)}`,
+    // OWNER night #8: per-teacher memory line (learned from their own messages)
+    ...(teacherLanguage === 'roman_urdu' || teacherLanguage === 'urdu'
+      ? [`Teacher's usual language: ${teacherLanguage === 'urdu' ? 'Urdu script' : 'Roman Urdu'} — mirror it in your reply.`]
+      : teacherLanguage === 'english'
+        ? [`Teacher's usual language: English — reply in English.`]
+        : []),
+    'EXAMPLES of good replies (style reference):\n' + EXPERIENCE_LIBRARY.chat.map(([q, a]) => `${q} → "${a}"`).join('\n'),
   ].join('\n');
 }
 
@@ -338,7 +428,7 @@ function buildTeacherChatFacts({ teacher, section, department, semester, subject
  * behaves like a professional class-coordination assistant — intent-based,
  * multi-turn, answer-only-what-was-asked — NEVER a keyword/FAQ/YES-NO-only
  * bot. Full spec in the conversation history; distilled into the prompt. */
-async function chatReplyWithGemini(body, facts, { unclear = false, history = [] } = {}) {
+async function chatReplyWithGemini(body, facts, { unclear = false, history = [], escalation = false } = {}) {
   const key = env.chatbot?.googleApiKey;
   if (!key) return null;
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
@@ -366,6 +456,7 @@ async function chatReplyWithGemini(body, facts, { unclear = false, history = [] 
           ? '11. This message could not be read as an answer about attending: reply warmly that you do not want to guess, and ask in one short line for a plain YES (they will take the class) or NO (they cannot).'
           : '11. If the message is a genuine maybe about attending, ask for the plain YES or NO in one short natural line — briefly, not robotically.',
         '12. A "no" answers the question it follows: "nahi" / "kuch nahi" / "nahi chahiye" / "nothing else" right after an offer of details means NO MORE QUESTIONS — acknowledge warmly, keep the class PENDING, and ask for the class decision in the same message. Only a clear statement that they will NOT conduct the class declines it; never decline from a bare "no" unless the last question you asked was the class decision.',
+        '13. If the teacher asks for something that needs a human — a time change, an alternate teacher, passing a message to the CR, an emergency — you have ALREADY forwarded their exact message to the CR. Say so warmly in one line (the CR will contact them personally), never promise a schedule change yourself, and never treat it as a YES or NO about conducting the class.',
       ].join('\n') + '\n\nACTIVE CLASS FACTS:\n' + facts + transcript }] },
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
       generationConfig: { temperature: 0.4, maxOutputTokens: 300, responseMimeType: 'application/json',
@@ -425,7 +516,7 @@ async function converseWithTeacher(sender, payload, mode) {
     const [sectionDoc, subjectDoc, teacherDoc, crDoc] = await Promise.all([
       Section.findById(slot.section).populate('department', 'name').select('name semester department').lean(),
       Subject.findById(slot.subject).select('name').lean(),
-      Teacher.findById(slot.teacherConfirmation?.teacher).select('name').lean(),
+      Teacher.findById(slot.teacherConfirmation?.teacher).select('name chatProfile').lean(),
       // the CR/GR who actually queued this class (requestedBy), falling back
       // to the class creator — the conversation names a REAL person
       User.findById(slot.teacherConfirmation?.requestedBy ?? slot.createdBy).select('name role phone').lean(),
@@ -445,6 +536,37 @@ async function converseWithTeacher(sender, payload, mode) {
       crPhone: crDoc?.phone ? String(crDoc.phone).replace(/[^\d+]/g, '') : null,
       classStatus: slot.teacherConfirmation?.status ?? null,
     };
+    // OWNER night #8 — PER-TEACHER MEMORY: learn the teacher's language from
+    // their own messages (majority over all their texts, persisted on the
+    // Teacher doc). Best-effort: a profile hiccup never breaks the reply.
+    let teacherLanguage = null;
+    try {
+      const msgLang = detectChatLanguage(String(payload.data.body ?? ''));
+      const prof = teacherDoc.chatProfile ?? {};
+      if (msgLang === 'roman_urdu' || msgLang === 'english') {
+        const romanCount = (prof.romanCount ?? 0) + (msgLang === 'roman_urdu' ? 1 : 0);
+        const englishCount = (prof.englishCount ?? 0) + (msgLang === 'english' ? 1 : 0);
+        const detected = romanCount + englishCount >= 2
+          ? (romanCount > englishCount ? 'roman_urdu' : 'english') : null;
+        await Teacher.updateOne({ _id: teacherDoc._id }, {
+          $inc: msgLang === 'roman_urdu' ? { 'chatProfile.romanCount': 1 } : { 'chatProfile.englishCount': 1 },
+          ...(detected ? { $set: { 'chatProfile.detectedLanguage': detected } } : {}),
+        });
+        teacherLanguage = (prof.preferredLanguage && prof.preferredLanguage !== 'auto'
+          ? prof.preferredLanguage : detected);
+      } else if (msgLang === 'urdu') {
+        teacherLanguage = (prof.preferredLanguage && prof.preferredLanguage !== 'auto') ? prof.preferredLanguage : 'urdu';
+      } else {
+        teacherLanguage = (prof.preferredLanguage && prof.preferredLanguage !== 'auto')
+          ? prof.preferredLanguage : (prof.detectedLanguage ?? null);
+      }
+    } catch { /* best-effort */ }
+    // OWNER night #8 — ESCALATION context: the teacher's message needs a
+    // human. Shared conversation history so the CR sees the full context.
+    const history = (slot.teacherConfirmation?.conversation ?? [])
+      .filter((m) => m?.at && Date.now() - new Date(m.at).getTime() < 24 * 3600 * 1000)
+      .slice(-8)
+      .map((m) => ({ role: m.role, text: m.text, at: m.at }));
     // MASTER SPEC §7: an acknowledgement while PENDING_CONFIRMATION politely
     // asks for the actual decision — a clear YES/NO, never assumed.
     if (mode === 'ack') {
@@ -458,14 +580,44 @@ async function converseWithTeacher(sender, payload, mode) {
       } catch { /* best-effort */ }
       return true;
     }
+    // OWNER night #8 — ESCALATION: the teacher asked for something only the
+    // CR/humans can do (reschedule, alternate, pass a message, emergency).
+    // (1) the teacher is NEVER left in silence: their message is acknowledged
+    //     and they are told the CR will contact them personally;
+    // (2) the CR is notified on WhatsApp AND in the portal inbox;
+    // (3) the class status NEVER changes from an escalation — the decision
+    //     stays with the teacher (YES/NO) and the CR (manual override).
+    if (mode === 'escalation') {
+      const teacherBody = String(payload.data.body ?? '');
+      const reply = await chatReplyWithGemini(teacherBody, buildTeacherChatFacts({ ...ctx, teacherLanguage }),
+        { history, escalation: true });
+      const message = reply ?? buildEscalationMessage(ctx);
+      chatLog('AI-HANDLER INVOKED (escalation)', { phone: sender, classId: slot._id, state: 'PENDING_CONFIRMATION', msg: teacherBody, reply: message });
+      await sendText(sender, message);
+      chatLog('SENT', { phone: sender, send: 'SUCCESS' });
+      try { // record the agent turn so follow-ups stay contextual
+        await Timetable.updateOne({ _id: slot._id },
+          { $push: { 'teacherConfirmation.conversation': { $each: [{ role: 'agent', text: message.slice(0, 400), at: new Date() }], $slice: -20 } } });
+      } catch { /* best-effort */ }
+      // notify the CR — best-effort, a gateway hiccup never breaks the flow
+      try {
+        const alert = buildCrEscalationAlert(ctx, teacherBody);
+        const crPhone = crDoc?.phone ? String(crDoc.phone).replace(/[^\d]/g, '') : null;
+        if (crPhone) await sendText(crPhone, alert);
+        if (crDoc?._id) {
+          await createNotification({ recipient: crDoc._id, type: 'system',
+            title: `Teacher needs you: ${ctx.subject ?? 'class'}`,
+            message: alert, refType: 'timetable', refId: slot._id,
+            dedupeKey: `teacher-escalation:${String(payload.data.id ?? '').slice(0, 120)}` });
+        }
+        chatLog('CR-NOTIFIED', { phone: crPhone ?? '—', classId: slot._id, msg: teacherBody });
+      } catch (err) { chatLog('CR-NOTIFY-FAILED', { msg: err.message }); }
+      return true;
+    }
     // HUMAN conversation first; offline → professional static fallbacks.
     // MASTER SPEC: the last turns are replayed so the conversation is MULTI-TURN
     // ('his number?', 'okay I'll take it' keep the same class context).
-    const history = (slot.teacherConfirmation?.conversation ?? [])
-      .filter((m) => m?.at && Date.now() - new Date(m.at).getTime() < 24 * 3600 * 1000)
-      .slice(-8)
-      .map((m) => ({ role: m.role, text: m.text, at: m.at }));
-    const reply = await chatReplyWithGemini(String(payload.data.body ?? ''), buildTeacherChatFacts(ctx), { unclear: mode === 'unclear', history });
+    const reply = await chatReplyWithGemini(String(payload.data.body ?? ''), buildTeacherChatFacts({ ...ctx, teacherLanguage }), { unclear: mode === 'unclear', history });
     const message = reply ?? (mode === 'unclear'
       ? buildHintMessage(teacherDoc.name)
       : INTERPRET_IDENTITY_RE.test(String(payload.data.body ?? ''))
@@ -824,14 +976,14 @@ async function classifyReplyWithGemini(body) {
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
   try {
     const parsed = await geminiJson({
-      systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come (a clear decision: "yes", "haan class ho gi", "ma class loon ga", "aaon ga", "sure", "I will take it"). NO = the teacher will not take it / cannot come / does not want to (a clear decision). QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). ACK = the teacher is ONLY acknowledging the message — "ok", "okay", "alright", "fine", "acha", "theek hai", "got it", "understood", "thanks", "thank you". An acknowledgement is NEVER a YES: "ok" does not mean the teacher agreed to conduct the class; when in doubt between YES and ACK for a bare "ok"/"acha"/"theek hai", answer ACK. ACK also covers "no more questions" replies ("nahi koi nahi", "kuch nahi", "bas itna hi", "that\'s all", "nothing else", "nahi chahiye", "no thank you"): they mean the teacher is done asking, NOT that they decline the class; when in doubt between NO and ACK for such a reply, answer ACK. NO is only a clear refusal to conduct the class ("ma class nahi loon ga", "aa nahi sakta", "cancel"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question or say ok. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter). Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"ACK"|"UNCLEAR"}.' }] },
+        systemInstruction: { parts: [{ text: 'A teacher was asked "Please reply YES or NO" about taking a scheduled class. The teacher replied in ANY style — English, Urdu, Roman Urdu, mixed, polite, indirect, or expressing feelings (e.g. "mera dil nahi hai" = NO, "inshallah aaon ga" = YES, "mood nahi" = NO). Read the MEANING, not exact words. YES = the teacher will take the class / will come (a clear decision: "yes", "haan class ho gi", "ma class loon ga", "aaon ga", "sure", "I will take it"). NO = the teacher will not take it / cannot come / does not want to (a clear decision). ESCALATION = the teacher asks for something that needs a human/CR action or a change the assistant cannot make: rescheduling or shifting the class, sending an alternate/replacement teacher, passing a message to the CR or students, emergencies asking for arrangement ("meri car kharab hai, CR se keh do", "class 10 baje tak shift kar dein", "ma hospital me hun, CR ko bata dein"). A CLEAR YES or NO about conducting the class still wins over ESCALATION when both are present. QUESTION = the teacher is asking for information about the class — which section / department / semester / subject / room / time / date, who the CR is (name or phone), who or what this assistant is, or expressing confusion about WHICH class this is (e.g. "which section is this?", "kaun sa semester hai?", "mujhe samajh nahi aa raha ye konsi class hai", "who is messaging me?"). ACK = the teacher is ONLY acknowledging the message — "ok", "okay", "alright", "fine", "acha", "theek hai", "got it", "understood", "thanks", "thank you". An acknowledgement is NEVER a YES: "ok" does not mean the teacher agreed to conduct the class; when in doubt between YES and ACK for a bare "ok"/"acha"/"theek hai", answer ACK. ACK also covers "no more questions" replies ("nahi koi nahi", "kuch nahi", "bas itna hi", "that\'s all", "nothing else", "nahi chahiye", "no thank you"): they mean the teacher is done asking, NOT that they decline the class; when in doubt between NO and ACK for such a reply, answer ACK. NO is only a clear refusal to conduct the class ("ma class nahi loon ga", "aa nahi sakta", "cancel"). If the teacher CLEARLY states they will or will not take the class, that verdict wins even if they also ask a question or say ok. UNCLEAR = genuinely cannot decide what they mean about attending (maybe, I will tell you later, unrelated chatter).  EXAMPLES (real teacher replies → the correct verdict): ' + EXPERIENCE_LIBRARY.classify.map(([msg, verdict]) => `"${msg}" → ${verdict}`).join('; ') + '. Return ONLY JSON {"answer":"YES"|"NO"|"QUESTION"|"ACK"|"ESCALATION"|"UNCLEAR"}.' }] },
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
-        responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'ACK', 'UNCLEAR'] } }, required: ['answer'] } },
+        responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'ACK', 'ESCALATION', 'UNCLEAR'] } }, required: ['answer'] } },
     }, INTERPRET_TIMEOUT_MS);
     if (!parsed) return null; // every model unreachable → local rules safety net
     const ans = String(parsed?.answer ?? '').toUpperCase();
-    return ans === 'YES' || ans === 'NO' || ans === 'QUESTION' ? ans : 'UNCLEAR';
+    return ans === 'YES' || ans === 'NO' || ans === 'QUESTION' || ans === 'ESCALATION' ? ans : 'UNCLEAR';
   } catch { return null; }
 }
 
@@ -846,6 +998,9 @@ async function classifyReplyWithGemini(body) {
 export async function interpretTeacherReply(body) {
   const viaGemini = await classifyReplyWithGemini(body);
   const t = String(body ?? '').toLowerCase().trim();
+  // OWNER night #8: the teacher asked for human/CR action (reschedule,
+  // alternate, pass a message) — forward it, never guess an answer ourselves.
+  if (viaGemini === 'ESCALATION') return 'ESCALATION';
   if (viaGemini === 'YES' || viaGemini === 'NO') {
     // OWNER BUG FIX (2026-10-07 night): a question-looking reply with NO strong
     // yes/no word can NEVER confirm/deny a class ('g kon?' was confirmed YES).
@@ -944,11 +1099,23 @@ export function buildInterpretedAckMessage(kind, ctx) {
  * is interpreted first (rules, then Gemini) and handled like a YES/NO with
  * an English acknowledgement; a genuinely unclear reply still gets the
  * polite only-YES-or-NO reminder. */
+const VOICE_TYPES = new Set(['audio', 'voice', 'ptt', 'ogg']);
+
 export async function handleTeacherReply(payload) {
+  const msgType = String(payload?.data?.type ?? '');
   if (payload?.event_type !== 'message_received' ||
       String(payload?.instanceId ?? '').replace(/^instance/i, '') !==
         String(env.whatsapp.instanceId ?? '').replace(/^instance/i, '') ||
-      payload?.data?.fromMe !== false || payload?.data?.type !== 'chat') return false;
+      payload?.data?.fromMe !== false || (msgType !== 'chat' && !VOICE_TYPES.has(msgType))) return false;
+  // OWNER night #8 — VOICE NOTES: the teacher may SPEAK instead of typing.
+  // Whisper transcribes; the transcript then runs through the EXACT same
+  // pipeline as a typed message (classify → YES/NO/question/ack/escalation).
+  if (msgType !== 'chat') {
+    const transcript = await transcribeVoice(payload.data);
+    chatLog('VOICE NOTE', { phone: String(payload.data.from ?? '').split('@')[0].replace(/\D/g, ''), msg: transcript ?? '(could not transcribe — ignored)' });
+    if (!transcript) return false; // no key / transcription failure → never guess content
+    payload = { ...payload, data: { ...payload.data, body: transcript, type: 'chat' } };
+  }
   const body = String(payload.data.body ?? '').trim();
   const exact = /^(YES|NO)\s+([A-F0-9]{10})\s*[.!]?$/i.exec(body);
   const plain = /^(YES|NO)\s*[.!]?$/i.exec(body);
@@ -966,6 +1133,7 @@ export async function handleTeacherReply(payload) {
     chatLog('CLASSIFY', { phone: sender, verdict: interpreted ?? 'UNCLEAR' });
     if (interpreted === 'QUESTION') return converseWithTeacher(sender, payload, 'question');
     if (interpreted === 'ACK') return converseWithTeacher(sender, payload, 'ack');
+    if (interpreted === 'ESCALATION') return converseWithTeacher(sender, payload, 'escalation');
     if (!interpreted) return converseWithTeacher(sender, payload, 'unclear');
   }
   const answer = exact ? exact[1].toUpperCase() : plain ? plain[1].toUpperCase() : interpreted;

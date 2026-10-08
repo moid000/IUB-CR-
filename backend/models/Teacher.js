@@ -20,6 +20,30 @@ const teacherSchema = new Schema(
     email: { type: String, trim: true, lowercase: true },
     designation: { type: String, trim: true },
     createdBy: { type: ObjectId, ref: 'User', required: true },
+    // OWNER night #8 (2026-10-08): PER-TEACHER MEMORY — the agent learns each
+    // teacher's language from their own messages; 'auto' = agent detects.
+    chatProfile: {
+      preferredLanguage: { type: String, enum: ['auto', 'english', 'roman_urdu', 'urdu'], default: 'auto' },
+      detectedLanguage: { type: String },
+      romanCount: { type: Number, default: 0 },
+      englishCount: { type: Number, default: 0 },
+    },
+    // OWNER night #8 (2026-10-08): PER-TEACHER MEMORY — the agent learns each
+    // teacher's language from their own messages; 'auto' = agent detects.
+    chatProfile: {
+      preferredLanguage: { type: String, enum: ['auto', 'english', 'roman_urdu', 'urdu'], default: 'auto' },
+      detectedLanguage: { type: String },
+      romanCount: { type: Number, default: 0 },
+      englishCount: { type: Number, default: 0 },
+    },
+    // OWNER night #8 (2026-10-08): PER-TEACHER MEMORY — the agent learns each
+    // teacher's language from their own messages; 'auto' = agent detects.
+    chatProfile: {
+      preferredLanguage: { type: String, enum: ['auto', 'english', 'roman_urdu', 'urdu'], default: 'auto' },
+      detectedLanguage: { type: String },
+      romanCount: { type: Number, default: 0 },
+      englishCount: { type: Number, default: 0 },
+    },
   },
   { timestamps: true }
 );

@@ -14,6 +14,7 @@ process.env.ULTRAMSG_TOKEN = 'fake-token';
 process.env.ULTRAMSG_WEBHOOK_SECRET = 'fake-webhook-secret';
 process.env.DEADLINE_SWEEP_SECRET = 'fake-sweep-secret';
 process.env.GOOGLE_API_KEY = 'test-key';
+process.env.OPENAI_API_KEY = 'test-openai-key'; // OWNER night #8: teacher voice notes
 process.env.ALLOW_TEST_GEMINI = '1'; // teacher-interpretation tests mock the Gemini fetch
 
 const { default: mongoose } = await import('mongoose');
@@ -27,6 +28,10 @@ const sent = [];
 let failNext = false;
 let geminiAnswer = null; // 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR' | null (null = API error → rules fallback)
 let geminiChatReply = null; // OWNER 2026-10-07: human conversation reply ({reply} schema) — null = API error → static fallback
+let voiceTranscript = null; // OWNER night #8: what Whisper returns for the teacher's voice note (null = STT failure)
+const voiceMsg = (from = '923001112233@c.us') => ({ event_type: 'message_received', instanceId: 'test-instance',
+  data: { id: `incoming-${Math.random()}`, from, body: '', type: 'voice', link: 'https://cdn.example/voice.ogg',
+    fromMe: false, time: Math.floor(Date.now() / 1000) } });
 const geminiDownModels = new Set(); // OWNER 2026-10-07 night: model names serving 503 (live incident)
 const geminiBodies = []; // OWNER MASTER SPEC (night #3): every LLM call's payload (history assertions)
 globalThis.fetch = (url, options) => {
@@ -45,6 +50,14 @@ globalThis.fetch = (url, options) => {
       return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
     }
     return Promise.resolve(new Response(JSON.stringify({}), { status: 400 })); // API down → fallbacks
+  }
+  if (String(url).includes('voice.ogg')) { // OWNER night #8: teacher voice note download
+    return Promise.resolve(new Response('fake-ogg-bytes'));
+  }
+  if (String(url).includes('api.openai.com')) { // OWNER night #8: Whisper mock
+    return voiceTranscript
+      ? Promise.resolve(new Response(JSON.stringify({ text: voiceTranscript }), { status: 200 }))
+      : Promise.resolve(new Response(JSON.stringify({ error: 'stt unavailable' }), { status: 500 }));
   }
   if (String(url).startsWith('https://api.ultramsg.com/test-instance/messages/chat')) {
     const data = new URLSearchParams(options.body);
@@ -908,6 +921,134 @@ test('OWNER MASTER SPEC §2/§7 (night #4): "OK" is NOT confirmation — the bot
   assert.equal((await webhook(incoming('ok'))).json.data.updated, false);
 });
 
+test('OWNER night #8 ESCALATION: "CR se keh do alternate arrange kare" — teacher acknowledged, CR notified on WhatsApp + portal, class stays PENDING', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-14', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+  const crDoc = await User.findOne({ email: 'cr-teacher@test.local' });
+
+  geminiAnswer = 'ESCALATION'; // classifier: human action needed
+  geminiChatReply = null;      // chat model DOWN → static escalation fallback
+  try {
+    const before = sent.length;
+    assert.equal((await webhook(incoming('meri car kharab hai, aap CR se keh do alternate arrange kare'))).json.data.updated, true);
+    // teacher gets a warm acknowledgment, the \u00a722 ask, never silence
+    assert.equal(sent.length, before + 2); // teacher reply + CR WhatsApp alert
+    const teacherReply = sent[sent.length - 2];
+    assert.equal(teacherReply.to, teacher.whatsapp);
+    assert.match(teacherReply.body, /pohncha diya hai/);
+    assert.match(teacherReply.body, /Kya aap ye scheduled class lein ge/); // \u00a722 loop keeps running
+    // the CR gets the verbatim message + class context
+    const crAlert = sent[sent.length - 1];
+    assert.equal(crAlert.to, '923009876543');
+    assert.match(crAlert.body, /meri car kharab hai/);
+    assert.match(crAlert.body, /Dr Test/);
+    assert.match(crAlert.body, /pending/);
+    // in-app portal notification too
+    const notif = await models.Notification.findOne({ recipient: crDoc._id, type: 'system' });
+    assert.ok(notif, 'portal notification created');
+    assert.match(notif.message, /meri car kharab hai/);
+    // the class status NEVER changes from an escalation
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
+    // the classifier prompt now carries the experience library + ESCALATION category
+    const lastClassify = geminiBodies.filter((b) => !b.body.includes('"reply"')).at(-1);
+    assert.match(lastClassify.body, /ESCALATION/);
+    assert.match(lastClassify.body, /EXAMPLES \(real teacher replies/);
+  } finally {
+    geminiAnswer = null; geminiChatReply = null;
+  }
+});
+
+test('OWNER night #8 ESCALATION (chat model UP): Gemini words the acknowledgment — CR still notified exactly once', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-15', startTime: '09:00', endTime: '10:00' });
+
+  geminiAnswer = 'ESCALATION';
+  geminiChatReply = 'Ji Sir, aapka message CR Alex Representative ke pohncha diya hai, wo aapse khud rabta karen ge. Kya aap aaj ki class lein ge, Sir?';
+  try {
+    const before = sent.length;
+    assert.equal((await webhook(incoming('class 10 baje tak shift kar dein'))).json.data.updated, true);
+    assert.equal(sent.length, before + 2);
+    assert.equal(sent[sent.length - 2].body, geminiChatReply); // Gemini's exact wording
+    assert.equal(sent[sent.length - 1].to, '923009876543');
+  } finally {
+    geminiAnswer = null; geminiChatReply = null;
+  }
+});
+
+test('OWNER night #8 VOICE NOTES: a spoken YES confirms the class — the transcript runs the exact same pipeline', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-16', startTime: '09:00', endTime: '10:00' });
+  const slotId = r.json.data._id;
+
+  voiceTranscript = 'YES'; // Whisper heard a plain YES
+  try {
+    assert.equal((await webhook(voiceMsg())).json.data.updated, true);
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed');
+    // a spoken question answers like a typed one
+    const r2 = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-17', startTime: '09:00', endTime: '10:00' });
+    geminiAnswer = 'QUESTION';
+    geminiChatReply = 'Sir, class 9:00 AM se 10:00 AM tak hai. Kya aap ye class lein ge, Sir?';
+    voiceTranscript = 'time kia hai?';
+    const before = sent.length;
+    assert.equal((await webhook(voiceMsg())).json.data.updated, true);
+    assert.equal(sent.length, before + 1);
+    assert.equal(sent.at(-1).body, geminiChatReply);
+    assert.equal((await Timetable.findById(r2.json.data._id)).teacherConfirmation.status, 'awaiting');
+    assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'confirmed'); // part 1 decision intact
+  } finally {
+    voiceTranscript = null; geminiAnswer = null; geminiChatReply = null;
+  }
+});
+
+test('OWNER night #8 VOICE NOTES: transcription failure is SILENT — never guessed, nothing breaks', async () => {
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-18', startTime: '09:00', endTime: '10:00' });
+  voiceTranscript = null; // Whisper unavailable
+  const before = sent.length;
+  try {
+    assert.equal((await webhook(voiceMsg())).json.data.updated, false);
+    assert.equal(sent.length, before);
+    assert.equal((await Timetable.findById(r.json.data._id)).teacherConfirmation.status, 'awaiting');
+  } finally {
+    voiceTranscript = null;
+  }
+});
+
+test('OWNER night #8 PER-TEACHER MEMORY: the language detector learns from the teacher\u2019s own messages and the prompt mirrors it', async () => {
+  const { detectChatLanguage } = await import('../backend/services/teacherConfirmationService.js');
+  assert.equal(detectChatLanguage('han ma class loon ga'), 'roman_urdu');
+  assert.equal(detectChatLanguage('What time is the class today?'), 'english');
+  assert.equal(detectChatLanguage('\\u06a9\\u0644\\u0627\\u0633 \u06a9\\u0628 \u06c1\\u06d2'), 'urdu');
+  assert.equal(detectChatLanguage('ok'), null);
+  assert.equal(detectChatLanguage(''), null);
+
+  await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
+  const liveTeacher = await Teacher.findOne({ section, subject });
+  assert.ok(liveTeacher, 'current teacher doc exists');
+  await Teacher.updateOne({ _id: liveTeacher._id }, { $set: { 'chatProfile.romanCount': 0, 'chatProfile.englishCount': 0, 'chatProfile.detectedLanguage': null } });
+  await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-19', startTime: '09:00', endTime: '10:00' });
+
+  geminiAnswer = 'QUESTION';
+  try {
+    // message 1: roman urdu — not enough evidence yet, no profile line in the prompt
+    geminiChatReply = 'Sir, 9:00 AM. Kya aap class lein ge, Sir?';
+    await webhook(incoming('han sir time bata dein class ka'));
+    let prof = (await Teacher.findById(liveTeacher._id)).chatProfile;
+    assert.equal(prof.romanCount, 1);
+    // message 2: roman urdu again — the profile is now DETECTED and the chat prompt mirrors it
+    const classifyBefore = geminiBodies.length;
+    await webhook(incoming('acha room konsa hai phir bata dein'));
+    prof = (await Teacher.findById(liveTeacher._id)).chatProfile;
+    assert.equal(prof.romanCount, 2);
+    assert.equal(prof.detectedLanguage, 'roman_urdu');
+    const chatCall = geminiBodies.slice(classifyBefore).find((b) => b.body.includes('"reply"'));
+    assert.match(chatCall.body, /Teacher's usual language: Roman Urdu/);
+  } finally {
+    geminiAnswer = null; geminiChatReply = null;
+  }
+});
+
 test('OWNER MASTER SPEC §13 (night #7) ACCEPTANCE: FIVE rapid questions in a row ALL get answers, then a real YES confirms — the conversation never goes silent', async () => {
   await Timetable.updateMany({ section, 'teacherConfirmation.phone': teacher.whatsapp }, { $set: { 'teacherConfirmation.status': 'none' } });
   const r = await cr('POST', '/api/cr/timetable', { subject, date: '2099-03-10', startTime: '09:00', endTime: '10:00' });
@@ -1041,7 +1182,7 @@ test('OWNER MASTER SPEC §21 (night #5): "nahi koi detail nahi chahiye" is NOT a
     assert.equal((await webhook(incoming('nahi koi detail nahi chahiye'))).json.data.updated, true);
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
     const ask = sent.at(-1);
-    assert.match(ask.body, /lein ge|will you be taking/i); // warm confirm-ask
+    assert.match(ask.body, /lein ge|will you be taking|confirm kar dein|conduct karein/i); // warm confirm-ask
     assert.doesNotMatch(ask.body, /unavailable|decline/i);
 
     // a real YES now confirms (§21-E) — fresh classification, rules say YES
@@ -1083,7 +1224,7 @@ test('OWNER MASTER SPEC §21-F: bare "nahi" right after a NON-question agent ans
     geminiAnswer = null; // fresh classification of the bare 'nahi' (rules path)
     assert.equal((await webhook(incoming('nahi'))).json.data.updated, true);
     assert.equal((await Timetable.findById(slotId)).teacherConfirmation.status, 'awaiting');
-    assert.match(sent.at(-1).body, /lein ge|will you be taking/i); // asks for the real decision
+    assert.match(sent.at(-1).body, /lein ge|will you be taking|confirm kar dein|conduct karein/i); // asks for the real decision
   } finally {
     geminiAnswer = null;
     geminiChatReply = null;
