@@ -861,7 +861,10 @@ async function converseGeneralTeacher(sender, payload, mode) {
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name').populate({ path: 'section', populate: { path: 'department' }, select: 'name semester department cr gr' }).lean();
   if (!teacherRecords.length) return false;
-  const primary = teacherRecords[0];
+  // OWNER (2026-10-09 incident): a stale sibling record with NO subject/section
+  // can sort first — facts (subjects, sections, CR) must come from a record
+  // that actually has an authorized destination when one exists.
+  const primary = teacherRecords.find((t) => t.subject && t.section) ?? teacherRecords[0];
 
   // claim the message id (webhook redelivery → answered once) and record the turn
   const rawTime = Number(payload.data.time ?? payload.data.timestamp);
@@ -1235,12 +1238,17 @@ export function interpretReply(body) {
  * second hop; 3.1 stays last-resort only. */
 const GEMINI_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-flash-lite-latest,gemini-3.1-flash-lite')
   .split(',').map((m) => m.trim()).filter(Boolean);
+// OWNER (2026-10-09 speed request, "reply jaldi aya"): classification is a
+// tiny deterministic verdict, not creative writing — the LITE model answers
+// it in ~1-2s while flash-latest can burn the whole timeout before a 503.
+// The CHAT answer keeps the full-quality chain; only classifiers go fast.
+const CLASSIFIER_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', ...GEMINI_MODELS.filter((m) => m !== 'gemini-3.1-flash-lite')];
 
 /** POST generateContent to each model in turn; returns the parsed JSON object
  * or null when every model is down/unparseable. NEVER throws. */
-async function geminiJson(payload, timeoutMs) {
+async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
   const key = env.chatbot?.googleApiKey ?? '';
-  for (const model of GEMINI_MODELS) {
+  for (const model of models) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -1271,7 +1279,7 @@ async function classifyReplyWithGemini(body) {
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 60, responseMimeType: 'application/json',
         responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['YES', 'NO', 'QUESTION', 'ACK', 'ESCALATION', 'UNCLEAR'] } }, required: ['answer'] } },
-    }, INTERPRET_TIMEOUT_MS);
+    }, Math.min(INTERPRET_TIMEOUT_MS, 4_000), CLASSIFIER_MODELS);
     if (!parsed) return null; // every model unreachable → local rules safety net
     const ans = String(parsed?.answer ?? '').toUpperCase();
     return ans === 'YES' || ans === 'NO' || ans === 'QUESTION' || ans === 'ESCALATION' ? ans : 'UNCLEAR';

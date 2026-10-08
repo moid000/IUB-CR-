@@ -120,6 +120,12 @@ test.before(async () => {
   await User.create({ name: 'Learner', email: 'student-material@test.local', phone: '+923009876544', role: 'student', section,
     registrationStatus: 'active', emailVerified: true, password: hash, rollNo: 'S-001' });
   assert.equal((await cr('POST', '/api/auth/login', { email: 'cr-material@test.local', password: 'TeacherTest123!' })).status, 200);
+  // OWNER 2026-10-09 incident regression setup: a STALE sibling Teacher record
+  // with NO subject/section, inserted FIRST (native insert bypasses the
+  // hardened schema, exactly like the grandfathered production 'moid' doc
+  // that made every file silently fail validation for hours).
+  await Teacher.collection.insertOne({ name: 'stale artifact', whatsapp: '923001112233',
+    createdBy: crDoc._id, role: 'teacher', createdAt: new Date(), updatedAt: new Date() });
   teacher = await Teacher.create({ name: 'Dr Test', subject, section, whatsapp: '923001112233', createdBy: crDoc._id });
 });
 // repo convention: test.after + closeAllConnections or the suite never exits
@@ -206,6 +212,40 @@ test('MASTER UPGRADE TEST D: teacher sends a study-material PDF → examined, ap
     assert.equal(mat.sha256.length, 64, 'content hash recorded');
     assert.equal(await Note.countDocuments({}), 0, 'no Note until the teacher approves');
   } finally { geminiClassify = null; }
+});
+
+/* ---------------- INCIDENT 2026-10-09 — stale sibling record ---------------- */
+
+test('NIGHT-9: stale sibling Teacher record (no subject/section, sorts FIRST) must NOT kill the file — usable record wins, approval asked', async () => {
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 'recursion' };
+  try {
+    const before = sent.length;
+    const r = await webhook(fileMsg({ filename: 'DS_Recursion_Notes.pdf', id: 'night9-file-1' }));
+    assert.equal(r.json.data.updated, true, 'consumed — never silently dropped like the production incident');
+    assert.equal(sent.length, before + 2, 'approval question + CR ping both fire');
+    assert.match(sent[sent.length - 1].body, /upload kar doon\?/i);
+    const mat = await TeacherMaterial.findOne({ waMsgId: 'night9-file-1' }).lean();
+    assert.equal(mat.status, 'awaiting_approval');
+    assert.equal(String(mat.proposedSubject), String(subject), 'subject from the USABLE record, not the stale one');
+  } finally { geminiClassify = null; }
+});
+
+test('NIGHT-9b: ONLY a broken record (no usable teacher) → honest reply, never silence', async () => {
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 'x' };
+  // the unique subject index allows only ONE null-subject teacher — so
+  // simulate 'only the broken record' by removing the good teacher for a moment
+  await Teacher.deleteOne({ _id: teacher._id });
+  try {
+    const before = sent.length;
+    const r = await webhook(fileMsg({ filename: 'Stray_File.pdf', id: 'night9-file-2' }));
+    assert.equal(r.json.data.updated, true, 'honestly consumed');
+    assert.equal(sent.length, before + 1, 'exactly the honest reply, no CR ping');
+    assert.match(sent[sent.length - 1].body, /portal me complete nahi/i);
+    assert.equal(await TeacherMaterial.countDocuments({ waMsgId: 'night9-file-2' }), 0);
+  } finally {
+    geminiClassify = null;
+    teacher = await Teacher.create({ name: 'Dr Test', subject, section, whatsapp: '923001112233', createdBy: crId });
+  }
 });
 
 /* ---------------- TEST E — approval → real upload ---------------- */

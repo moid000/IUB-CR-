@@ -25,6 +25,7 @@ import { createNotification } from './notificationService.js';
 import { broadcastToSubjectGroup, noteMessage } from './whatsappGroupService.js';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // mirrors fileService's conservative cap
+const CLASSIFIER_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest']; // speed: tiny verdicts on the fast model first
 const GEMINI_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-2.5-flash')
   .split(',').map((m) => m.trim()).filter(Boolean);
 const CLASSIFY_TIMEOUT_MS = 12_000;
@@ -34,10 +35,10 @@ const TITLE_MAX = 120;
 
 /* Gemini JSON helper (same model chain + free GOOGLE_API_KEY as the chat bot).
  * Returns parsed JSON or null when every model is unreachable. NEVER throws. */
-async function geminiJson(payload, timeoutMs) {
+async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
   const key = env.chatbot?.googleApiKey ?? '';
   if (!key) return null;
-  for (const model of GEMINI_MODELS) {
+  for (const model of models) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -149,7 +150,7 @@ async function classifyWithGemini({ buf, mime, filename, caption, subjectNames }
   const parsed = await geminiJson({
     contents: [{ role: 'user', parts }],
     generationConfig: { temperature: 0, maxOutputTokens: 300, responseMimeType: 'application/json', responseSchema: schema },
-  }, CLASSIFY_TIMEOUT_MS);
+  }, CLASSIFY_TIMEOUT_MS, CLASSIFIER_MODELS);
   if (!parsed || typeof parsed.study_material !== 'boolean') return null;
   return {
     verdict: parsed.study_material ? 'study_material' : 'not_material',
@@ -319,6 +320,14 @@ export async function handleTeacherFile(payload) {
     .populate('subject', 'name code').populate('section', 'name semester department').lean();
   if (!teacherRecords.length) return false;
 
+  // OWNER (2026-10-09 ~00:30 incident, LIVE DB diagnosis): the number can
+  // carry a STALE sibling Teacher record with NO subject/section (an old
+  // portal artifact). Mongo returned it FIRST, so primary=records[0] gave
+  // section:null → TeacherMaterial.create failed validation (section is
+  // required) → SILENT false: no reply, no upload, no CR ping, on EVERY
+  // file. Only records with a real authorized destination may own a file.
+  const usableRecords = teacherRecords.filter((t) => t.subject && t.section);
+
   // OWNER (2026-10-08 night #3, LIVE CAPTURE via webhook.site): real UltraMsg
   // media payloads carry NEITHER a usable filename NOR a mimetype for
   // images/videos (documents carry `filename`, images carry only `type`).
@@ -362,7 +371,14 @@ export async function handleTeacherFile(payload) {
     return true; // consumed, honestly answered — never silently dropped
   }
 
-  const primary = teacherRecords[0];
+  const primary = usableRecords[0] ?? teacherRecords[0];
+  if (!usableRecords.length) {
+    // every record for this number lacks subject/section — the portal setup
+    // is incomplete. NEVER silent: tell the teacher the honest next step.
+    chatLog('FILE', { phone: sender, msg: `no subject/section on any teacher record for ${filename}` });
+    await sendText(sender, 'Ji Sir, aap ka teacher record abhi portal me complete nahi hua (subject aur section set nahi hai), is liye file save nahi ho saki. 🙏 Zara apne CR ko bata dein — wo portal me theek karwa kar aap ko 1 minute mein bata denge, phir file dobara bhej dein.\n\n— Tri3M Class Agent');
+    return true; // consumed, honestly answered — never silently dropped
+  }
   let material;
   try {
     material = await TeacherMaterial.create({
@@ -374,7 +390,8 @@ export async function handleTeacherFile(payload) {
     // a UNIQUE waMsgId race from a concurrent webhook retry — the first copy wins
     if (String(err?.code) === '11000') return true;
     chatLog('FILE', { phone: sender, msg: `save failed: ${err.message}` });
-    return false;
+    await sendText(sender, 'Ji Sir, file save karne mein masla aa gaya — maazrat. 🙏 Zara thori dair baad dobara bhej dein.\n\n— Tri3M Class Agent');
+    return true; // consumed, honestly answered — never silently dropped
   }
   auditPush(material._id, 'received', `${filename} (${size || '?'} bytes, ${effectiveMime || 'unknown mime'})`);
   chatLog('FILE', { phone: sender, msg: `${filename} from teacher` });
@@ -418,15 +435,15 @@ export async function handleTeacherFile(payload) {
   }
 
   // destination resolution — the teacher's OWN authorized subjects only
-  const subjectMatch = matchSubjectName(cls.subjectHint, teacherRecords.map((t) => ({ subjectName: t.subject?.name, subjectCode: t.subject?.code })));
+  const subjectMatch = matchSubjectName(cls.subjectHint, usableRecords.map((t) => ({ subjectName: t.subject?.name, subjectCode: t.subject?.code })));
   let resolved = null;
-  if (teacherRecords.length === 1) resolved = teacherRecords[0];
+  if (usableRecords.length === 1) resolved = usableRecords[0];
   else if (subjectMatch && subjectMatch.length >= 1) {
     // the match list may contain the SAME subject name twice (name + code of
     // identical-name subjects in two sections) — one UNIQUE name is the win
     const uniqueNames = [...new Set(subjectMatch.map((m) => m.subjectName))];
     const candidates = uniqueNames.length === 1
-      ? teacherRecords.filter((t) => t.subject?.name === uniqueNames[0]) : [];
+      ? usableRecords.filter((t) => t.subject?.name === uniqueNames[0]) : [];
     if (candidates.length === 1) resolved = candidates[0];
     else if (candidates.length > 1) {
       // OWNER (2026-10-08 night): the SAME subject name exists in MULTIPLE of
@@ -518,7 +535,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 80, responseMimeType: 'application/json',
         responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['approve', 'decline', 'other'] }, subject: { type: 'STRING' } } } },
-    }, APPROVAL_TIMEOUT_MS);
+    }, Math.min(APPROVAL_TIMEOUT_MS, 5_000), CLASSIFIER_MODELS);
     if (parsed) verdict = parsed;
   }
   // Offline safety net: publish needs an EXPLICIT upload verb — a bare
