@@ -115,4 +115,37 @@ router.post('/teacher-reply', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+
+/* TEMPORARY READ-ONLY DIAGNOSTIC (owner file-silence incident 2026-10-09 ~00:20 PKT).
+ * Same secret as teacher-reply. NO sends, NO writes — pure DB reads mirroring
+ * handleTeacherFile's exact gate sequence. REMOVE after the incident is closed. */
+router.post('/diag', async (req, res, next) => {
+  try {
+    const expected = env.whatsapp.webhookSecret;
+    if (!expected) throw new ApiError(503, 'not configured');
+    const given = req.get('x-webhook-secret') || req.query.key;
+    if (!given || !constantTimeEqual(given, expected)) throw new ApiError(401, 'Invalid webhook secret');
+    const { Teacher, TeacherMaterial } = await import('../models/index.js');
+    const phone = String(req.body?.phone ?? '923078896956').replace(/\D/g, '');
+    const out = { phone, gates: {}, env: {
+      instanceId: env.whatsapp.instanceId,
+      hasGoogleKey: Boolean(env.gemini?.apiKey ?? process.env.GOOGLE_API_KEY),
+      dbUriHost: String(process.env.MONGODB_URI ?? '').split('@')[1]?.split(/[/?]/)[0] ?? null,
+      dbName: (process.env.MONGODB_URI ?? '').split('?')[0].split('/').pop() || '(default-test)',
+    } };
+    out.gates.teacherLookup = (await Teacher.find({ whatsapp: phone })
+      .populate('subject', 'name code').populate({ path: 'section', select: 'name' }).lean())
+      .map((t) => ({ id: String(t._id), name: t.name, subject: t.subject?.name ?? null,
+        section: t.section?.name ?? null, active: t.active }));
+    out.gates.teacherCount = out.gates.teacherLookup.length;
+    out.gates.idempotencyProbe = await TeacherMaterial.findOne({ waMsgId: `diag-${Date.now()}` }).lean() ? 'unexpected-hit' : 'clean';
+    const recent = await TeacherMaterial.find({ $or: [{ teacherPhone: phone }, { phone }] })
+      .sort({ createdAt: -1 }).limit(6).lean();
+    out.recentMaterials = recent.map((m) => ({ status: m.status, ext: m.ext, filename: m.filename,
+      waMsgId: String(m.waMsgId ?? '').slice(0, 30), createdAt: m.createdAt, error: m.error ?? null }));
+    out.materialCount = await TeacherMaterial.countDocuments({});
+    res.json({ success: true, data: out });
+  } catch (err) { next(err); }
+});
+
 export default router;
