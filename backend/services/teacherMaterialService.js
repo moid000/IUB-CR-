@@ -19,9 +19,10 @@ import { Note, Section, Subject, Teacher, TeacherMaterial, Timetable, User } fro
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { isConfigured, sendText } from './whatsappService.js';
-import { uploadAttachmentFromServer } from './fileService.js';
+import { allowedTypeForExt, uploadAttachmentFromServer } from './fileService.js';
 import { findMediaUrl } from './chatbotService.js';
 import { createNotification } from './notificationService.js';
+import { broadcastToSubjectGroup, noteMessage } from './whatsappGroupService.js';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // mirrors fileService's conservative cap
 const GEMINI_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-2.5-flash')
@@ -81,6 +82,18 @@ function matchSubjectName(hint, candidates) {
     const n = String(c.subjectName ?? '').toLowerCase();
     const code = String(c.subjectCode ?? '').toLowerCase();
     return n && (n === h || n.includes(h) || h.includes(n) || (code && (code === h || h.includes(code) || code.includes(h))));
+  });
+}
+
+/** Section resolution — sections are short codes ('4B', '1M'), so compare on
+ * alphanumerics only, both directions (owner 2026-10-08 night: same subject
+ * in two sections must ask WHICH section, never guess). */
+function matchSectionName(hint, candidates) {
+  if (!hint) return null;
+  const h = String(hint).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return candidates.filter((c) => {
+    const n = String(c.sectionName ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return n && (n === h || n.includes(h) || h.includes(n));
   });
 }
 
@@ -198,6 +211,32 @@ function askSubjectMessage({ filename, teacherName, subjectNames }) {
   ].join('\n');
 }
 
+function askSectionMessage({ filename, subjectName, sectionNames }) {
+  const short = cleanFilename(filename, 70);
+  return [
+    `Ji Sir, "${short}" ${subjectName} ki study material lag rahi hai — lekin aap ${subjectName} ke Sections *${sectionNames.join('* aur *')}* dono mein parhate hain.`,
+    '',
+    `Kis section ke students ke liye Notes mein upload karoon: ${sectionNames.join(' ya ')}?`,
+    '',
+    '— Tri3M Class Agent',
+  ].join('\n');
+}
+
+/* OWNER (2026-10-08 night): unknown extension — HONEST at receipt, with the
+ * supported list, never a silent fail-after-approval later. */
+function unsupportedMessage({ ext }) {
+  const e = clean(ext, 12);
+  return [
+    `Ji Sir,${e ? ` ${e}` : ' is type'} ki file class portal abhi support nahi karta. 🙏`,
+    '',
+    'Jo file types chalti hain: PDF, images (JPG/PNG/WEBP/GIF), Word/PowerPoint/Excel, TXT/CSV/RTF, IPYNB, ZIP/RAR/7Z, audio (MP3/WAV/M4A/OGG/AAC/FLAC), video (MP4/MKV/MOV/AVI/WEBM).',
+    '',
+    'Behtar hoga PDF ya image ki soorat mein bhej dein — wo seedha Notes mein chali jayegi.',
+    '',
+    '— Tri3M Class Agent',
+  ].join('\n');
+}
+
 function notMaterialMessage({ teacherName }) {
   return [
     'Ji Sir, file mil gayi. 🙏',
@@ -285,7 +324,21 @@ export async function handleTeacherFile(payload) {
   let ext = extOf(rawName, mime);
   if (!ext && mime === 'image/jpeg') ext = 'jpg';
   const filename = rawName || `attachment${ext ? '.' + ext : ''}`;
-  const effectiveMime = mime || EXT_MIME_FALLBACK[ext] || '';
+
+  // OWNER (2026-10-08 night): "sari files jo bi teacher de, support karo" —
+  // the type gate runs on EXTENSION (WhatsApp MIMEs lie: documents arrive as
+  // application/octet-stream or empty, which made valid PDFs fail the ext+MIME
+  // pair rule at upload time). The canonical MIME of the known extension
+  // rides into the record, so the Cloudinary upload ALWAYS passes the pair
+  // rule. Unknown extensions get an HONEST reply at receipt — never a
+  // silent fail-after-approval loop.
+  const typeEntry = allowedTypeForExt(ext);
+  if (!typeEntry) {
+    chatLog('FILE', { phone: sender, msg: `unsupported type: ${filename}` });
+    await sendText(sender, unsupportedMessage({ ext }));
+    return true; // consumed, honestly answered — never silently dropped
+  }
+  const effectiveMime = (Array.isArray(typeEntry.mime) ? typeEntry.mime[0] : typeEntry.mime) || mime || EXT_MIME_FALLBACK[ext] || '';
   const caption = String(data.caption ?? '').trim().slice(0, 600);
   const size = Number(data.size ?? 0);
 
@@ -355,8 +408,29 @@ export async function handleTeacherFile(payload) {
   const subjectMatch = matchSubjectName(cls.subjectHint, teacherRecords.map((t) => ({ subjectName: t.subject?.name, subjectCode: t.subject?.code })));
   let resolved = null;
   if (teacherRecords.length === 1) resolved = teacherRecords[0];
-  else if (subjectMatch && subjectMatch.length === 1) {
-    resolved = teacherRecords.find((t) => t.subject?.name === subjectMatch[0].subjectName) ?? null;
+  else if (subjectMatch && subjectMatch.length >= 1) {
+    // the match list may contain the SAME subject name twice (name + code of
+    // identical-name subjects in two sections) — one UNIQUE name is the win
+    const uniqueNames = [...new Set(subjectMatch.map((m) => m.subjectName))];
+    const candidates = uniqueNames.length === 1
+      ? teacherRecords.filter((t) => t.subject?.name === uniqueNames[0]) : [];
+    if (candidates.length === 1) resolved = candidates[0];
+    else if (candidates.length > 1) {
+      // OWNER (2026-10-08 night): the SAME subject name exists in MULTIPLE of
+      // the teacher's sections — ask WHICH section, never pick one silently.
+      const sectionNames = candidates.map((t) => t.section?.name).filter(Boolean);
+      material.sectionSubjectName = subjectMatch[0].subjectName;
+      material.status = 'awaiting_section';
+      material.askedAt = new Date();
+      await material.save();
+      auditPush(material._id, 'asked', `which section for ${subjectMatch[0].subjectName} (${sectionNames.join(' / ')})`);
+      await notifyCr({ section: material.section, event: 'asked', materialId: material._id,
+        title: `${primary.name} sent study material`,
+        message: `${primary.name} sent "${material.filename}" (${subjectMatch[0].subjectName}) on WhatsApp — they teach it in multiple sections, so the agent asked which section it is for.`,
+        lines: `${primary.name} (teacher) ne ${subjectMatch[0].subjectName} ki "${cleanFilename(material.filename, 60)}" bheji hai — aap un ke do sections mein hai, to maine un se pooch liya hai ke kis section ke liye hai.` });
+      await sendText(sender, askSectionMessage({ filename, subjectName: subjectMatch[0].subjectName, sectionNames }));
+      return true;
+    }
   }
 
   if (resolved) {
@@ -399,7 +473,7 @@ export async function handleTeacherFile(payload) {
 export async function handleMaterialApprovalIntent(sender, body, payload) {
   const msgId = String(payload?.data?.id ?? '').slice(0, 220);
   const material = await TeacherMaterial.findOne({ phone: sender,
-    status: { $in: ['awaiting_approval', 'awaiting_subject'] } }).sort({ askedAt: -1 }).lean();
+    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section'] } }).sort({ askedAt: -1 }).lean();
   if (!material) return null;
   if (!material.askedAt || Date.now() - new Date(material.askedAt).getTime() > APPROVAL_BIND_WINDOW_MS) return null;
   // RECENCY BINDING (spec §5 + class-confirmation safety): when the class
@@ -414,8 +488,13 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name code').populate('section', 'name').lean();
   const subjectNames = teacherRecords.map((t) => t.subject?.name).filter(Boolean);
+  const sectionCandidates = material.status === 'awaiting_section'
+    ? teacherRecords.filter((t) => t.subject?.name === material.sectionSubjectName) : [];
+  const sectionNames = sectionCandidates.map((t) => t.section?.name).filter(Boolean);
   const asked = material.status === 'awaiting_subject'
     ? `which subject the file belongs to (${subjectNames.join(' / ')})`
+    : material.status === 'awaiting_section'
+    ? `which section the ${material.sectionSubjectName} file belongs to (${sectionNames.join(' / ')})`
     : `whether to upload "${material.filename}" to the ${(await Subject.findById(material.proposedSubject).select('name').lean())?.name ?? 'Notes'} section for students`;
 
   const key = env.chatbot?.googleApiKey;
@@ -441,6 +520,40 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
 
   const markReplySeen = () => TeacherMaterial.updateOne({ _id: material._id },
     { $set: { lastReplyMsgId: msgId } }).catch(() => {});
+
+  /* --- SECTION question answered (same subject, multiple sections) --- */
+  if (material.status === 'awaiting_section') {
+    if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
+    if (verdict.answer === 'decline') {
+      await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'declined', lastReplyMsgId: msgId } });
+      auditPush(material._id, 'declined', 'at section question');
+      await notifyCr({ section: material.section, event: 'declined', materialId: material._id,
+        title: 'Teacher declined the material upload',
+        message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
+        lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
+      await sendText(sender, declinedMessage());
+      return 'declined';
+    }
+    const hint = String(verdict.section ?? body ?? '').trim();
+    const match = matchSectionName(hint, sectionCandidates.map((t) => ({ sectionName: t.section?.name })));
+    const resolved = match && match.length === 1
+      ? sectionCandidates.find((t) => t.section?.name === match[0].sectionName) : null;
+    if (!resolved) { // still ambiguous → ask again with the section names
+      await markReplySeen();
+      await sendText(sender, askSectionMessage({ filename: material.filename, subjectName: material.sectionSubjectName, sectionNames }));
+      return 'reasked';
+    }
+    await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
+      proposedSubject: resolved.subject?._id ?? resolved.subject,
+      section: resolved.section?._id ?? resolved.section,
+      status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId } });
+    auditPush(material._id, 'asked', `approval after section answer: ${resolved.subject?.name} / ${resolved.section?.name}`);
+    await sendText(sender, askApprovalMessage({
+      filename: material.filename, subjectName: resolved.subject?.name, sectionName: resolved.section?.name,
+      teacherName: teacherRecords[0]?.name, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
+    }));
+    return 'reasked';
+  }
 
   /* --- subject question answered --- */
   if (material.status === 'awaiting_subject') {
@@ -562,11 +675,28 @@ async function publishMaterial(material) {
       status: 'published', publishedNote: note._id, attachment: meta, lastReplyMsgId: material.lastReplyMsgId } });
     auditPush(material._id, 'published', `note ${note._id} → subject ${subjectDoc.name}, section ${sectionDoc.name}`);
     chatLog('PUBLISHED', { phone: material.phone, msg: `${material.filename} → ${subjectDoc.name}/${sectionDoc.name}` });
+
+    // OWNER (2026-10-08 night): "portal par upload hote hi WhatsApp class
+    // group mein bhi automatic chali jaye — CR uploads wala hi logic" — the
+    // SAME subject-group routing (subject group first, general fallback),
+    // one file + text = ONE message. Best-effort: a group failure NEVER
+    // fails the portal publish.
+    let groupSent = false;
+    try {
+      const noteDoc = await Note.findById(note._id).lean();
+      const out = await broadcastToSubjectGroup(material.section, material.proposedSubject, await noteMessage(noteDoc), [meta]);
+      groupSent = Boolean(out?.sent);
+      if (groupSent) await Note.updateOne({ _id: note._id }, { $set: { groupBroadcastAt: new Date() } });
+      auditPush(material._id, 'broadcast', groupSent ? 'sent to the class group' : `group broadcast skipped (${out?.reason ?? 'unknown'})`);
+    } catch (err) {
+      auditPush(material._id, 'broadcast', `best-effort failed: ${String(err?.message ?? err).slice(0, 200)}`);
+    }
+
     const teacherDoc = await Teacher.findById(material.teacher).select('name').lean();
     await notifyCr({ section: material.section, event: 'published', materialId: material._id, refId: note._id,
       title: `Teacher material published: ${subjectDoc.name}`,
       message: `"${material.filename}" from ${teacherDoc?.name ?? 'the teacher'} was uploaded to the ${subjectDoc.name} Notes section after their WhatsApp approval. Students can open it now.`,
-      lines: `${teacherDoc?.name ?? 'Teacher'} ne di hui "${cleanFilename(material.filename, 60)}" un ke YES ke baad ${subjectDoc.name} ke Notes section mein upload ho gayi hai — students dekh sakte hain.` });
+      lines: `${teacherDoc?.name ?? 'Teacher'} ne di hui "${cleanFilename(material.filename, 60)}" un ke YES ke baad ${subjectDoc.name} ke Notes section mein upload ho gayi hai — students dekh sakte hain.${groupSent ? ' Class WhatsApp group mein bhi bhej di gayi hai.' : ''}` });
     return { ok: true, subjectName: subjectDoc.name, sectionName: sectionDoc.name };
   } catch (err) {
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {

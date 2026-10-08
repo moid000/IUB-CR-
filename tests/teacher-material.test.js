@@ -30,7 +30,7 @@ const realFetch = globalThis.fetch;
 const sent = [];
 let failNextCloudinary = false;
 let geminiClassify = null; // { study_material, subject, reason, summary } — null = Gemini STT/classify down
-let geminiApproval = null; // { answer: 'approve'|'decline'|'other', subject }
+let geminiApproval = null; // { answer: 'approve'|'decline'|'other', subject, section }
 let geminiChatReply = null; // general conversation { reply }
 let geminiAnswer = null; // class classify YES/NO/QUESTION/ACK/UNCLEAR/ESCALATION
 
@@ -70,6 +70,11 @@ globalThis.fetch = (url, options) => {
   if (u.includes('api.ultramsg.com/test-instance/messages/chat')) {
     const data = new URLSearchParams(options.body);
     sent.push({ to: data.get('to'), body: data.get('body') });
+    return Promise.resolve(new Response(JSON.stringify({ sent: true }), { status: 200 }));
+  }
+  if (/api\.ultramsg\.com\/test-instance\/messages\/(document|image|audio|video)/.test(u)) {
+    const data = new URLSearchParams(options.body); // group media broadcast (teacher material auto-group)
+    sent.push({ to: data.get('to'), body: `[${u.split('/').pop()} ${data.get('caption') ?? ''}]` });
     return Promise.resolve(new Response(JSON.stringify({ sent: true }), { status: 200 }));
   }
   return realFetch(url, options);
@@ -455,4 +460,127 @@ test('OWNER REQUEST: teacher DECLINES → the CR is told nothing was published',
     assert.match(notifs[notifs.length - 1].title, /declined/i);
     assert.equal(await Note.countDocuments({}), 0);
   } finally { geminiClassify = null; geminiApproval = null; }
+});
+
+/* ================= OWNER NIGHT-2 REQUESTS (2026-10-08) ================= */
+
+test('NIGHT-2: UNKNOWN extension (.exe) → honest "portal support nahi karta" reply, no approval question', async () => {
+  try {
+    const before = sent.length;
+    const r = await webhook(fileMsg({ filename: 'virus_scan.exe', mime: 'application/octet-stream' }));
+    assert.equal(r.json.data.updated, true, 'consumed');
+    assert.equal(sent.length, before + 1, 'exactly one honest reply');
+    assert.match(sent[sent.length - 1].body, /support nahi karta/i, 'honest limitation named');
+    assert.match(sent[sent.length - 1].body, /PDF/i, 'supported types listed');
+    const mat = await TeacherMaterial.findOne({}).lean();
+    assert.ok(!mat || !['awaiting_approval', 'awaiting_subject', 'awaiting_section'].includes(mat.status),
+      'no question left open for an unsupported type');
+  } finally { geminiClassify = null; }
+});
+
+test('NIGHT-2: WhatsApp lies about MIME (octet-stream PDF) → extension wins, upload PASSES end-to-end', async () => {
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'lecture notes', summary: 's' };
+  try {
+    await webhook(fileMsg({ filename: 'chapter_04_trees.pdf', mime: 'application/octet-stream' }));
+    const mat = await TeacherMaterial.findOne({}).lean();
+    assert.equal(mat.mime, 'application/pdf', 'canonical MIME stored — gateway MIME never trusted');
+    assert.equal(mat.status, 'awaiting_approval');
+    geminiApproval = { answer: 'approve' };
+    await webhook(incoming('haan upload kar do'));
+    const mat2 = await TeacherMaterial.findOne({}).lean();
+    assert.equal(mat2.status, 'published', 'upload passed the ext+MIME pair rule');
+    assert.equal(await Note.countDocuments({}), 1);
+  } finally { geminiClassify = null; geminiApproval = null; }
+});
+
+test('NIGHT-2: same subject in TWO sections → asks WHICH SECTION, answer routes the file, never guesses', async () => {
+  // second section with the SAME subject NAME — the owner scenario
+  const secSrc = await Section.findById(section).select('department session semester').lean();
+  const sectionB = (await Section.create({ name: '3M', semester: secSrc.semester,
+    department: secSrc.department, session: secSrc.session }))._id;
+  const subjectB = (await admin('POST', '/api/admin/subjects', { section: sectionB, name: 'Data Structures', code: 'DS-201' })).json.data._id;
+  await Teacher.create({ name: 'Dr Test', subject: subjectB, section: sectionB._id, whatsapp: '923001112233', createdBy: crId });
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
+  try {
+    const before = sent.length;
+    await webhook(fileMsg({ filename: 'shared_notes.pdf' }));
+    const mat = await TeacherMaterial.findOne({}).lean();
+    assert.equal(mat.status, 'awaiting_section', 'section question open — subject name matched BOTH records');
+    assert.equal(mat.sectionSubjectName, 'Data Structures');
+    const ask = sent.slice(before).map((m) => m.body).join('\n');
+    assert.match(ask, /kis section/i, 'asks which section');
+    assert.match(ask, /4B/, 'section options listed');
+    assert.match(ask, /3M/, 'both candidate sections named');
+
+    // teacher answers the section → approval question follows for THAT section
+    geminiApproval = { answer: 'approve', section: '3M' };
+    const before2 = sent.length;
+    await webhook(incoming('3M walo ke liye'));
+    const mat2 = await TeacherMaterial.findOne({}).lean();
+    assert.equal(mat2.status, 'awaiting_approval', 'section answered → approval question');
+    assert.equal(String(mat2.section), String(sectionB._id), 'destination = the answered section');
+    assert.match(sent.slice(before2).map((m) => m.body).join('\n'), /Section 3M/, 'approval names the resolved section');
+
+    // approve → publishes into 3M's subject, never 4B
+    await webhook(incoming('haan upload kar do'));
+    const mat3 = await TeacherMaterial.findOne({}).lean();
+    assert.equal(mat3.status, 'published');
+    const note = await Note.findById(mat3.publishedNote).lean();
+    assert.equal(String(note.section), String(sectionB._id), 'Note landed in the chosen section');
+    assert.equal(String(note.subject), String(subjectB), 'Note subject = THAT section\'s subject doc');
+  } finally {
+    geminiClassify = null; geminiApproval = null;
+    await Teacher.deleteOne({ section: sectionB._id }); await Section.deleteOne({ _id: sectionB._id });
+    await Subject.deleteOne({ _id: subjectB });
+  }
+});
+
+test('NIGHT-2: section answer matches NOTHING → re-asks with options, no publish', async () => {
+  const secSrc = await Section.findById(section).select('department session semester').lean();
+  const sectionB = (await Section.create({ name: '3M', semester: secSrc.semester,
+    department: secSrc.department, session: secSrc.session }))._id;
+  const subjectB = (await admin('POST', '/api/admin/subjects', { section: sectionB, name: 'Data Structures', code: 'DS-201' })).json.data._id;
+  await Teacher.create({ name: 'Dr Test', subject: subjectB, section: sectionB._id, whatsapp: '923001112233', createdBy: crId });
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
+  try {
+    await webhook(fileMsg({ filename: 'section_mystery.pdf' }));
+    geminiApproval = { answer: 'approve', section: 'karachi' }; // matches neither 4B nor 3M
+    const before = sent.length;
+    await webhook(incoming('karachi walon ke liye'));
+    const mat = await TeacherMaterial.findOne({}).lean();
+    assert.equal(mat.status, 'awaiting_section', 'still asking — nothing routed by a bad answer');
+    assert.match(sent.slice(before).map((m) => m.body).join('\n'), /kis section/i, 're-asks with the options');
+    assert.equal(await Note.countDocuments({}), 0, 'nothing published');
+  } finally {
+    geminiClassify = null; geminiApproval = null;
+    await Teacher.deleteOne({ section: sectionB._id }); await Section.deleteOne({ _id: sectionB._id });
+    await Subject.deleteOne({ _id: subjectB });
+  }
+});
+
+test('NIGHT-2: publish AUTO-BROADCASTS to the subject WhatsApp group (CR-uploads logic), one message, groupBroadcastAt set', async () => {
+  const GROUP_ID = '120363012345678901@g.us';
+  await Subject.updateOne({ _id: subject }, { $set: { whatsappGroup: { id: GROUP_ID, name: 'DS 4B Group' } } });
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
+  try {
+    await webhook(fileMsg({ filename: 'group_auto_notes.pdf' }));
+    geminiApproval = { answer: 'approve' };
+    const before = sent.length;
+    await webhook(incoming('haan upload kar do'));
+    const mat = await TeacherMaterial.findOne({}).lean();
+    assert.equal(mat.status, 'published');
+    const groupMsgs = sent.slice(before).filter((m) => m.to === GROUP_ID);
+    assert.equal(groupMsgs.length, 1, 'exactly ONE message to the subject group');
+    assert.match(groupMsgs[0].body, /document/, 'PDF rides as a document message');
+    assert.match(groupMsgs[0].body, /group_auto_notes\.pdf/, 'caption carries the note text naming the file');
+    const note = await Note.findById(mat.publishedNote).lean();
+    assert.ok(note.groupBroadcastAt, 'note marked broadcast — CR re-broadcast endpoint will not double-send');
+    // CR WhatsApp ping mentions the group too
+    const crPing = sent.slice(before).filter((m) => String(m.to).includes('923009876543')).pop();
+    assert.ok(crPing, 'CR ping exists');
+    assert.match(crPing.body, /Class WhatsApp group/i, 'CR told the group also got it');
+  } finally {
+    geminiClassify = null; geminiApproval = null;
+    await Subject.updateOne({ _id: subject }, { $unset: { whatsappGroup: 1 } });
+  }
 });

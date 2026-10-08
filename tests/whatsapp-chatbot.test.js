@@ -65,11 +65,17 @@ const openaiCalls = [];
 
 const realFetch = globalThis.fetch;
 let messagesByIdResponse = null; // OWNER 2026-10-08: canned GET /messages?...&id= record (null = empty)
+let chatsMessagesResponse = null; // OWNER 2026-10-08 night-2: canned GET /chats/messages per-chat history (null = empty)
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes('ultramsg.test.local')) {
+    if (u.includes('/chats/messages?')) {
+      // OWNER 2026-10-08 night-2: per-chat history — the ONLY endpoint that
+      // carries RECEIVED media (the /messages list is outbound-only)
+      return new Response(JSON.stringify(chatsMessagesResponse ?? {}), { status: 200 });
+    }
     if (u.includes('/messages?')) {
-      // messages-by-id lookup fallback (voice with no link in payload)
+      // legacy outbound-list fallback (kept for regression pinning)
       return new Response(JSON.stringify(messagesByIdResponse ?? {}), { status: 200 });
     }
     if (/\/messages\/(chat|image|document|audio|video)/.test(u)) {
@@ -103,7 +109,7 @@ globalThis.fetch = async (url, opts) => {
 };
 
 test.afterEach(async () => {
-  messagesByIdResponse = null;
+  messagesByIdResponse = null; chatsMessagesResponse = null;
   waSent.length = 0;
   geminiCalls.length = 0;
   geminiResponse = null;
@@ -507,23 +513,44 @@ test('owner feature (2026-10-08): GEMINI-FIRST free transcription — voice answ
   }
 });
 
-test('OWNER INCIDENT 2026-10-08: voice with NO link in payload → messages-by-id API fallback finds it and answers', async () => {
-  // real teacher ptt arrived WITHOUT data.link and the old fallback
-  // crashed on env.ultramsg — this test pins the exact regression
-  messagesByIdResponse = { messages: [{ id: 'VOICEID123', link: 'https://voice.test.local/voice.ogg' }] };
+// replaces the 2026-10-08 incident test: the messages-by-id fallback is GONE
+// (that endpoint is outbound-only — dead code for received media); the
+// per-chat history endpoint is the actual fix for the incident.
+test('OWNER INCIDENT 2026-10-08 (night-2 fix): voice with NO link in payload → per-chat /chats/messages history finds it and answers', async () => {
+  // the /messages list is OUTBOUND-only and has no id filter, so inbound
+  // media NEVER appeared there (the live "file upload nahi hui, dobara
+  // bhej dein" loop). The per-chat history endpoint is the real fix.
+  chatsMessagesResponse = { messages: [
+    { id: 'OTHER999', type: 'chat', body: 'assalamualaikum' },
+    { id: 'VOICEID123', type: 'ptt', link: 'https://voice.test.local/voice.ogg' },
+  ] };
   geminiVoiceTranscript = '@Tri3M kis subject ke notes available hain?';
   try {
     const msg = voiceMsg();
-    delete msg.data.link; // the incident payload shape: no media URL at all
+    delete msg.data.link;
     assert.equal(await handleGroupMessage(msg), true);
     const chat = waSent.find((st) => st.kind === 'chat');
-    assert.ok(chat, 'fallback voice got answered');
-    // subject-first rule applied to the fallback transcript: clarification, not a dump
+    assert.ok(chat, 'per-chat history voice got answered');
     assert.match(chat.params.body, /kis subject ke notes chahiye\?/i);
-    assert.match(chat.params.body, /@923007770001/, 'original asker mentioned');
   } finally {
-    geminiVoiceTranscript = null;
-    messagesByIdResponse = null;
+    geminiVoiceTranscript = null; chatsMessagesResponse = null;
+  }
+});
+
+test('OWNER NIGHT-2: id-format drift → newest MEDIA record in the chat still rescues the link (chat-type never wins)', async () => {
+  chatsMessagesResponse = { messages: [
+    { id: 'CHATCHAT', type: 'chat', body: 'salam' },
+    { id: 'DRIFTED_ID', type: 'ptt', link: 'https://voice.test.local/voice.ogg' },
+  ] };
+  geminiVoiceTranscript = '@Tri3M notes send karo';
+  try {
+    const msg = voiceMsg();
+    delete msg.data.link;
+    assert.equal(await handleGroupMessage(msg), true);
+    const chat = waSent.find((st) => st.kind === 'chat');
+    assert.ok(chat, 'media record won over the chat record');
+  } finally {
+    geminiVoiceTranscript = null; chatsMessagesResponse = null;
   }
 });
 

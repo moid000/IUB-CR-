@@ -164,17 +164,44 @@ async function findVoiceUrl(data) {
   // fallback is the primary path for them, not an edge case.
   const wa = env.whatsapp || {};
   if (data?.id && wa.apiUrl && wa.instanceId && wa.token) {
+    // OWNER INCIDENT (2026-10-08 night #2, live voice-log evidence): UltraMsg's
+    // GET /messages list returns ONLY OUTBOUND messages and has NO id filter —
+    // inbound teacher/student media NEVER appears there, so that fallback was
+    // dead code for every received file (the "file upload nahi hui, dobara
+    // bhej dein" loop). The PER-CHAT history endpoint is the one that carries
+    // RECEIVED media: GET /{instance}/chats/messages?chatId=<from>&limit=…
+    const from = String(data?.from ?? '');
+    const chatId = from.includes('@') ? from : `${from.replace(/\D/g, '')}@c.us`;
     try {
-      const u = `${wa.apiUrl}/${wa.instanceId}/messages`
-        + `?token=${encodeURIComponent(wa.token)}&page=1&limit=3&status=all&sort=desc`
-        + `&id=${encodeURIComponent(data.id)}`;
+      const u = `${wa.apiUrl}/${wa.instanceId}/chats/messages`
+        + `?token=${encodeURIComponent(wa.token)}&chatId=${encodeURIComponent(chatId)}&limit=50`;
       const res = await fetch(u);
       if (res.ok) {
         const json = await res.json();
-        const rec = Array.isArray(json?.messages) ? json.messages[0] : json?.messages ?? json;
-        for (const k of ['link', 'media', 'mediaUrl', 'url']) {
-          const v = rec?.[k];
-          if (typeof v === 'string' && /^https?:\/\//.test(v)) return v;
+        const recs = Array.isArray(json) ? json
+          : Array.isArray(json?.messages) ? json.messages
+          : Array.isArray(json?.data) ? json.data : [];
+        const pick = (rec) => {
+          for (const k of ['link', 'media', 'mediaUrl', 'url']) {
+            const v = rec?.[k];
+            if (typeof v === 'string' && /^https?:\/\//.test(v)) return v;
+          }
+          const b = rec?.body;
+          if (typeof b === 'string' && /^https?:\/\//.test(b.trim())) return b.trim();
+          return null;
+        };
+        // exact message-id match first — never another message's media
+        const byId = recs.find((r) => String(r?.id ?? '') === String(data.id));
+        const hit = pick(byId);
+        if (hit) return hit;
+        // id-format drift fallback: the newest MEDIA record in THIS chat
+        // (chat-type records are skipped — an older image must never win)
+        const MEDIA_TYPES = ['image', 'document', 'video', 'audio', 'voice', 'ptt', 'sticker'];
+        for (const r of recs) {
+          if (MEDIA_TYPES.includes(String(r?.type ?? '').toLowerCase())) {
+            const link = pick(r);
+            if (link) return link;
+          }
         }
       }
     } catch { /* best-effort only */ }

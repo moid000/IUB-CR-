@@ -66,8 +66,16 @@ globalThis.fetch = (url, options) => {
       ? Promise.resolve(new Response(JSON.stringify({ text: voiceTranscript }), { status: 200 }))
       : Promise.resolve(new Response(JSON.stringify({ error: 'stt unavailable' }), { status: 500 }));
   }
+  if (String(url).includes('api.ultramsg.com/test-instance/chats/messages?')) {
+    // OWNER NIGHT-2: per-chat history — the endpoint that actually carries
+    // RECEIVED media (the /messages list is outbound-only, dead for inbound)
+    return Promise.resolve(new Response(JSON.stringify({ messages: [
+      { id: 'old-chat', type: 'chat', body: 'salam' },
+      { link: 'https://cdn.example/voice.ogg', type: 'ptt' }, // id-less ptt — media-type fallback picks it
+    ] })));
+  }
   if (String(url).includes('api.ultramsg.com/test-instance/messages?')) {
-    // OWNER INCIDENT 2026-10-08: messages-by-id lookup for a ptt with no link
+    // legacy outbound-list fallback (kept pinned even though it is dead code for inbound)
     return Promise.resolve(new Response(JSON.stringify({ messages: [{ link: 'https://cdn.example/voice.ogg' }] })));
   }
   if (String(url).startsWith('https://api.ultramsg.com/test-instance/messages/chat')) {
@@ -1002,7 +1010,10 @@ test('OWNER 2026-10-08 FREE VOICE: Gemini STT (no OpenAI credits needed) confirm
   }
 });
 
-test('OWNER INCIDENT 2026-10-08: teacher ptt arrives with NO media link → messages-by-id fallback finds it, transcribes, confirms', async () => {
+// NIGHT-2: the messages-by-id API fallback is outbound-only — the real fix is
+// the per-chat /chats/messages history endpoint; this incident test now runs
+// against that one (same incident, corrected rescue path).
+test('OWNER INCIDENT 2026-10-08 (night-2 fix): teacher ptt arrives with NO media link → per-chat history fallback finds it, transcribes, confirms', async () => {
   // the live incident: real teacher ptt had NO data.link and the fallback
   // crashed on env.ultramsg (undefined) — voice died with no reply
   const { env: cfg } = await import('../backend/config/env.js');

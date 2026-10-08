@@ -112,6 +112,14 @@ function cloudinarySignature(params, apiSecret) {
   return crypto.createHash('sha1').update(toSign + apiSecret).digest('hex');
 }
 
+/** OWNER (2026-10-08 night, teacher pipeline): extension-based lookup —
+ * WhatsApp-reported MIMEs are unreliable (documents often arrive as
+ * application/octet-stream or empty), so the teacher flow trusts the FILE
+ * EXTENSION and uses the canonical MIME of that extension at upload time. */
+export function allowedTypeForExt(ext) {
+  return ALLOWED_TYPES.find((t) => t.ext === String(ext ?? '').trim().toLowerCase()) ?? null;
+}
+
 function assertTypePair(originalName, mimeType) {
   const name = String(originalName ?? '').trim();
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
