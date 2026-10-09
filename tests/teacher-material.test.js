@@ -414,18 +414,24 @@ test('MASTER UPGRADE §8: identical content resent under a new message id → de
 
 /* ---------------- not study material ---------------- */
 
-test('MASTER UPGRADE §4: clearly NON-educational content → no upload prompt, honest ack, ignored', async () => {
+test('MASTER UPGRADE §4: clearly NON-educational content → honest ack + OPEN offer (offered), decline closes it', async () => {
   geminiClassify = { study_material: false, subject: '', reason: 'a personal photo of a pet', summary: 'photo' };
   try {
     const before = sent.length;
     const r = await webhook(fileMsg({ filename: 'IMG_2043.jpg', mime: 'image/jpeg', type: 'image' }));
     assert.equal(r.json.data.updated, true);
     assert.equal(sent.length, before + 1);
-    assert.doesNotMatch(sent[sent.length - 1].body, /upload kar doon\?/i, 'no upload offer for a non-material file');
+    assert.doesNotMatch(sent[sent.length - 1].body, /upload kar doon\?/i, 'no upload approval question for a non-material file');
     const mat = await TeacherMaterial.findOne({}).lean();
-    assert.equal(mat.status, 'ignored');
+    assert.equal(mat.status, 'offered', 'the offer stays an OPEN question (owner reliability 2026-10-09)');
     assert.equal(mat.classification.verdict, 'not_material');
-  } finally { geminiClassify = null; }
+    geminiApproval = { answer: 'decline' };
+    const r2 = await webhook(incoming('nahi ye personal photo hai'));
+    geminiApproval = null;
+    assert.equal(r2.json.data.updated, true, 'decline of the offer consumed');
+    assert.equal((await TeacherMaterial.findOne({}).lean()).status, 'ignored', 'declined offer → ignored, never uploaded');
+    assert.equal(await Note.countDocuments({}), 0);
+  } finally { geminiClassify = null; geminiApproval = null; }
 });
 
 /* ---------------- strangers stay silent ---------------- */

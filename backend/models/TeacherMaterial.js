@@ -52,7 +52,7 @@ const materialSchema = new Schema(
     sectionSubjectName: { type: String, default: '', maxlength: 120 }, // OWNER (2026-10-08 night): subject name matched across MULTIPLE sections — the section question is open for it
     status: {
       type: String,
-      enum: ['received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'uploading', 'published', 'declined', 'failed', 'ignored', 'expired'],
+      enum: ['received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'uploading', 'published', 'declined', 'failed', 'ignored', 'expired', 'offered'],
       default: 'received',
       index: true,
     },

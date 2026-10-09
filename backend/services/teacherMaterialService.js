@@ -430,7 +430,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
 
   // duplicate content: the same file already pending/published for this teacher
   const dupe = await TeacherMaterial.findOne({ phone: sender, sha256, _id: { $ne: material._id },
-    status: { $in: ['awaiting_approval', 'awaiting_subject', 'published'] } }).sort({ createdAt: -1 }).lean();
+    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered', 'published'] } }).sort({ createdAt: -1 }).lean();
   if (dupe) {
       material.status = 'ignored'; await material.save();
     auditPush(material._id, 'duplicate', `same content as ${dupe.status} material ${dupe._id}`);
@@ -450,8 +450,16 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   material.classification = { verdict: cls.verdict, engine, reason: cls.reason, extractedSummary: cls.summary };
   auditPush(material._id, 'classified', `${cls.verdict} via ${engine}: ${cls.reason}`);
 
+  // OWNER RELIABILITY FIX (2026-10-09, live incident 09:18): an unclear/not-
+  // material verdict is NOT a dead end. The reply OFFERS the upload, so the
+  // file stays an OPEN question ('offered') — the teacher's "haan upload kar
+  // do" binds to THIS file (handleMaterialApprovalIntent) and the normal
+  // approval flow resumes. Previously the offer had no listener and the
+  // teacher's YES fell into general chat, which invented a fake "I told the
+  // CR" claim.
   if (cls.verdict !== 'study_material') {
-    material.status = 'ignored'; await material.save();
+    material.status = 'offered'; material.askedAt = new Date(); await material.save();
+    auditPush(material._id, 'offered', `classification: ${cls.verdict} (${cls.reason})`);
     await sendText(sender, notMaterialMessage({}));
     return true;
   }
@@ -522,7 +530,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
  * and the teacher is never asked two questions at once. */
 async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
   const next = await TeacherMaterial.findOne({ phone: sender, _id: { $ne: excludeId },
-    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section'] },
+    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered'] },
     createdAt: { $gte: new Date(Date.now() - APPROVAL_BIND_WINDOW_MS) } })
     .sort({ createdAt: 1 }).lean();
   if (!next) return false;
@@ -531,7 +539,9 @@ async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
   const usable = teacherRecords.filter((t) => t.subject && t.section);
   const primary = usable[0] ?? teacherRecords[0];
   const prefix = 'Aur ek file bhi mili hai aap ki:';
-  if (next.status === 'awaiting_subject') {
+  if (next.status === 'offered') {
+    await sendText(sender, `${prefix}\n\n${notMaterialMessage({})}`);
+  } else if (next.status === 'awaiting_subject') {
     const subjectNames = usable.map((t) => t.subject?.name).filter(Boolean);
     await sendText(sender, `${prefix}\n\n${askSubjectMessage({ filename: next.filename, teacherName: primary?.name, subjectNames })}`);
   } else if (next.status === 'awaiting_section') {
@@ -564,7 +574,7 @@ async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
 export async function handleMaterialApprovalIntent(sender, body, payload) {
   const msgId = String(payload?.data?.id ?? '').slice(0, 220);
   const material = await TeacherMaterial.findOne({ phone: sender,
-    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section'] } }).sort({ askedAt: -1 }).lean();
+    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered'] } }).sort({ askedAt: -1 }).lean();
   if (!material) return null;
   if (!material.askedAt || Date.now() - new Date(material.askedAt).getTime() > APPROVAL_BIND_WINDOW_MS) return null;
   // RECENCY BINDING (spec §5 + class-confirmation safety): when the class
@@ -586,6 +596,8 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     ? `which subject the file belongs to (${subjectNames.join(' / ')})`
     : material.status === 'awaiting_section'
     ? `which section the ${material.sectionSubjectName} file belongs to (${sectionNames.join(' / ')})`
+    : material.status === 'offered'
+    ? `whether the file "${material.filename}" is study material they want uploaded (the agent offered: reply yes to upload)`
     : `whether to upload "${material.filename}" to the ${(await Subject.findById(material.proposedSubject).select('name').lean())?.name ?? 'Notes'} section for students`;
 
   const key = env.chatbot?.googleApiKey;
@@ -608,13 +620,52 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     const t = String(body ?? '').toLowerCase().trim();
     const declines = /(^|\b)(no|nahi|nahin|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(t) && !/matlab/.test(t);
     const bareYes = /^(yes|haan|han|yeah|yep|sure|ji haan|haan ji)(\s*[.!\s]\s*)*$/.test(t);
-    const approves = (/\b(upload|share|post|publish|bhej|bhej do|bhej dein|upload kar|share kar|kar do|kar dein|dijiye)\b/.test(t) || bareYes)
+    // upload-authorization verbs, including the Roman-Urdu short forms the
+    // owner's teacher actually types (live incident: "ok kr do"): kr/kro/
+    // kardo/krdo + a completion word (do/dein/d/...), optionally preceded
+    // by an English/Urdu upload verb.
+    const karDo = /(?:^|\s)(?:upload\s+|share\s+|post\s+|publish\s+|bhej\s+)?(?:kar|kr|kro|kardo|kardi|krdo)(?:\s+|-)?(?:do|doon|doon ga|de|dein|dena|dijiye|d)(?:\s|$|[.!,])/.test(t);
+    const approves = (/\b(upload|share|post|publish|bhej|dijiye)\b/.test(t) || karDo || bareYes)
       && !declines && !/\?/.test(t);
     verdict = declines ? { answer: 'decline' } : approves ? { answer: 'approve' } : { answer: 'other' };
   }
 
   const markReplySeen = () => TeacherMaterial.updateOne({ _id: material._id },
     { $set: { lastReplyMsgId: msgId } }).catch(() => {});
+
+  /* --- OFFER answered (unclear/not-material file) --- */
+  if (material.status === 'offered') {
+    if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
+    if (verdict.answer === 'decline') {
+      await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'ignored', lastReplyMsgId: msgId } });
+      auditPush(material._id, 'ignored', 'teacher declined the upload offer');
+      await sendText(sender, declinedMessage());
+      await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
+      return 'declined';
+    }
+    // approve → the file reopens: resolve the subject from the teacher's OWN
+    // records, then ask the REAL approval question (never publish by offer)
+    const usable = teacherRecords.filter((t) => t.subject && t.section);
+    if (usable.length === 1) {
+      const resolved = usable[0];
+      await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
+        proposedSubject: resolved.subject?._id ?? resolved.subject,
+        section: resolved.section?._id ?? resolved.section,
+        status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId } });
+      auditPush(material._id, 'asked', `approval after offer accepted: ${resolved.subject?.name}`);
+      await sendText(sender, askApprovalMessage({
+        filename: material.filename, subjectName: resolved.subject?.name ?? 'your subject',
+        sectionName: resolved.section?.name ?? '', teacherName: teacherRecords[0]?.name,
+        language: teacherRecords[0]?.chatProfile?.detectedLanguage,
+      }));
+      return 'reasked';
+    }
+    await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
+      status: 'awaiting_subject', askedAt: new Date(), lastReplyMsgId: msgId } });
+    auditPush(material._id, 'asked', 'which subject after offer accepted (multiple authorized)');
+    await sendText(sender, askSubjectMessage({ filename: material.filename, teacherName: teacherRecords[0]?.name, subjectNames }));
+    return 'reasked';
+  }
 
   /* --- SECTION question answered (same subject, multiple sections) --- */
   if (material.status === 'awaiting_section') {

@@ -440,3 +440,31 @@ test('SWEEP: a CR dispatch that failed (gateway down) is re-dispatched by the sw
   assert.ok(t2.crNotifiedAt, 'dispatch now really delivered');
   assert.ok(sent.some((s) => s.to === '923009876543' && /Kal class hogi\?/.test(s.body)), 'CR finally received the question');
 });
+
+/* ------------- TEST K — LIVE-INCIDENT REGRESSION (09:18 offer bug) -------
+ * A file the classifier marks unclear gets the honest OFFER; the teacher's
+ * "ok kr do" now BINDS to that file, asks the real approval question, and a
+ * YES publishes — the old code dead-ended 'ignored' and general chat then
+ * INVENTED "main ne CR ko bata diya". */
+test('TEST K: unclear file → offer → teacher says "ok kr do" → approval question → YES → published (offer has a listener)', async () => {
+  geminiClassify = { study_material: false, subject: '', reason: 'unclear scanned pages', summary: '' };
+  const before = sent.length;
+  await webhook(fileMsg({ filename: 'Scan_Docs.pdf' }));
+  geminiClassify = null;
+  const mat = await TeacherMaterial.findOne({}).lean();
+  assert.equal(mat.status, 'offered', 'unclear file stays an OPEN offer');
+  assert.match(sent[sent.length - 1].body, /file mil gayi/i, 'honest offer sent');
+  // the teacher accepts the offer — offline net, exactly like the live incident
+  const r = await webhook(incoming('ok kr do'));
+  assert.equal(r.json.data.updated, true, 'offer acceptance consumed by the file flow');
+  const mat2 = await TeacherMaterial.findOne({}).lean();
+  assert.equal(mat2.status, 'awaiting_approval', 'offer → real approval question');
+  assert.ok(sent.slice(before).some((m) => /Scan_Docs\.pdf/.test(m.body) && /upload kar doon\?/i.test(m.body)),
+    'the REAL approval question was asked for THIS file');
+  // teacher approves → publishes
+  geminiApproval = { answer: 'approve' };
+  await webhook(incoming('YES'));
+  geminiApproval = null;
+  assert.equal((await TeacherMaterial.findOne({}).lean()).status, 'published');
+  assert.ok(await Note.exists({ uploadedByTeacher: teacher._id }), 'published to a real Note');
+});
