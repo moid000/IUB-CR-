@@ -7,6 +7,11 @@ import { runWatchdog } from '../services/ultramsgWatchdogService.js';
 import { dispatchPendingTeacherConfirmations, handleTeacherReply } from '../services/teacherConfirmationService.js';
 // OWNER FEATURE (2026-10-04): short teacher reminder ~20 min before their class
 import { runClassReminderSweep } from '../services/classReminderService.js';
+// OWNER RELIABILITY SPEC (2026-10-09): every teacher attachment owns a
+// persisted task — the 5-min ping also resumes crashed uploads, retries CR
+// notifications (never re-uploading) and recovers pending CR questions.
+import { runTeacherMaterialSweep } from '../services/teacherMaterialService.js';
+import { runTeacherQuestionSweep } from '../services/teacherQuestionService.js';
 // NEW (2026-10-03): Tri3M group chatbot. handleGroupMessage is a pure
 // consumer of GROUP messages — it never throws, and returns false unless the
 // bot is enabled AND the payload is a group text message, so the teacher
@@ -57,7 +62,13 @@ const handle = async (req, res, next) => {
       console.error('[class reminder sweep]', err.message);
       return { error: true };
     });
-    res.json({ success: true, data: { ...report, teacherConfirmations, classReminders } });
+    // RELIABILITY SWEEPS (owner spec 2026-10-09): crash-recovery + retries.
+    const [materialReliability, questionReliability] = await Promise.allSettled([
+      runTeacherMaterialSweep(), runTeacherQuestionSweep(),
+    ]);
+    res.json({ success: true, data: { ...report, teacherConfirmations, classReminders,
+      materialReliability: materialReliability.status === 'fulfilled' ? materialReliability.value : { error: true },
+      questionReliability: questionReliability.status === 'fulfilled' ? questionReliability.value : { error: true } } });
   } catch (err) {
     next(err);
   }

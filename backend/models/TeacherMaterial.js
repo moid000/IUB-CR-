@@ -13,10 +13,17 @@ const { ObjectId } = Schema.Types;
  *
  * status flow:
  *   received → (classification)
- *     study_material + subject resolved   → awaiting_approval → published | declined
+ *     study_material + subject resolved   → awaiting_approval → uploading → published | failed
  *     study_material + subject ambiguous  → awaiting_subject  → awaiting_approval → …
  *     clearly not study material / unclear → ignored (no upload ever)
  *     upload failure                      → failed (honest reply, never a fake success)
+ *     no teacher answer for 24h           → expired (CR told, file dropped)
+ *
+ * RELIABILITY (owner spec 2026-10-09): every attachment owns its OWN task
+ * row and lifecycle — no global processed-flag can ever block a later file.
+ * 'uploading' is an atomic claim (webhook redelivery can't double-publish),
+ * crNotify carries a PERSISTED CR-notification task retried by the sweep,
+ * and the 5-min sweep resumes received/uploading rows after a crash.
  *
  * Idempotency: waMsgId is UNIQUE — a webhook redelivery of the SAME message
  * never creates a second record, a second question, or a second upload.
@@ -45,9 +52,22 @@ const materialSchema = new Schema(
     sectionSubjectName: { type: String, default: '', maxlength: 120 }, // OWNER (2026-10-08 night): subject name matched across MULTIPLE sections — the section question is open for it
     status: {
       type: String,
-      enum: ['received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'published', 'declined', 'failed', 'ignored'],
+      enum: ['received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'uploading', 'published', 'declined', 'failed', 'ignored', 'expired'],
       default: 'received',
       index: true,
+    },
+    uploadClaimedAt: { type: Date, default: null }, // atomic publish claim — a redelivery/concurrent worker can't double-publish
+    uploadAttempts: { type: Number, default: 0 }, // bounded publish retries (sweep)
+    // PERSISTED CR-notification task (owner spec §3): the CR must reliably
+    // learn about published/failed/declined material. The first attempt runs
+    // inline; failures are retried by the sweep WITHOUT re-uploading.
+    crNotify: {
+      event: { type: String, default: '' }, // published | failed | declined | expired
+      status: { type: String, enum: ['', 'pending', 'delivered'], default: '' },
+      attempts: { type: Number, default: 0 },
+      lastTriedAt: { type: Date, default: null },
+      title: { type: String, default: '', maxlength: 300 },
+      lines: { type: String, default: '', maxlength: 1200 }, // the exact WhatsApp text, so retries never rebuild it
     },
     askedAt: { type: Date, default: null }, // when the agent last asked about THIS file (approval recency binding)
     lastReplyMsgId: { type: String, default: '', maxlength: 220 }, // teacher's answer message id — duplicate-reply idempotency

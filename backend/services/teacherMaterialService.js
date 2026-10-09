@@ -30,7 +30,7 @@ const GEMINI_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest
   .split(',').map((m) => m.trim()).filter(Boolean);
 const CLASSIFY_TIMEOUT_MS = 12_000;
 const APPROVAL_TIMEOUT_MS = 8_000;
-const APPROVAL_BIND_WINDOW_MS = 30 * 60 * 1000; // approval replies bind for 30 min after the question
+const APPROVAL_BIND_WINDOW_MS = 24 * 60 * 60 * 1000; // OWNER (2026-10-09): a teacher who answers HOURS later still answers the open question — 30 min was silently dropping late approvals (the class ask is still protected by the recency rule below)
 const TITLE_MAX = 120;
 
 /* Gemini JSON helper (same model chain + free GOOGLE_API_KEY as the chat bot).
@@ -248,20 +248,34 @@ function notMaterialMessage({ teacherName }) {
   ].join('\n');
 }
 
-function publishedMessage({ subjectName, sectionName, filename, language }) {
+function publishedMessage({ subjectName, sectionName, filename, language, crDelivered, alreadyPublished }) {
   const short = cleanFilename(filename, 70);
+  // OWNER spec §4: the CR line is stated ONLY as delivery really happened —
+  // a pending CR notification is told as pending, never claimed as done.
+  const crLineEn = crDelivered
+    ? 'The relevant CR has also been informed.'
+    : 'The CR notification is still pending — it will be retried shortly.';
+  const crLineUr = crDelivered
+    ? 'Relevant CR ko bhi update kar diya gaya hai.'
+    : 'CR ka update abhi pending hai — thori dair mein bhej kar raha hoon.';
   if (language === 'english') {
     return [
       `Done, Sir. Your study material "${short}" has been uploaded to the *${subjectName}* Notes section for Section ${sectionName} — students can open it on the portal now.`,
       '',
+      crLineEn,
+      alreadyPublished ? '(This file was already uploaded — nothing was duplicated.)' : '',
+      '',
       '— Tri3M Class Agent',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }
   return [
     `Ho gaya Sir. "${short}" *${subjectName}* ke Notes section mein Section ${sectionName} ke liye upload ho gayi hai — students portal par dekh sakte hain.`,
     '',
+    crLineUr,
+    alreadyPublished ? '(Ye file pehle hi upload ho chuki thi — dobara kuch nahi hua.)' : '',
+    '',
     '— Tri3M Class Agent',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function declinedMessage() {
@@ -396,6 +410,14 @@ export async function handleTeacherFile(payload) {
   auditPush(material._id, 'received', `${filename} (${size || '?'} bytes, ${effectiveMime || 'unknown mime'})`);
   chatLog('FILE', { phone: sender, msg: `${filename} from teacher` });
 
+  return await classifyAndAsk(material, { sender, filename, effectiveMime, caption, teacherRecords, usableRecords, primary });
+}
+
+/** Classify a RECEIVED material and ask its question (approval / subject /
+ * section). SHARED by the live webhook flow and the sweep's crash-recovery
+ * so both behave identically (owner spec §9: a restart never loses work). */
+async function classifyAndAsk(material, { sender, filename, effectiveMime, caption, teacherRecords, usableRecords, primary }) {
+  const mediaUrl = material.mediaUrl;
   // download once for classification (also gives us sha256 for dedupe)
   const dl = await downloadWithLimit(mediaUrl);
   if (dl.error) {
@@ -410,7 +432,7 @@ export async function handleTeacherFile(payload) {
   const dupe = await TeacherMaterial.findOne({ phone: sender, sha256, _id: { $ne: material._id },
     status: { $in: ['awaiting_approval', 'awaiting_subject', 'published'] } }).sort({ createdAt: -1 }).lean();
   if (dupe) {
-    material.status = 'ignored'; await material.save();
+      material.status = 'ignored'; await material.save();
     auditPush(material._id, 'duplicate', `same content as ${dupe.status} material ${dupe._id}`);
     await sendText(sender, duplicateMessage({ filename, status: dupe.status }));
     return true;
@@ -493,6 +515,45 @@ export async function handleTeacherFile(payload) {
   return true;
 }
 
+/* --------------------- PENDING-FILE QUEUE (owner spec §1) -----------------
+ * A teacher may send SEVERAL files before answering. Each file owns its
+ * question; when one file is resolved, the NEXT pending file is re-asked
+ * with a fresh binding timestamp — no file is ever orphaned by a later one,
+ * and the teacher is never asked two questions at once. */
+async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
+  const next = await TeacherMaterial.findOne({ phone: sender, _id: { $ne: excludeId },
+    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section'] },
+    createdAt: { $gte: new Date(Date.now() - APPROVAL_BIND_WINDOW_MS) } })
+    .sort({ createdAt: 1 }).lean();
+  if (!next) return false;
+  const teacherRecords = teacherRecordsIn ?? await Teacher.find({ whatsapp: sender })
+    .populate('subject', 'name code').populate('section', 'name').lean();
+  const usable = teacherRecords.filter((t) => t.subject && t.section);
+  const primary = usable[0] ?? teacherRecords[0];
+  const prefix = 'Aur ek file bhi mili hai aap ki:';
+  if (next.status === 'awaiting_subject') {
+    const subjectNames = usable.map((t) => t.subject?.name).filter(Boolean);
+    await sendText(sender, `${prefix}\n\n${askSubjectMessage({ filename: next.filename, teacherName: primary?.name, subjectNames })}`);
+  } else if (next.status === 'awaiting_section') {
+    const candidates = usable.filter((t) => t.subject?.name === next.sectionSubjectName);
+    const sectionNames = candidates.map((t) => t.section?.name).filter(Boolean);
+    await sendText(sender, `${prefix}\n\n${askSectionMessage({ filename: next.filename, subjectName: next.sectionSubjectName, sectionNames })}`);
+  } else {
+    const [subj, sec] = await Promise.all([
+      Subject.findById(next.proposedSubject).select('name').lean(),
+      Section.findById(next.section).select('name').lean(),
+    ]);
+    await sendText(sender, `${prefix}\n\n${askApprovalMessage({
+      filename: next.filename, subjectName: subj?.name ?? 'your subject', sectionName: sec?.name ?? '',
+      teacherName: primary?.name, language: primary?.chatProfile?.detectedLanguage,
+    })}`);
+  }
+  await TeacherMaterial.updateOne({ _id: next._id }, { $set: { askedAt: new Date() } });
+  auditPush(next._id, 'asked', 'next pending file re-asked after the previous one was resolved');
+  chatLog('FILE-QUEUE', { phone: sender, msg: `re-asked ${next.filename}` });
+  return true;
+}
+
 /* ========================= APPROVAL INTENT ============================== */
 
 /** Interpret the teacher's text reply while a material question is open.
@@ -538,12 +599,16 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     }, Math.min(APPROVAL_TIMEOUT_MS, 5_000), CLASSIFIER_MODELS);
     if (parsed) verdict = parsed;
   }
-  // Offline safety net: publish needs an EXPLICIT upload verb — a bare
-  // "ok"/"acha"/"thanks" NEVER authorizes publication (spec §5).
+  // Offline safety net (owner reliability spec §2, 2026-10-09): a CLEAR
+  // approval = an explicit upload verb OR a bare yes-word (yes/haan) — because
+  // this handler ONLY runs when THIS material's question is the freshest ask
+  // (no newer class ask, guarded above), a bare yes answers IT. A bare
+  // "ok"/"acha"/"thanks"/"got it" is still NEVER an authorization.
   if (!verdict) {
     const t = String(body ?? '').toLowerCase().trim();
     const declines = /(^|\b)(no|nahi|nahin|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(t) && !/matlab/.test(t);
-    const approves = /\b(upload|share|post|publish|bhej|bhej do|bhej dein|upload kar|share kar|kar do|kar dein|dijiye)\b/.test(t)
+    const bareYes = /^(yes|haan|han|yeah|yep|sure|ji haan|haan ji)(\s*[.!\s]\s*)*$/.test(t);
+    const approves = (/\b(upload|share|post|publish|bhej|bhej do|bhej dein|upload kar|share kar|kar do|kar dein|dijiye)\b/.test(t) || bareYes)
       && !declines && !/\?/.test(t);
     verdict = declines ? { answer: 'decline' } : approves ? { answer: 'approve' } : { answer: 'other' };
   }
@@ -557,11 +622,13 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     if (verdict.answer === 'decline') {
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'declined', lastReplyMsgId: msgId } });
       auditPush(material._id, 'declined', 'at section question');
-      await notifyCr({ section: material.section, event: 'declined', materialId: material._id,
+      await notifyCrPersisted(await TeacherMaterial.findById(material._id).lean(), {
+        event: 'declined',
         title: 'Teacher declined the material upload',
         message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
         lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
       await sendText(sender, declinedMessage());
+      await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
       return 'declined';
     }
     const hint = String(verdict.section ?? body ?? '').trim();
@@ -591,11 +658,13 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     if (verdict.answer === 'decline') {
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'declined', lastReplyMsgId: msgId } });
       auditPush(material._id, 'declined', 'at subject question');
-      await notifyCr({ section: material.section, event: 'declined', materialId: material._id,
+      await notifyCrPersisted(await TeacherMaterial.findById(material._id).lean(), {
+        event: 'declined',
         title: 'Teacher declined the material upload',
         message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
         lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
       await sendText(sender, declinedMessage());
+      await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
       return 'declined';
     }
     const hint = String(verdict.subject ?? body ?? '').trim();
@@ -624,11 +693,14 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   if (verdict.answer === 'decline') {
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'declined', lastReplyMsgId: msgId } });
     auditPush(material._id, 'declined', 'teacher declined the upload');
-    await notifyCr({ section: material.section, event: 'declined', materialId: material._id,
+    const fresh = await TeacherMaterial.findById(material._id).lean();
+    await notifyCrPersisted(fresh, {
+      event: 'declined',
       title: 'Teacher declined the material upload',
       message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
       lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
     await sendText(sender, declinedMessage());
+    await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
     return 'declined';
   }
 
@@ -639,18 +711,38 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     await sendText(sender, publishedMessage({
       filename: material.filename, subjectName: outcome.subjectName,
       sectionName: outcome.sectionName, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
+      crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
     }));
+    await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
     return 'published';
   }
   await sendText(sender, failedMessage({ filename: material.filename }));
+  await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
   return 'declined'; // consumed; upload honestly failed and was reported
 }
 
 /* ------------------------------ publication ----------------------------- */
 
 async function publishMaterial(material) {
+  // RETRY-SAFE (owner spec §1/G/H): an already-published material is NEVER
+  // uploaded again — verify the recorded Note and report success.
+  if (material.publishedNote) {
+    const noteStill = await Note.findById(material.publishedNote).select('_id').lean();
+    if (noteStill) return { ok: true, subjectName: '', sectionName: '', crDelivered: true, alreadyPublished: true };
+  }
   try {
-    await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'received', uploadError: '' } });
+    // ATOMIC CLAIM (owner spec §1/H): awaiting_approval → uploading. A webhook
+    // redelivery or the sweep racing this call finds status 'uploading' and
+    // never publishes twice; a crash mid-publish is resumed by the sweep.
+    const claim = await TeacherMaterial.findOneAndUpdate(
+      { _id: material._id, status: { $in: ['awaiting_approval', 'uploading'] } },
+      { $set: { status: 'uploading', uploadClaimedAt: new Date() }, $inc: { uploadAttempts: 1 } },
+      { new: true }).lean();
+    if (!claim) { // someone else published/declined it concurrently
+      const now = await TeacherMaterial.findById(material._id).lean();
+      if (now?.status === 'published') return { ok: true, subjectName: '', sectionName: '', crDelivered: true, alreadyPublished: true };
+      return { ok: false, error: `state changed (${now?.status})` };
+    }
     // re-download at upload time (UltraMsg media links expire)
     const dl = await downloadWithLimit(material.mediaUrl);
     if (dl.error) throw new ApiError(502, dl.error);
@@ -723,20 +815,28 @@ async function publishMaterial(material) {
     }
 
     const teacherDoc = await Teacher.findById(material.teacher).select('name').lean();
-    await notifyCr({ section: material.section, event: 'published', materialId: material._id, refId: note._id,
+    const when = new Intl.DateTimeFormat('en-PK', { timeZone: 'Asia/Karachi', dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
+    const crOut = await notifyCrPersisted(material, {
+      event: 'published', refId: note._id,
       title: `Teacher material published: ${subjectDoc.name}`,
       message: `"${material.filename}" from ${teacherDoc?.name ?? 'the teacher'} was uploaded to the ${subjectDoc.name} Notes section after their WhatsApp approval. Students can open it now.`,
-      lines: `${teacherDoc?.name ?? 'Teacher'} ne di hui "${cleanFilename(material.filename, 60)}" un ke YES ke baad ${subjectDoc.name} ke Notes section mein upload ho gayi hai — students dekh sakte hain.${groupSent ? ' Class WhatsApp group mein bhi bhej di gayi hai.' : ''}` });
-    return { ok: true, subjectName: subjectDoc.name, sectionName: sectionDoc.name };
+      lines: [
+        `Assalam-o-Alaikum. Tri3M update: Sir ${teacherDoc?.name ?? 'teacher'} ne ${subjectDoc.name} ki study material (${sectionDoc.department?.name ?? ''} Semester ${sectionDoc.semester ?? ''}, Section ${sectionDoc.name ?? ''}) share ki hai.`,
+        `File "${cleanFilename(material.filename, 60)}" un ke approval ke baad ${when} PKT par ${subjectDoc.name} ke Notes section mein successfully UPLOAD ho gayi hai — verified.${groupSent ? ' Class WhatsApp group mein bhi bhej di gayi hai.' : ''}`,
+        'CR portal ke Notes section me verify kar lein.',
+      ].join('\n'),
+    });
+    return { ok: true, subjectName: subjectDoc.name, sectionName: sectionDoc.name, crDelivered: Boolean(crOut?.delivered) };
   } catch (err) {
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
       status: 'failed', uploadError: String(err?.message ?? err).slice(0, 600) } });
     auditPush(material._id, 'failed', String(err?.message ?? err));
     chatLog('PUBLISH-FAILED', { phone: material.phone, msg: String(err?.message ?? err) });
-    await notifyCr({ section: material.section, event: 'failed', materialId: material._id,
+    await notifyCrPersisted(material, {
+      event: 'failed',
       title: 'Teacher material upload FAILED',
       message: `"${material.filename}" could not be uploaded after the teacher approved it (${String(err?.message ?? err).slice(0, 160)}). The teacher was told honestly — you may upload it manually.`,
-      lines: `Teacher ki "${cleanFilename(material.filename, 60)}" ka upload fail ho gaya (portal/storage masla). Teacher ko saaf bata diya gaya hai. Aap chahen to wo file teacher se le kar khud Notes mein upload kar dein.` });
+      lines: `Teacher ki "${cleanFilename(material.filename, 60)}" ka upload FAIL ho gaya (${String(err?.message ?? err).slice(0, 140)}). Teacher ko saaf bata diya gaya hai. Aap chahen to wo file teacher se le kar khud Notes mein upload kar dein.` });
     return { ok: false, error: String(err?.message ?? err) };
   }
 }
@@ -752,7 +852,7 @@ async function notifyCr({ section, event, materialId, lines, title, message, ref
     const crId = sec?.cr ?? sec?.gr ?? null;
     let crUser = crId ? await User.findById(crId).select('name phone role').lean() : null;
     if (!crUser) crUser = await User.findOne({ role: 'admin' }).sort({ createdAt: 1 }).select('name phone role').lean();
-    if (!crUser) return;
+    if (!crUser) return { delivered: false };
     await createNotification({
       recipient: crUser._id, type: 'note', title, message,
       refType: 'note', refId: refId ?? undefined,
@@ -760,12 +860,135 @@ async function notifyCr({ section, event, materialId, lines, title, message, ref
     }).catch(() => {});
     if (crUser.phone) {
       const crPhone = String(crUser.phone).replace(/\D/g, '');
-      if (crPhone) await sendText(crPhone, `${lines}\n\n— Tri3M Class Agent`).catch(() => {});
+      if (crPhone) {
+        const out = await sendText(crPhone, `${lines}\n\n— Tri3M Class Agent`).catch(() => null);
+        return { delivered: Boolean(out?.sent), crPhone };
+      }
     }
+    return { delivered: false };
   } catch { /* best-effort — never blocks the teacher pipeline */ }
+  return { delivered: false };
+}
+
+/** Terminal CR events (published/failed/declined/expired) must reach the CR
+ * RELIABLY (owner spec §3): persist the notification task on the material so
+ * the sweep can retry a failed WhatsApp ping WITHOUT touching the upload. */
+async function notifyCrPersisted(material, { event, title, lines, message, refId }) {
+  const state = {
+    crNotify: {
+      event, status: 'pending', attempts: (material.crNotify?.attempts ?? 0) + 1,
+      lastTriedAt: new Date(), title: String(title).slice(0, 300), lines: String(lines).slice(0, 1200),
+    },
+  };
+  try {
+    await TeacherMaterial.updateOne({ _id: material._id }, { $set: state });
+  } catch { /* best-effort bookkeeping */ }
+  const out = await notifyCr({ section: material.section, event, materialId: material._id,
+    title, message, lines, refId });
+  try {
+    if (out?.delivered) await TeacherMaterial.updateOne({ _id: material._id },
+      { $set: { 'crNotify.status': 'delivered', 'crNotify.lastTriedAt': new Date() } });
+  } catch { /* best-effort */ }
+  return out;
 }
 /* small event log, same shape as the teacher-chat diagnostics */
 function chatLog(event, { phone, msg } = {}) {
   const masked = phone ? `…${String(phone).slice(-4)}` : '—';
   console.log(`[teacher-material ${new Date().toISOString()}]`, event, `phone=${masked}`, msg ? `msg=${JSON.stringify(String(msg).slice(0, 120))}` : '');
+}
+
+/* ============================ RELIABILITY SWEEP ==========================
+ * OWNER RELIABILITY SPEC (2026-10-09, §1/§3/§9/§I): every attachment owns a
+ * persisted task row, so a server crash, a webhook retry or a temporary
+ * storage failure NEVER loses work. This sweep runs on the existing 5-minute
+ * cron and closes every gap:
+ *   1. 'received' stuck >10min  → classification crashed → RESUME it
+ *   2. 'uploading' stuck >10min → publish crashed mid-flight → RESUME the
+ *      publish (the teacher had already approved; the atomic claim +
+ *      publishedNote check make a duplicate Note impossible)
+ *   3. crNotify pending          → re-send the CR's WhatsApp update WITHOUT
+ *      re-uploading anything (bounded: 6 attempts)
+ *   4. awaiting_* silent >24h    → expire + tell the CR, no infinite re-ask
+ * Returns a compact summary for the sweep endpoint's log. NEVER throws. */
+export async function runTeacherMaterialSweep() {
+  const out = { resumedReceived: 0, resumedUploading: 0, crNotifyRetried: 0, crNotifyDelivered: 0, expired: 0, failed: 0 };
+  try {
+    // 1) crash recovery — classification never finished
+    const stuckReceived = await TeacherMaterial.find({ status: 'received',
+      createdAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }).limit(20).lean();
+    for (const m of stuckReceived) {
+      try {
+        const teacherRecords = await Teacher.find({ whatsapp: m.phone })
+          .populate('subject', 'name code').populate('section', 'name semester department').lean();
+        const usable = teacherRecords.filter((t) => t.subject && t.section);
+        if (!usable.length) {
+          await TeacherMaterial.updateOne({ _id: m._id }, { $set: { status: 'failed', uploadError: 'no usable teacher record (sweep)' } });
+          out.failed++; continue;
+        }
+        const doc = await TeacherMaterial.findById(m._id); // live doc — classifyAndAsk saves it
+        await classifyAndAsk(doc, { sender: m.phone, filename: m.filename, effectiveMime: m.mime,
+          caption: m.caption, teacherRecords, usableRecords: usable, primary: usable[0] });
+        out.resumedReceived++;
+      } catch (err) { auditPush(m._id, 'failed', `sweep resume: ${String(err?.message ?? err).slice(0, 200)}`); out.failed++; }
+    }
+
+    // 2) crash recovery — the publish claim was taken but never finished
+    const stuckUploading = await TeacherMaterial.find({ status: 'uploading',
+      uploadClaimedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) },
+      uploadAttempts: { $lte: 3 } }).limit(10).lean();
+    for (const m of stuckUploading) {
+      try {
+        const outcome = await publishMaterial(m);
+        if (outcome.ok) {
+          out.resumedUploading++;
+          let { subjectName, sectionName } = outcome;
+          if (outcome.alreadyPublished || !subjectName) { // names only when we did the work this pass
+            const note = await Note.findById(m.publishedNote).populate('subject', 'name').populate('section', 'name').lean();
+            subjectName = note?.subject?.name ?? ''; sectionName = note?.section?.name ?? '';
+          }
+          await sendText(m.phone, publishedMessage({
+            filename: m.filename, subjectName: subjectName || 'your subject', sectionName: sectionName || '',
+            language: undefined, crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
+          })).catch(() => {});
+        } else { out.failed++; auditPush(m._id, 'failed', `sweep publish resume: ${outcome.error}`); }
+      } catch (err) { auditPush(m._id, 'failed', `sweep resume: ${String(err?.message ?? err).slice(0, 200)}`); out.failed++; }
+    }
+
+    // 3) CR-notification retries — NEVER re-upload because a ping failed
+    const pendingNotifies = await TeacherMaterial.find({ 'crNotify.status': 'pending',
+      'crNotify.attempts': { $lt: 6 },
+      'crNotify.lastTriedAt': { $lt: new Date(Date.now() - 5 * 60 * 1000) },
+      status: { $in: ['published', 'failed', 'declined', 'expired'] } }).limit(20).lean();
+    for (const m of pendingNotifies) {
+      try {
+        const sec = await Section.findById(m.section).select('cr gr name').lean();
+        const crId = sec?.cr ?? sec?.gr ?? null;
+        const crUser = crId ? await User.findById(crId).select('phone role').lean() : null;
+        const crPhone = crUser?.phone ? String(crUser.phone).replace(/\D/g, '') : null;
+        let delivered = false;
+        if (crPhone) delivered = Boolean((await sendText(crPhone, `${m.crNotify?.lines ?? ''}\n\n— Tri3M Class Agent`).catch(() => null))?.sent);
+        await TeacherMaterial.updateOne({ _id: m._id }, { $set: {
+          'crNotify.attempts': (m.crNotify?.attempts ?? 0) + 1, 'crNotify.lastTriedAt': new Date(),
+          ...(delivered ? { 'crNotify.status': 'delivered' } : {}) } });
+        out.crNotifyRetried++; if (delivered) out.crNotifyDelivered++;
+      } catch { /* best-effort */ }
+    }
+
+    // 4) files the teacher never answered — expire + tell the CR (bounded lifecycle)
+    const stale = await TeacherMaterial.find({ status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section'] },
+      askedAt: { $lt: new Date(Date.now() - APPROVAL_BIND_WINDOW_MS) },
+      'crNotify.status': { $ne: 'pending' } }).limit(20).lean();
+    for (const m of stale) {
+      try {
+        await TeacherMaterial.updateOne({ _id: m._id }, { $set: { status: 'expired' } });
+        auditPush(m._id, 'expired', 'no teacher answer within 24h (sweep)');
+        await notifyCrPersisted(m, { event: 'expired',
+          title: 'Teacher material question expired',
+          message: `"${m.filename}" was never answered by the teacher within 24h — the file was dropped, nothing was published.`,
+          lines: `Teacher ki "${cleanFilename(m.filename, 60)}" ka jawab 24 ghante tak nahi aya — file drop kar di gayi hai, portal par kuch upload nahi hua.` });
+        out.expired++;
+      } catch { /* best-effort */ }
+    }
+  } catch (err) { console.error('[teacher-material sweep]', err?.message ?? err); }
+  return out;
 }
