@@ -285,3 +285,20 @@ test('watchdog wasender branch: disconnected session -> alert state + error reco
     env.whatsapp.gateway = saved;
   }
 });
+
+test('normalizer: DOC-EXACT group event (messages-group.received) normalizes correctly', async () => {
+  // verbatim shape from Wasender docs: Webhook: Group Message Received
+  const doc = { event: 'messages-group.received', timestamp: 1633456799,
+    data: { messages: {
+      key: { id: 'message-id-group-456', fromMe: false, remoteJid: '123456789-987654321@g.us',
+        participant: '123456789@lid', participantPn: '123456789@s.whatsapp.net',
+        cleanedParticipantPn: '123456789', participantLid: '123456789@lid', addressingMode: 'lid' },
+      messageBody: 'Hey everyone, just checking in!',
+      message: { conversation: 'Hey everyone, just checking in!' } } } };
+  assert.equal(isWasenderPayload(doc), true);
+  const p = await normalizeIncomingPayload(doc);
+  assert.equal(p.data.from, '123456789-987654321@g.us');
+  assert.equal(p.data.author, '123456789@c.us');
+  assert.equal(p.data.body, 'Hey everyone, just checking in!');
+  assert.equal(p.data.type, 'chat');
+});

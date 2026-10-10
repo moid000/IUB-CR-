@@ -35,7 +35,11 @@ const SEND_TIMEOUT_MS = 30_000;
 
 export function isWasenderPayload(payload) {
   const p = payload ?? {};
+  // 'messages-group.received' is Wasender's SEPARATE group-message event (its
+  // payload shape is identical to messages.received but always carries the
+  // group remoteJid + participant identity) — both must normalize.
   return p?.event === 'messages.received'
+    || p?.event === 'messages-group.received'
     || (p?.event === 'messages.upsert' && p?.data?.messages)
     || Boolean(p?.data?.messages?.key && p?.data?.messages?.messageBody !== undefined);
 }
