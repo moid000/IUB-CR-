@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { ExperienceExample, Section, Subject, Teacher, Timetable, User } from '../models/index.js';
 import { env } from '../config/env.js';
-import { isConfigured, sendText } from './whatsappService.js';
+import { isConfigured, sendText, sendTracked } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
 // OWNER night #8: teacher VOICE NOTES reuse the group bot's Whisper helper
 import { transcribeVoice } from './chatbotService.js';
@@ -964,8 +964,15 @@ async function converseGeneralTeacher(sender, payload, mode) {
       greeting: GREETING_RE.test(body) || mode !== 'ack',
     });
     chatLog('AI-HANDLER INVOKED (general)', { phone: sender, msg: body, reply: message });
-    await sendText(sender, message);
-    chatLog('SENT', { phone: sender, send: 'SUCCESS' });
+    // OWNER RELIABILITY (2026-10-10): the chat reply is OUTBOX-TRACKED — a
+    // throttled/gateway-down send is queued and sweep-retried instead of
+    // being lost, and can NEVER abort the escalation below (a lost reply
+    // used to silently swallow the whole CR question task).
+    const chatRes = await sendTracked(sender, message, {
+      kind: 'chat',
+      refKey: `chat:${String(payload?.data?.id ?? '').slice(0, 180)}`,
+    });
+    chatLog('SENT', { phone: sender, send: chatRes.sent ? 'SUCCESS' : `RETRY-QUEUED` });
     try {
       await Teacher.updateOne({ _id: primary._id },
         { $push: { conversation: { $each: [{ role: 'agent', text: message.slice(0, 400), at: new Date() }], $slice: -20 } } });

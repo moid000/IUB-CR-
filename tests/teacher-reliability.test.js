@@ -31,13 +31,14 @@ const { default: app } = await import('../backend/app.js');
 const { Note, Section, Subject, Teacher, TeacherMaterial, TeacherQuestion, Timetable, User, Notification, OutboxMessage } = models;
 const { runTeacherMaterialSweep } = await import('../backend/services/teacherMaterialService.js');
 const { runTeacherQuestionSweep } = await import('../backend/services/teacherQuestionService.js');
-const { retryOutbox } = await import('../backend/services/whatsappService.js');
+const { retryOutbox, sendTracked } = await import('../backend/services/whatsappService.js');
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
 const realFetch = globalThis.fetch;
 const sent = []; // every WhatsApp text this test run delivered { to, body }
 let failSendsTo = null; // a phone whose WhatsApp sends FAIL (TEST G/C-pending)
+let rateLimitSends = false; // WASENDER TRIAL: all sends throttled (1/min plan limit)
 let failNextCloudinary = false;
 let cloudinaryUploads = 0;
 let geminiClassify = null; // { study_material, subject, reason, summary }
@@ -86,6 +87,10 @@ globalThis.fetch = (url, options) => {
   }
   if (u.includes('api.ultramsg.com/test-instance/messages/chat')) {
     const data = new URLSearchParams(options.body);
+    if (rateLimitSends) {
+      return Promise.resolve(new Response(JSON.stringify({ sent: false,
+        error: 'You are on a free trial. You can send 1 message every 1 minute.' }), { status: 200 }));
+    }
     if (failSendsTo && String(data.get('to')).includes(failSendsTo)) {
       return Promise.resolve(new Response(JSON.stringify({ sent: false, error: 'gateway hiccup' }), { status: 200 }));
     }
@@ -158,7 +163,7 @@ test.after(async () => {
 });
 test.afterEach(async () => {
   geminiClassify = null; geminiApproval = null; geminiChatReply = null; geminiAnswer = null;
-  failSendsTo = null; failNextCloudinary = false; cloudinaryUploads = 0; lastGeminiBody = '';
+  failSendsTo = null; rateLimitSends = false; failNextCloudinary = false; cloudinaryUploads = 0; lastGeminiBody = '';
   await Promise.all([OutboxMessage.deleteMany({}), TeacherMaterial.deleteMany({}), TeacherQuestion.deleteMany({}),
     Note.deleteMany({}), Notification.deleteMany({}), Timetable.deleteMany({})]);
   await Teacher.updateMany({}, { $set: { conversation: [], lastChatMsgId: '' } });
@@ -562,6 +567,62 @@ test('TEST O (spec H): the answer send FAILS → tracked, retried by the sweep, 
   assert.equal(task.status, 'closed', 'closed ONLY after real delivery');
   const answer = sent.filter((s) => s.to === '923001112233' && /4 classes hui thin/.test(s.body));
   assert.ok(answer.length, 'teacher finally received the CR\'s answer');
+});
+
+/* ------------- WASENDER TRIAL THROTTLE GUARD (2026-10-10) --------------- */
+
+test('THROTTLE 1: a rate-limited outbox send burns NO attempt and never dies at the cap', async () => {
+  rateLimitSends = true;
+  const res = await sendTracked('923001112233', 'throttle probe', { kind: 'ack', refKey: 'throttle-probe-1' });
+  assert.equal(res.sent, false, 'the send really failed');
+  let row = await OutboxMessage.findOne({ refKey: 'throttle-probe-1' }).lean();
+  assert.ok(row, 'failure is persisted honestly');
+  assert.equal(row.status, 'failed');
+  assert.equal(row.attempts, 0, 'being THROTTLED is not a delivery failure — attempt preserved');
+  // the plan window clears -> the SAME row is retried by the sweep and delivered
+  rateLimitSends = false;
+  await OutboxMessage.updateOne({ _id: row._id }, { $set: { lastTriedAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  const retry = await retryOutbox();
+  assert.ok(retry.delivered >= 1, 'sweep re-delivered after the throttle cleared');
+  row = await OutboxMessage.findOne({ refKey: 'throttle-probe-1' }).lean();
+  assert.equal(row.status, 'sent');
+});
+
+test('THROTTLE 2: a throttled row stops the retry pass — later rows are not burned either', async () => {
+  rateLimitSends = false;
+  await sendTracked('923001112233', 'first ok', { kind: 'ack', refKey: 'throttle-probe-2a' });
+  rateLimitSends = true;
+  await sendTracked('923001112233', 'throttled', { kind: 'ack', refKey: 'throttle-probe-2b' });
+  await sendTracked('923001112233', 'behind throttle', { kind: 'ack', refKey: 'throttle-probe-2c' });
+  rateLimitSends = false;
+  await OutboxMessage.updateMany({ refKey: /throttle-probe-2[bc]/ },
+    { $set: { lastTriedAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  const rows = await OutboxMessage.find({ refKey: /throttle-probe-2/ }).lean();
+  const throttled = rows.find((r) => r.refKey === 'throttle-probe-2b');
+  const behind = rows.find((r) => r.refKey === 'throttle-probe-2c');
+  // simulate the pass: 2b is throttled -> 2c must not even be attempted
+  rateLimitSends = true;
+  await retryOutbox();
+  const behindAfter = await OutboxMessage.findOne({ refKey: 'throttle-probe-2c' }).lean();
+  assert.equal(behindAfter.attempts, 0, 'the pass STOPPED at the throttle — no wasted attempts behind it');
+  const throttledAfter = await OutboxMessage.findOne({ refKey: 'throttle-probe-2b' }).lean();
+  assert.equal(throttledAfter.attempts, 0, 'throttled row keeps its full retry budget');
+});
+
+test('THROTTLE 3: rate-limited CR question dispatch does not burn crNotifyAttempts', async () => {
+  rateLimitSends = true;
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se pooch kar bata dun ga.', escalate: true };
+  await webhook(incoming('Sir, is week kitni classes hain?'));
+  geminiAnswer = null; geminiChatReply = null;
+  let task = await TeacherQuestion.findOne({ status: 'pending_cr' }).lean();
+  assert.ok(task, 'the question task persisted despite the throttle');
+  assert.equal(task.crNotifyAttempts, 0, 'throttled CR dispatch burns no attempt — task cannot die while the plan throttles');
+  // plan window clears -> sweep re-dispatches to the CR and it works
+  rateLimitSends = false;
+  await TeacherQuestion.updateOne({ _id: task._id }, { $set: { lastCrNotifyAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  await runTeacherQuestionSweep();
+  task = await TeacherQuestion.findOne({ _id: task._id }).lean();
+  assert.ok(task.crNotifiedAt, 'CR finally got the question once the throttle cleared');
 });
 
 test('TEST P (spec §5): a non-answer CR reply ("ok ji") → clarification asked, NEVER treated as the answer', async () => {

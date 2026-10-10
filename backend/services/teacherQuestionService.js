@@ -20,7 +20,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { Section, Teacher, TeacherQuestion, User } from '../models/index.js';
-import { sendText, sendTracked } from './whatsappService.js';
+import { sendText, sendTracked, isRateLimitError } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
 
 const REUSE_WINDOW_MS = 12 * 60 * 60 * 1000; // same unresolved question reuses its task
@@ -142,7 +142,12 @@ async function dispatchToCr(task, crUserIn) {
   const alert = crQuestionAlert({ teacherName: task.teacherName || 'Teacher', sectionLabel, question: task.question, refCode: task.refCode });
   let delivered = false;
   const crPhone = crUser?.phone ? String(crUser.phone).replace(/\D/g, '') : null;
-  if (crPhone) delivered = Boolean((await sendText(crPhone, alert).catch(() => null))?.sent);
+  let sendErr = '';
+  if (crPhone) {
+    try {
+      delivered = Boolean((await sendText(crPhone, alert))?.sent);
+    } catch (e) { sendErr = String(e?.message ?? e); }
+  }
   // portal inbox too (deduped) — the passive channel is never lost
   if (crUser?._id) {
     await createNotification({
@@ -159,10 +164,12 @@ async function dispatchToCr(task, crUserIn) {
       lastCrNotifyAt: new Date(),
       ...(delivered ? { crNotifiedAt: new Date() } : {}),
     },
-    $inc: { crNotifyAttempts: 1 },
+    // throttled by the provider plan (Wasender trial 1 send/min) is NOT a
+    // delivery failure — it must not burn the bounded CR dispatch attempts.
+    $inc: (delivered || !isRateLimitError(sendErr)) ? { crNotifyAttempts: 1 } : {},
   }).catch(() => {});
   qlog(delivered ? 'CR-NOTIFIED' : 'CR-NOTIFY-FAILED', { phone: crPhone ?? '—', code: task.refCode });
-  return { delivered, crName: crUser?.name };
+  return { delivered, crName: crUser?.name, rateLimited: !delivered && isRateLimitError(sendErr) };
 }
 
 /* --------------------------- teacher ack (§6) ----------------------------- */
@@ -262,7 +269,8 @@ export async function runTeacherQuestionSweep() {
       crNotifyAttempts: { $lt: CR_RETRY_MAX },
       $or: [{ lastCrNotifyAt: null }, { lastCrNotifyAt: { $lt: new Date(now - CR_RETRY_EVERY_MS) } }] }).limit(20).lean();
     for (const t of undelivered) {
-      await dispatchToCr(t); out.redispatched++;
+      const r = await dispatchToCr(t); out.redispatched++;
+      if (r?.rateLimited) break; // throttled plan — further sends this pass would 429
     }
     // 2) SPEC §4 follow-up policy: gentle nudge at FOLLOWUP_MINUTES[0],
     //    firmer nudge at [1], then ESCALATION to the section's GR (fallback:

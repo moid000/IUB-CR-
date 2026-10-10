@@ -16,6 +16,16 @@ import * as wasender from './wasenderGateway.js';
 
 const impl = () => (env.whatsapp.gateway === 'wasender' ? wasender : ultramsg);
 
+/**
+ * WASENDER TRIAL THROTTLE GUARD (2026-10-10): the trial plan allows only
+ * 1 send/min (paid 256/min) and returns "You are on a free trial. You can
+ * send 1 message every 1 minute." Being THROTTLED is not a delivery failure
+ * — it must never burn a message's bounded retry attempts, or every queued
+ * send dies at the cap while the owner is still on the trial plan.
+ */
+const RATE_LIMIT_RE = /free trial|rate.?limit|retry.?after|too many requests|\b429\b|1 message every/i;
+export const isRateLimitError = (text) => RATE_LIMIT_RE.test(String(text ?? ''));
+
 export const isConfigured = () => impl().isConfigured();
 export const sendText = (to, body, mentioned) => impl().sendText(to, body, mentioned);
 export const sendImage = (to, url, caption) => impl().sendImage(to, url, caption);
@@ -80,7 +90,9 @@ export async function sendTracked(phone, body, { kind = 'teacher', refKey = '', 
       const { OutboxMessage } = await import('../models/index.js');
       await OutboxMessage.updateOne({ _id: row._id }, { $set: {
         status: ok ? 'sent' : 'failed', sentAt: ok ? new Date() : null,
-        lastTriedAt: new Date(), attempts: 1, lastError: error } });
+        lastTriedAt: new Date(),
+        attempts: ok || !isRateLimitError(error) ? 1 : 0, // throttle burns no attempt
+        lastError: error } });
     } catch { /* best-effort */ }
   }
   return { sent: ok, error };
@@ -101,6 +113,16 @@ export async function retryOutbox(limit = 20) {
         ok = Boolean(res?.sent);
         if (!ok) error = 'gateway did not confirm send';
       } catch (err) { error = String(err?.message ?? err).slice(0, 300); }
+      if (!ok && isRateLimitError(error)) {
+        // throttled by the provider plan — not a delivery failure. Record it,
+        // burn no attempt, and STOP this pass: on a throttled plan every
+        // further send in the same pass would 429 too. The next 5-min sweep
+        // picks the row up again (row stays eligible: attempts unchanged).
+        await OutboxMessage.updateOne({ _id: r._id }, { $set: {
+          lastTriedAt: new Date(), lastError: error } });
+        out.throttled = (out.throttled ?? 0) + 1;
+        break;
+      }
       await OutboxMessage.updateOne({ _id: r._id }, { $set: {
         status: ok ? 'sent' : 'failed', sentAt: ok ? new Date() : null,
         lastTriedAt: new Date() }, $inc: { attempts: 1 }, lastError: error });
