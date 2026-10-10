@@ -1,7 +1,7 @@
 import { Section, Subject, GroupRosterCache } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
-import { sendText, sendImage, sendDocument, sendAudio, sendVideo, listGroupMeta, getGroupParticipants, isConfigured } from './whatsappService.js';
+import { sendText, sendImage, sendDocument, sendAudio, sendVideo, sendTracked, sendTrackedMedia, listGroupMeta, getGroupParticipants, isConfigured } from './whatsappService.js';
 import { normalizeWhatsApp } from './teacherService.js';
 import { env } from '../config/env.js';
 import * as v from '../utils/validators.js';
@@ -303,7 +303,7 @@ async function sendBroadcast(groupId, message, attachments) {
     const { sentCount } = await sendAttachmentsToGroup(groupId, list, message);
     return { sent: true, mediaSent: sentCount };
   }
-  await sendText(groupId, message);
+  await sendTracked(groupId, message, { kind: 'broadcast', refKey: 'broadcast-text' });
   const { sentCount } = await sendAttachmentsToGroup(groupId, list);
   return { sent: true, mediaSent: sentCount };
 }
@@ -373,12 +373,18 @@ async function sendAttachmentsToGroup(groupId, attachments, caption) {
     try {
       const kind = classifyAttachment(a);
       const useCaption = remainingCaption && kind !== 'audio' ? remainingCaption : undefined;
-      if (kind === 'image') await sendImage(groupId, a.url, useCaption);
-      else if (kind === 'audio') await sendAudio(groupId, a.url);
-      else if (kind === 'video') await sendVideo(groupId, a.url, useCaption);
-      else await sendDocument(groupId, a.url, a.originalName, useCaption);
-      if (useCaption) { remainingCaption = undefined; captionUsed = true; }
-      sentCount += 1;
+      // 2026-10-11: outbox-tracked — a throttled/partial burst is finished
+      // by the sweep (no duplicate upload, no silently lost attachment).
+      const res = await sendTrackedMedia(groupId, kind,
+        { url: a.url, caption: useCaption, filename: a.originalName },
+        { kind: 'broadcast', refKey: 'broadcast-media' });
+      if (res.sent) {
+        if (useCaption) { remainingCaption = undefined; captionUsed = true; }
+        sentCount += 1;
+      } else {
+        console.error(`[whatsapp-group] attachment broadcast queued for retry (${a?.publicId ?? a?.originalName ?? 'unknown'}): ${res.error ?? 'gateway did not confirm'}`);
+        if (useCaption) remainingCaption = undefined; // caption consumed by the queued row
+      }
     } catch (err) {
       console.error(`[whatsapp-group] attachment broadcast failed (${a?.publicId ?? a?.originalName ?? 'unknown'}):`, err.message);
     }

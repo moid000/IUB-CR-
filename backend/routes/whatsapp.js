@@ -97,7 +97,7 @@ router.post('/deadline-sweep', handle);
 router.get('/ops-diagnostics', async (req, res, next) => {
   try {
     assertSweepSecret(req);
-    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable } = await import('../models/index.js');
+    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent } = await import('../models/index.js');
     const mask = (p) => (p ? `…${String(p).slice(-4)}` : null);
     const [sweepBeat, dogBeat, dogRenew, dogErr] = await Promise.all([
       WatchdogState.findOne({ key: 'deadline-sweep:last-run' }).lean(),
@@ -113,6 +113,14 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const outboxFailed = await OutboxMessage.find({ status: 'failed' }).sort({ updatedAt: -1 }).limit(30).lean();
     const crNotifyPending = await TeacherMaterial.find({ 'crNotify.sent': false }).sort({ updatedAt: -1 }).limit(20).lean();
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
+    // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
+    const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow] = await Promise.all([
+      WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
+      WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
+      WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
+      OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
+    ]);
     res.json({ success: true, data: {
       heartbeat: {
         deadlineSweepLastRun: sweepBeat?.lastSentAt ?? null,
@@ -130,6 +138,16 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       outboxFailed: outboxFailed.map((o) => ({ kind: o.kind, refKey: o.refKey, phone: mask(o.phone),
         attempts: o.attempts, lastError: (o.lastError ?? '').slice(0, 120), ageMinutes: Math.round((now - new Date(o.updatedAt).getTime()) / 60000) })),
       classesAwaitingTeacher: awaitingClasses,
+      webhook: {
+        lastInboundAt: lastEvent[0]?.at ?? null,
+        lastInboundFrom: mask(lastEvent[0]?.author || lastEvent[0]?.from),
+        lastInboundType: lastEvent[0]?.chatType ?? null,
+        inbound24h, redeliveries24h,
+      },
+      outbound: {
+        lastSentAt: lastSentRow[0]?.sentAt ?? null,
+        sendSpacingMs: env.whatsapp.sendSpacingMs ?? null,
+      },
     } });
   } catch (err) { next(err); }
 });
@@ -179,6 +197,22 @@ router.post('/teacher-reply', async (req, res, next) => {
     // Wasender payloads are normalized into the UltraMsg shape here —
     // every downstream handler sees the exact payload it has always seen.
     const payload = await normalizeIncomingPayload(req.body);
+    // OBSERVABILITY (2026-10-11, owner spec item 9): record every accepted
+    // inbound event (id + sender only, never bodies) so ops-diagnostics can
+    // prove webhook health and surface provider redelivery storms.
+    try {
+      const { WhatsAppEvent } = await import('../models/index.js');
+      const msgId = String(payload?.data?.id ?? '').slice(0, 220);
+      if (msgId) {
+        const seen = await WhatsAppEvent.findOne({ msgId }).lean();
+        await WhatsAppEvent.create({ msgId,
+          from: String(payload?.data?.from ?? '').slice(0, 120),
+          author: String(payload?.data?.author ?? '').slice(0, 120),
+          chatType: String(payload?.data?.from ?? '').endsWith('@g.us') ? 'group' : 'direct',
+          msgType: String(payload?.data?.type ?? 'chat'),
+          redelivery: Boolean(seen) }).catch(() => {});
+      }
+    } catch { /* diagnostics must never block the flow */ }
     // Group messages go to the chatbot FIRST; when it is disabled or the
     // message is not a group message this is a no-op and the teacher flow
     // runs exactly as before.

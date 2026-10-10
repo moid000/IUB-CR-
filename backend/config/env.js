@@ -42,6 +42,11 @@ export const env = {
     // OWNER 2026-10-10: gateway selector — 'ultramsg' (default, unchanged
     // behavior) or 'wasender'. One variable = one rollback.
     gateway: process.env.WHATSAPP_GATEWAY || 'ultramsg',
+    // WASENDER ACCOUNT PROTECTION (2026-10-11): the paid plan's anti-ban
+    // guard rejects sends faster than 1 per 5 seconds account-wide
+    // ("You have account protection enabled. You can only send 1 message
+    //  every 5 seconds."). The facade paces Wasender sends with this gap.
+    sendSpacingMs: Number(process.env.WASENDER_SEND_SPACING_MS ?? 5200),
     alertEmails: (process.env.WHATSAPP_WATCHDOG_ALERT_EMAILS || '')
       .split(',')
       .map((email) => email.trim())

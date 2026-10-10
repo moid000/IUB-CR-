@@ -26,6 +26,8 @@ import { createNotification } from './notificationService.js';
 const REUSE_WINDOW_MS = 12 * 60 * 60 * 1000; // same unresolved question reuses its task
 const CR_RETRY_MAX = 6; // bounded WhatsApp dispatch retries (sweep)
 const CR_RETRY_EVERY_MS = 5 * 60 * 1000;
+const CR_SLOW_RETRY_MS = 60 * 60 * 1000; // backoff tier (owner spec item 8): after cap, hourly
+const CR_SLOW_RETRY_MAX = 24; // absolute ceiling for the slow tier
 /* OWNER RELIABILITY SPEC §4 (2026-10-10): configurable, BOUNDED follow-up
  * policy — a CR question never silently dies. Defaults: gentle nudge after
  * 30 min, a firmer nudge after 2 h, ESCALATION to the section's GR (or the
@@ -265,9 +267,17 @@ export async function runTeacherQuestionSweep() {
   try {
     const now = Date.now();
     // 1) dispatch retry
+    // 2026-10-11 BACKOFF: fast tier = 6 attempts every 5 min; slow tier =
+    // hourly up to CR_SLOW_RETRY_MAX (questions throttled to death by the
+    // pre-guard trial burns get resurrected by the slow tier instead of
+    // being lost forever).
     const undelivered = await TeacherQuestion.find({ status: 'pending_cr', crNotifiedAt: null,
-      crNotifyAttempts: { $lt: CR_RETRY_MAX },
-      $or: [{ lastCrNotifyAt: null }, { lastCrNotifyAt: { $lt: new Date(now - CR_RETRY_EVERY_MS) } }] }).limit(20).lean();
+      $or: [
+        { crNotifyAttempts: { $lt: CR_RETRY_MAX },
+          $or: [{ lastCrNotifyAt: null }, { lastCrNotifyAt: { $lt: new Date(now - CR_RETRY_EVERY_MS) } }] },
+        { crNotifyAttempts: { $gte: CR_RETRY_MAX, $lt: CR_SLOW_RETRY_MAX },
+          $or: [{ lastCrNotifyAt: null }, { lastCrNotifyAt: { $lt: new Date(now - CR_SLOW_RETRY_MS) } }] },
+      ] }).limit(8).lean();
     for (const t of undelivered) {
       const r = await dispatchToCr(t); out.redispatched++;
       if (r?.rateLimited) break; // throttled plan — further sends this pass would 429

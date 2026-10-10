@@ -28,6 +28,7 @@ process.env.CLOUDINARY_API_SECRET = 'secret';
 // gateway under test
 process.env.WHATSAPP_GATEWAY = 'wasender';
 process.env.WASENDER_API_KEY = 'test-wasender-key';
+process.env.WASENDER_SEND_SPACING_MS = '80'; // real default is 5200 (account protection: 1 send / 5s)
 
 const { default: mongoose } = await import('mongoose');
 const models = await import('../backend/models/index.js');
@@ -35,7 +36,7 @@ const { default: app } = await import('../backend/app.js');
 const { env } = await import('../backend/config/env.js');
 const wasender = await import('../backend/services/wasenderGateway.js');
 const { normalizeIncomingPayload, isWasenderPayload } = await import('../backend/services/wasenderPayload.js');
-const { sendTracked, retryOutbox } = await import('../backend/services/whatsappService.js');
+const { sendText, sendTracked, sendTrackedMedia, retryOutbox } = await import('../backend/services/whatsappService.js');
 const { OutboxMessage } = models;
 
 await mongoose.connect(process.env.MONGODB_URI);
@@ -44,6 +45,7 @@ await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'functi
 const realFetch = globalThis.fetch;
 const wasenderCalls = []; // every Wasender API call {path, body}
 let failNextSend = false;
+let throttleNextSend = false; // simulate the ACCOUNT-PROTECTION throttle response
 
 globalThis.fetch = (url, options = {}) => {
   const u = String(url);
@@ -55,6 +57,8 @@ globalThis.fetch = (url, options = {}) => {
     if (u.endsWith('/send-message')) {
       wasenderCalls.push({ path, body });
       if (failNextSend) { failNextSend = false; return reply({ success: false, message: 'gateway down' }); }
+      if (throttleNextSend) { throttleNextSend = false;
+        return reply({ success: false, message: 'You have account protection enabled. You can only send 1 message every 5 seconds.' }); }
       return reply({ success: true, data: { msgId: 100, jid: body?.to, status: 'in_progress' } });
     }
     if (path === '/groups') {
@@ -226,6 +230,49 @@ test('E2E webhook: Wasender payload + x-webhook-signature header -> full pipelin
 test('E2E webhook: wrong signature rejected (401) — secret guard covers both gateways', async () => {
   const r = await webhook(wasenderText('hi'), { 'x-webhook-signature': 'wrong' });
   assert.equal(r.status, 401);
+});
+
+/* ---------- WASENDER ACCOUNT-PROTECTION PACING + MEDIA OUTBOX (2026-10-11) ----- */
+
+test('pacing: consecutive facade sends are spaced by sendSpacingMs (account protection)', async () => {
+  const t0 = Date.now();
+  const a = await sendText('923001112233', 'first paced');
+  const b = await sendText('923001112233', 'second paced');
+  const gap = Date.now() - t0;
+  assert.equal(a.sent, true);
+  assert.equal(b.sent, true);
+  assert.ok(gap >= 70, `second send waited for the account-protection spacing gap (took ${gap}ms)`);
+});
+
+test('account-protection throttle: burns NO attempt; the sweep re-delivers after the window', async () => {
+  throttleNextSend = true;
+  const res = await sendTracked('923001112233', 'throttled probe', { kind: 'ack', refKey: 'ap-probe-1' });
+  assert.equal(res.sent, false, 'the send really failed');
+  let row = await OutboxMessage.findOne({ refKey: 'ap-probe-1' }).lean();
+  assert.equal(row.attempts, 0, 'account-protection throttle is not a delivery failure');
+  await OutboxMessage.updateOne({ _id: row._id }, { $set: { lastTriedAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  const retry = await retryOutbox();
+  assert.ok(retry.delivered >= 1, 'sweep re-delivered once the window cleared');
+  row = await OutboxMessage.findOne({ refKey: 'ap-probe-1' }).lean();
+  assert.equal(row.status, 'sent');
+});
+
+test('sendTrackedMedia: media outbox row retried and delivered through the media payload', async () => {
+  throttleNextSend = true; // first burst throttled
+  const res = await sendTrackedMedia('923001112233', 'image',
+    { url: 'https://cdn.example/deck.png', caption: 'slide deck', filename: 'deck.png' },
+    { kind: 'broadcast', refKey: 'media-probe-1' });
+  assert.equal(res.sent, false);
+  let row = await OutboxMessage.findOne({ refKey: 'media-probe-1' }).lean();
+  assert.equal(row.url, 'https://cdn.example/deck.png', 'the url persists on the outbox row');
+  assert.equal(row.mediaKind, 'image');
+  await OutboxMessage.updateOne({ _id: row._id }, { $set: { lastTriedAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  const retry = await retryOutbox();
+  assert.ok(retry.delivered >= 1, 'sweep re-sent the media row');
+  row = await OutboxMessage.findOne({ refKey: 'media-probe-1' }).lean();
+  assert.equal(row.status, 'sent');
+  const mediaCall = wasenderCalls.filter((c) => c.body?.imageUrl === 'https://cdn.example/deck.png');
+  assert.ok(mediaCall.length, 'the retry went out as a real image send');
 });
 
 test('UltraMsg payloads PASS THROUGH unchanged — byte-identical legacy path', async () => {

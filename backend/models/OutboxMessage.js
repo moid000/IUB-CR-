@@ -28,7 +28,13 @@ const outboxSchema = new Schema(
       index: true,
     },
     attempts: { type: Number, default: 0 },
-    lastError: { type: String, default: '', maxlength: 300 },
+    lastError: { type: String, default: '' },
+  // WASENDER 2026-10-11: media rows (broadcast attachments) retry through
+  // the same outbox — a throttled/partial burst is finished by the sweep
+  // instead of silently losing files.
+  url: { type: String, default: '' },
+  mediaKind: { type: String, default: '' },
+  filename: { type: String, default: '' },
     sentAt: { type: Date, default: null },
     lastTriedAt: { type: Date, default: null },
   },

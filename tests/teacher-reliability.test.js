@@ -165,7 +165,8 @@ test.afterEach(async () => {
   geminiClassify = null; geminiApproval = null; geminiChatReply = null; geminiAnswer = null;
   failSendsTo = null; rateLimitSends = false; failNextCloudinary = false; cloudinaryUploads = 0; lastGeminiBody = '';
   await Promise.all([OutboxMessage.deleteMany({}), TeacherMaterial.deleteMany({}), TeacherQuestion.deleteMany({}),
-    Note.deleteMany({}), Notification.deleteMany({}), Timetable.deleteMany({})]);
+    Note.deleteMany({}), Notification.deleteMany({}), Timetable.deleteMany({}),
+    models.WhatsAppEvent.deleteMany({})]);
   await Teacher.updateMany({}, { $set: { conversation: [], lastChatMsgId: '' } });
 });
 
@@ -623,6 +624,50 @@ test('THROTTLE 3: rate-limited CR question dispatch does not burn crNotifyAttemp
   await runTeacherQuestionSweep();
   task = await TeacherQuestion.findOne({ _id: task._id }).lean();
   assert.ok(task.crNotifiedAt, 'CR finally got the question once the throttle cleared');
+});
+
+/* ------ WEBHOOK OBSERVABILITY + BACKOFF TIERS (owner spec 2026-10-11) ------ */
+
+test('WEBHOOK EVENTS: every accepted inbound recorded; provider redelivery flagged', async () => {
+  const payload = incoming('Sir, sab theek hai?');
+  payload.data.id = 'fixed-webhook-id-1';
+  await webhook(payload);
+  let events = await models.WhatsAppEvent.find({ msgId: 'fixed-webhook-id-1' }).lean();
+  assert.equal(events.length, 1, 'the event is recorded');
+  assert.equal(events[0].redelivery, false);
+  assert.equal(events[0].chatType, 'direct');
+  await webhook(payload); // the provider redelivers the SAME id
+  events = await models.WhatsAppEvent.find({ msgId: 'fixed-webhook-id-1' }).sort({ at: 1 }).lean();
+  assert.equal(events.length, 2, 'the redelivery is recorded too');
+  assert.equal(events[1].redelivery, true, 'flagged as a redelivery');
+});
+
+test('OUTBOX BACKOFF: fast tier 5-min, slow tier hourly, dead after 12 attempts', async () => {
+  const mk = (attempts, minutesAgo, tag) => OutboxMessage.create({ phone: '923001112233', kind: 'ack',
+    refKey: `bo-${tag}`, body: `backoff probe ${tag}`, status: 'failed',
+    attempts, lastTriedAt: new Date(Date.now() - minutesAgo * 60 * 1000) });
+  await mk(5, 6, 'fast-due');       // fast tier due (6 min > 5 min)
+  await mk(7, 30, 'slow-not-due');  // slow tier NOT due (30 min < 1 h)
+  await mk(8, 90, 'slow-due');     // slow tier due (90 min > 1 h)
+  await mk(13, 200, 'dead');       // beyond 12 attempts — never retried
+  const retry = await retryOutbox();
+  assert.equal(retry.delivered, 2, 'only the due fast + slow rows were re-delivered');
+  const rows = await OutboxMessage.find({ refKey: /^bo-/ }).lean();
+  const sent = rows.filter((r) => r.status === 'sent').map((r) => r.refKey).sort();
+  assert.deepEqual(sent, ['bo-fast-due', 'bo-slow-due'], 'exactly the due rows delivered');
+  const dead = rows.find((r) => r.refKey === 'bo-dead');
+  assert.equal(dead.status, 'failed', 'dead row untouched, no infinite retry');
+});
+
+test('CR DISPATCH BACKOFF: a question throttled to the cap is resurrected by the hourly slow tier', async () => {
+  await TeacherQuestion.create({ teacher: teacher._id, teacherName: teacher.name ?? 'Teacher', phone: '923001112233',
+    section: section1M, question: 'Sir, kal ki class confirm hai?', questionKey: 'kal-ki-class-backoff-probe',
+    refCode: 'Q-BKOF', crUser: crUser._id, crNotifyAttempts: 6, // burned to the cap by the pre-guard trial throttles
+    lastCrNotifyAt: new Date(Date.now() - 90 * 60 * 1000) });
+  await runTeacherQuestionSweep();
+  const task = await TeacherQuestion.findOne({ refCode: 'Q-BKOF' }).lean();
+  assert.ok(task.crNotifiedAt, 'the slow tier re-dispatched the dead question to the CR');
+  assert.equal(task.crNotifyAttempts, 7, 'the slow-tier attempt is honestly counted');
 });
 
 test('TEST P (spec §5): a non-answer CR reply ("ok ji") → clarification asked, NEVER treated as the answer', async () => {
