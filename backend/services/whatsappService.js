@@ -23,6 +23,27 @@ export const sendDocument = (to, url, filename, caption) => impl().sendDocument(
 export const sendAudio = (to, url) => impl().sendAudio(to, url);
 export const sendVideo = (to, url, caption) => impl().sendVideo(to, url, caption);
 export const listGroups = () => impl().listGroups();
+
+/**
+ * Group meta WITHOUT triggering per-group roster fetches (Wasender rate
+ * limit). UltraMsg fallback: its single /groups call already carries
+ * participants, so the meta objects keep them — the caller detects that
+ * single-call shape and skips per-group fetches entirely.
+ */
+export async function listGroupMeta() {
+  const i = impl();
+  if (typeof i.listGroupMeta === 'function') return i.listGroupMeta();
+  return i.listGroups();
+}
+
+/** One group's roster (bare intl digits). UltraMsg fallback derives it
+ *  from its single-call listGroups() result. Throws on failure. */
+export async function getGroupParticipants(groupId) {
+  const i = impl();
+  if (typeof i.getGroupParticipants === 'function') return i.getGroupParticipants(groupId);
+  const all = await i.listGroups();
+  return (all.find((g) => g.id === groupId)?.participants) ?? [];
+}
 export const postForm = (url, params) => impl().postForm(url, params);
 export const sleep = (ms) => impl().sleep(ms);
 

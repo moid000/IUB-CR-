@@ -1,7 +1,7 @@
-import { Section, Subject } from '../models/index.js';
+import { Section, Subject, GroupRosterCache } from '../models/index.js';
 import { ApiError } from '../middleware/error.js';
 import { auditFromReq } from '../utils/audit.js';
-import { sendText, sendImage, sendDocument, sendAudio, sendVideo, listGroups, isConfigured } from './whatsappService.js';
+import { sendText, sendImage, sendDocument, sendAudio, sendVideo, listGroupMeta, getGroupParticipants, isConfigured } from './whatsappService.js';
 import { normalizeWhatsApp } from './teacherService.js';
 import { env } from '../config/env.js';
 import * as v from '../utils/validators.js';
@@ -112,10 +112,68 @@ function myGroups(all, user) {
   return { phone: crPhone, groups: mine };
 }
 
+/* ------------------- roster cache (Wasender rate limits) ------------------ *
+ * Wasender caps the per-group participants endpoint at 10 requests/min
+ * (trial and paid) — the old "fetch all rosters on every refresh" burst
+ * silently emptied most lists on 429s and the CR saw ZERO groups. Rosters
+ * are now persisted (GroupRosterCache) and re-used within a TTL; each
+ * refresh fetches at most ROSTER_FETCH_BUDGET stale/missing rosters, spaced
+ * out, and falls back to the last cached roster when a fetch fails. */
+const ROSTER_TTL_MS = 15 * 60 * 1000; // membership is stable; 15 min is fresh enough
+const ROSTER_FETCH_BUDGET = 8;         // hard cap under Wasender's 10/min roster limit
+const ROSTER_SPACING_MS = Number(process.env.WHATSAPP_ROSTER_SPACING_MS || 700); // polite pacing within a refresh burst (0 in tests)
+const nap = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function saveRoster(groupId, participants) {
+  await GroupRosterCache.updateOne(
+    { groupId },
+    { $set: { participants, fetchedAt: new Date() } },
+    { upsert: true },
+  );
+}
+
+/** Every gateway group, each with a participant roster, within rate limits. */
+export async function listGroupsCached() {
+  const groups = await listGroupMeta();
+  if (!groups.length) return [];
+  // UltraMsg's single-call meta already carries participants — cache + done.
+  if (Array.isArray(groups[0]?.participants)) {
+    await Promise.all(groups.map((g) => saveRoster(g.id, g.participants ?? [])));
+    return groups.map(({ id, name, participants }) => ({ id, name, participants }));
+  }
+  const now = Date.now();
+  const cachedRows = await GroupRosterCache.find({ groupId: { $in: groups.map((g) => g.id) } }).lean();
+  const cache = new Map(cachedRows.map((r) => [r.groupId, r]));
+  let fetched = 0;
+  for (const g of groups) {
+    const c = cache.get(g.id);
+    const fresh = c && now - new Date(c.fetchedAt).getTime() < ROSTER_TTL_MS;
+    if (fresh) {
+      g.participants = c.participants;
+      continue;
+    }
+    if (fetched >= ROSTER_FETCH_BUDGET) {
+      // out of rate budget — serve stale data, never an empty list
+      g.participants = c ? c.participants : [];
+      continue;
+    }
+    fetched += 1;
+    try {
+      g.participants = await getGroupParticipants(g.id);
+      await saveRoster(g.id, g.participants);
+    } catch {
+      // rate-limited or transient failure — stale-if-error, never fake-empty
+      g.participants = c ? c.participants : [];
+    }
+    await nap(ROSTER_SPACING_MS);
+  }
+  return groups;
+}
+
 /** Fresh group list straight from the gateway — the CR's "Refresh" button. */
 export async function refreshGroupsCr(req) {
   await ownSection(req); // a sectionless CR/GR can never configure broadcasts
-  const all = await listGroups();
+  const all = await listGroupsCached();
   const { phone, groups: mine } = myGroups(all, req.user);
   if (!phone) {
     // CR has no usable WhatsApp number on their profile — nothing can match.
@@ -134,7 +192,7 @@ export async function refreshGroupsCr(req) {
 async function assertLinkableGroup(req, rawGroupId) {
   const id = v.assertText(rawGroupId, 'groupId').trim();
   if (!GROUP_ID_RE.test(id)) throw new ApiError(400, 'Invalid WhatsApp group id');
-  const all = await listGroups();
+  const all = await listGroupsCached();
   const { phone, groups: mine } = myGroups(all, req.user);
   if (!phone) {
     throw new ApiError(400, 'Your profile has no WhatsApp number — ask the admin to add it first');

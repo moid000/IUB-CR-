@@ -24,6 +24,7 @@ export { default as WipeVerification } from './WipeVerification.js';
 export { default as ChatbotLog } from './ChatbotLog.js';
 export { default as VoiceDiag } from './VoiceDiag.js';
 export { default as ChatbotSetting } from './ChatbotSetting.js';
+export { default as GroupRosterCache } from './GroupRosterCache.js';
 export { default as ExperienceExample } from './ExperienceExample.js';
 export { default as TeacherMaterial } from './TeacherMaterial.js';
 export { default as TeacherQuestion } from './TeacherQuestion.js';

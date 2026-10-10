@@ -126,12 +126,16 @@ export function sendVideo(to, url, caption) {
 }
 
 /**
- * Lists every WhatsApp group the paired number belongs to, with participants.
- * Wasender's group LIST carries no participants, so each group's participant
- * roster is fetched in parallel (capped) — the CR privacy filter needs it.
- * Same normalized return shape as the UltraMsg implementation.
+ * Group LIST only — NO participants. Wasender's group list endpoint is
+ * cheaply rate-limited, but its per-group participants endpoint is capped at
+ * 10 requests/min (trial AND paid), so roster fetches are budgeted and
+ * DB-cached by the caller (whatsappGroupService.listGroupsCached). This
+ * split mirrors the UltraMsg contract through the facade fallback.
+ * NOTE: returns {id, name} WITHOUT a participants field — the presence of
+ * participants on the meta objects is how the service detects the
+ * single-call UltraMsg roster shape.
  */
-export async function listGroups() {
+export async function listGroupMeta() {
   if (!isConfigured()) {
     throw new ApiError(503, 'WhatsApp gateway is not configured');
   }
@@ -139,22 +143,49 @@ export async function listGroups() {
   if (!ok || json?.success === false || !Array.isArray(json?.data)) {
     throw new ApiError(502, `WhatsApp groups fetch failed: ${json?.message || `HTTP ${status}`}`);
   }
-  const groups = json.data
-    .map((g) => ({ id: String(g?.id ?? ''), name: String(g?.name ?? g?.subject ?? (g?.id || 'Group')), participants: [] }))
+  return json.data
+    .map((g) => ({ id: String(g?.id ?? ''), name: String(g?.name ?? g?.subject ?? (g?.id || 'Group')) }))
     .filter((g) => g.id.endsWith('@g.us'));
-  // fill participants (privacy filter depends on them) — parallel, cap 25
-  const roster = await Promise.allSettled(
-    groups.slice(0, 25).map((g) =>
-      postJson(`/groups/${encodeURIComponent(g.id)}/participants`).then((r) => {
-        if (!r.ok || r.json?.success === false) return [];
-        const list = Array.isArray(r.json?.data) ? r.json.data : [];
-        return list.map((p) => String(p?.pn ?? '').replace(/[^\d]/g, '')).filter(Boolean);
-      })),
-  );
-  groups.forEach((g, i) => {
-    const r = roster[i];
-    if (r && r.status === 'fulfilled') g.participants = r.value;
-  });
+}
+
+/**
+ * One group's participant roster as bare intl digit strings (same shape the
+ * UltraMsg listGroups put in group.participants). Throws on failure so the
+ * caller's stale-cache fallback can engage — a rate-limited fetch must NEVER
+ * silently look like an empty roster.
+ */
+export async function getGroupParticipants(groupId) {
+  if (!isConfigured()) {
+    throw new ApiError(503, 'WhatsApp gateway is not configured');
+  }
+  const id = String(groupId ?? '');
+  if (!id.endsWith('@g.us')) throw new ApiError(400, 'Invalid WhatsApp group id');
+  const { ok, status, json } = await postJson(`/groups/${encodeURIComponent(id)}/participants`);
+  if (!ok || json?.success === false || !Array.isArray(json?.data)) {
+    throw new ApiError(502, `Group participants fetch failed: ${json?.message || `HTTP ${status}`}`);
+  }
+  return json.data
+    .map((p) => String(p?.pn ?? '').replace(/[^\d]/g, ''))
+    .filter(Boolean);
+}
+
+/**
+ * Lists every WhatsApp group with participants. Kept for the facade contract
+ * (UltraMsg parity) and tools — the CR refresh path uses the budgeted,
+ * cached orchestration instead. Participant fetches run SERIALLY with a
+ * spacing (Wasender caps this endpoint at 10 req/min); the old parallel
+ * burst silently emptied most rosters on 429s.
+ */
+export async function listGroups({ spacingMs = 700, cap = 25 } = {}) {
+  const groups = await listGroupMeta();
+  for (const g of groups.slice(0, cap)) {
+    try {
+      g.participants = await getGroupParticipants(g.id);
+    } catch {
+      g.participants = [];
+    }
+    await sleep(spacingMs);
+  }
   return groups;
 }
 

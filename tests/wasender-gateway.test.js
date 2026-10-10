@@ -130,11 +130,25 @@ test('media sends: image/video/audio/document parameters + caption/fileName', as
 });
 
 test('listGroups: roster fetched per group, digits-only participants', async () => {
-  const groups = await wasender.listGroups();
+  const groups = await wasender.listGroups({ spacingMs: 0 });
   assert.equal(groups.length, 2);
   const testing = groups.find((g) => g.name === 'Testing group');
   assert.ok(testing.id.endsWith('@g.us'));
   assert.deepEqual(testing.participants, ['923009876543', '923005556667']);
+});
+
+test('listGroupMeta: ids + names WITHOUT participants field (single-call detection)', async () => {
+  const meta = await wasender.listGroupMeta();
+  assert.equal(meta.length, 2);
+  assert.ok(meta.every((g) => g.id.endsWith('@g.us') && typeof g.name === 'string'));
+  // participants must be ABSENT — its presence means the UltraMsg single-call shape
+  assert.ok(meta.every((g) => !('participants' in g)));
+});
+
+test('getGroupParticipants: digits-only roster; throws on failure', async () => {
+  const parts = await wasender.getGroupParticipants('120363AAA@g.us');
+  assert.deepEqual(parts, ['923009876543', '923005556667']);
+  await assert.rejects(() => wasender.getGroupParticipants('not-a-group-id'), /Invalid WhatsApp group id/);
 });
 
 test('normalizer: private text payload -> exact UltraMsg shape', async () => {
