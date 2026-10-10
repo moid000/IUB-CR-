@@ -1,0 +1,168 @@
+import { env } from '../config/env.js';
+import { ApiError } from '../middleware/error.js';
+
+/**
+ * WhatsApp delivery — ULTRAMSG gateway implementation (preserved verbatim,
+ * 2026-10-10 Wasender migration; git tag backup-ultramsg-gateway-2026-10-10).
+ *
+ * The gateway selector now lives in whatsappService.js (the facade); callers
+ * import ONLY from there. This file is byte-equivalent to the pre-migration
+ * service except that the gateway-agnostic outbox functions (sendTracked /
+ * retryOutbox) moved up into the facade so BOTH gateways share them.
+ *
+ * Numbers are international digits WITHOUT '+' (e.g. 923001234567) — exactly
+ * the format UltraMsg expects, and the format teacherService normalizes to.
+ */
+
+const SEND_TIMEOUT_MS = 20_000;
+
+export function isConfigured() {
+  return Boolean(env.whatsapp.instanceId && env.whatsapp.token);
+}
+
+function endpoint(path) {
+  const base = (env.whatsapp.apiUrl || 'https://api.ultramsg.com').replace(/\/+$/, '');
+  return `${base}/${env.whatsapp.instanceId}${path}`;
+}
+
+/**
+ * Low-level POST via global fetch (kept in one place so tests can stub
+ * globalThis.fetch to simulate the gateway without any network).
+ */
+export async function postForm(url, params) {
+  const body = new URLSearchParams(params);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* non-JSON gateway response */ }
+    return { ok: res.ok, status: res.status, json };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Sends a plain-text WhatsApp message (WhatsApp *bold* markers supported).
+ * Throws ApiError on any gateway failure — callers decide retry semantics.
+ */
+export async function sendText(to, body, mentioned = []) {
+  if (!isConfigured()) {
+    throw new ApiError(503, 'WhatsApp gateway is not configured');
+  }
+  const form = {
+    token: env.whatsapp.token,
+    to,
+    body,
+  };
+  // group mentions: body must contain "@<number>", mentionedIds carries the
+  // array (UltraMsg accepts it as a JSON-encoded form value)
+  if (Array.isArray(mentioned) && mentioned.length) {
+    form.mentionedIds = JSON.stringify(mentioned.map((m) => String(m).replace(/[^\d]/g, '')).filter(Boolean));
+  }
+  const { ok, status, json } = await postForm(endpoint('/messages/chat'), form);
+
+  if (!ok || json?.error) {
+    const detail = json?.error || `HTTP ${status}`;
+    throw new ApiError(502, `WhatsApp send failed: ${detail}`);
+  }
+  return json;
+}
+
+/* --------------------------- media sends -------------------------------- */
+
+/**
+ * Shared send path for all media endpoints (image/document/audio/video).
+ * Same contract as sendText: throws ApiError on gateway failure.
+ */
+async function sendMedia(path, params) {
+  if (!isConfigured()) {
+    throw new ApiError(503, 'WhatsApp gateway is not configured');
+  }
+  const { ok, status, json } = await postForm(endpoint(path), {
+    token: env.whatsapp.token,
+    to: params.to,
+    ...params.media,
+  });
+  if (!ok || json?.error) {
+    const detail = json?.error || `HTTP ${status}`;
+    throw new ApiError(502, `WhatsApp send failed: ${detail}`);
+  }
+  return json;
+}
+
+/**
+ * Sends an image by PUBLIC URL (UltraMsg downloads it server-side).
+ * Cloudinary secure_urls are public, so attachments can be passed as-is.
+ */
+export function sendImage(to, imageUrl, caption) {
+  const media = { image: imageUrl };
+  if (caption) media.caption = String(caption).slice(0, 1024);
+  return sendMedia('/messages/image', { to, media });
+}
+
+/** Sends a document (PDF/DOC/XLS/ZIP/…) by URL, with a display filename and optional caption (2026-09-20: lets a document carry the post text so it doesn't need a separate chat message). */
+export function sendDocument(to, url, filename, caption) {
+  const media = { document: url };
+  if (filename) media.filename = String(filename).slice(0, 255);
+  if (caption) media.caption = String(caption).slice(0, 1024);
+  return sendMedia('/messages/document', { to, media });
+}
+
+/** Sends an audio file by URL — arrives as a playable audio message. */
+export function sendAudio(to, url) {
+  return sendMedia('/messages/audio', { to, media: { audio: url } });
+}
+
+/** Sends a video file by URL. */
+export function sendVideo(to, url, caption) {
+  const media = { video: url };
+  if (caption) media.caption = String(caption).slice(0, 1024);
+  return sendMedia('/messages/video', { to, media });
+}
+
+/**
+ * Lists every WhatsApp group the paired number currently belongs to.
+ * Returns a normalized [{ id, name, participants }] — participants are
+ * member numbers as bare international digits (e.g. 923019670950),
+ * extracted from the vendor's groupMetadata. The caller (CR group picker)
+ * never sees raw vendor payloads. Empty array simply means the number has
+ * not been added to any group yet.
+ */
+export async function listGroups() {
+  if (!isConfigured()) {
+    throw new ApiError(503, 'WhatsApp gateway is not configured');
+  }
+  const url = `${endpoint('/groups')}?token=${encodeURIComponent(env.whatsapp.token)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* non-JSON gateway response */ }
+  if (!res.ok || json?.error) {
+    throw new ApiError(502, `WhatsApp groups fetch failed: ${json?.error || `HTTP ${res.status}`}`);
+  }
+  if (!Array.isArray(json)) {
+    throw new ApiError(502, 'Unexpected WhatsApp groups response');
+  }
+  return json
+    .map((g) => {
+      if (typeof g === 'string') return { id: g, name: g, participants: [] };
+      const id = String(g?.id ?? '');
+      const participants = Array.isArray(g?.groupMetadata?.participants)
+        ? g.groupMetadata.participants
+            .map((p) => String(p?.id ?? '').split('@')[0].replace(/[^\d]/g, ''))
+            .filter(Boolean)
+        : [];
+      return { id, name: String(g?.name ?? (id || 'Group')), participants };
+    })
+    .filter((g) => g.id); // skip malformed entries
+}
+
+export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

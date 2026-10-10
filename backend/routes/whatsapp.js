@@ -19,6 +19,9 @@ import { runTeacherQuestionSweep } from '../services/teacherQuestionService.js';
 import { handleGroupMessage } from '../services/chatbotService.js';
 // OWNER RELIABILITY SPEC §9 (2026-10-10): outbox delivery tracking + retry
 import { retryOutbox } from '../services/whatsappService.js';
+// OWNER 2026-10-10: Wasender webhook payloads are converted into the UltraMsg
+// shape BEFORE any handler runs — UltraMsg payloads pass through untouched.
+import { normalizeIncomingPayload } from '../services/wasenderPayload.js';
 
 /**
  * External pinger endpoints (cron-job.org hits this every ~5 minutes).
@@ -169,13 +172,18 @@ router.post('/teacher-reply', async (req, res, next) => {
   try {
     const expected = env.whatsapp.webhookSecret;
     if (!expected) throw new ApiError(503, 'Teacher reply webhook is not configured');
-    const given = req.get('x-webhook-secret') || req.query.key;
+    // Wasender sends its secret as X-Webhook-Signature; UltraMsg uses
+    // x-webhook-secret / ?key — both are accepted, one shared secret.
+    const given = req.get('x-webhook-secret') || req.get('x-webhook-signature') || req.query.key;
     if (!given || !constantTimeEqual(given, expected)) throw new ApiError(401, 'Invalid webhook secret');
+    // Wasender payloads are normalized into the UltraMsg shape here —
+    // every downstream handler sees the exact payload it has always seen.
+    const payload = await normalizeIncomingPayload(req.body);
     // Group messages go to the chatbot FIRST; when it is disabled or the
     // message is not a group message this is a no-op and the teacher flow
     // runs exactly as before.
-    const botHandled = await handleGroupMessage(req.body);
-    const updated = botHandled ? false : await handleTeacherReply(req.body);
+    const botHandled = await handleGroupMessage(payload);
+    const updated = botHandled ? false : await handleTeacherReply(payload);
     res.json({ success: true, data: { updated } });
   } catch (err) { next(err); }
 });

@@ -191,6 +191,36 @@ async function alertOncePer(kind, subject, text) {
  * "Extend trial" button was auto-pressed. Never throws.
  */
 export async function runWatchdog() {
+  // OWNER 2026-10-10: on the Wasender gateway there is no trial to renew —
+  // the watchdog's job becomes a SESSION-HEALTH check (paid plan, session must
+  // stay 'connected'). The UltraMsg flow below stays untouched for rollback.
+  if (env.whatsapp?.gateway === 'wasender') {
+    let connected = false; let detail = '';
+    try {
+      const base = String(env.wasender?.apiUrl || 'https://wasenderapi.com/api').replace(/\/+$/, '');
+      const res = await fetch(`${base}/status`, { headers: { authorization: `Bearer ${env.wasender.apiKey}` }, signal: AbortSignal.timeout(20_000) });
+      const json = await res.json().catch(() => null);
+      connected = json?.status === 'connected';
+      detail = json?.status ?? `HTTP ${res.status}`;
+    } catch (err) { detail = String(err?.message ?? err).slice(0, 200); }
+    try {
+      await WatchdogState.updateOne({ key: 'watchdog:last-run' }, { $set: { lastSentAt: new Date() } }, { upsert: true });
+    } catch { /* best-effort */ }
+    if (connected) {
+      try {
+        await WatchdogState.updateOne({ key: 'watchdog:last-renewal' }, { $set: { lastSentAt: new Date(), value: 'wasender:connected' } }, { upsert: true });
+        await WatchdogState.deleteOne({ key: 'watchdog:last-extend-error' });
+      } catch { /* best-effort */ }
+      return { gateway: 'wasender', status: 'connected' };
+    }
+    const alert = await alertOncePer(
+      'watchdog:wasender-session',
+      'Tri3M watchdog: Wasender session NOT connected',
+      `Session status: ${detail}. WhatsApp delivery is paused — log in to wasenderapi.com, open the session and reconnect (QR scan if needed).`,
+    );
+    try { await WatchdogState.updateOne({ key: 'watchdog:last-extend-error' }, { $set: { value: `wasender session: ${detail}`.slice(0, 300), lastSentAt: new Date() } }, { upsert: true }); } catch { /* best-effort */ }
+    return { gateway: 'wasender', status: detail, alerted: alert };
+  }
   const report = await watchdogPass();
   if (report?.configured === false) return report;
   try {

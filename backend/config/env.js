@@ -3,6 +3,12 @@ import 'dotenv/config';
 const REQUIRED = ['MONGODB_URI', 'JWT_SECRET'];
 
 export const env = {
+  // WasenderApi session-scoped API key (send/media/groups — account-level
+  // endpoints would need a Personal Access Token, which we do not use).
+  wasender: {
+    apiKey: process.env.WASENDER_API_KEY,
+    apiUrl: process.env.WASENDER_API_URL || 'https://wasenderapi.com/api',
+  },
   nodeEnv: process.env.NODE_ENV || 'development',
   isProd: process.env.NODE_ENV === 'production',
   mongoUri: process.env.MONGODB_URI,
@@ -33,6 +39,9 @@ export const env = {
     dashboardPassword: process.env.ULTRAMSG_DASHBOARD_PASSWORD,
     instanceNumber: process.env.ULTRAMSG_INSTANCE_NUMBER,
     gatewayPhone: process.env.ULTRAMSG_GATEWAY_PHONE,
+    // OWNER 2026-10-10: gateway selector — 'ultramsg' (default, unchanged
+    // behavior) or 'wasender'. One variable = one rollback.
+    gateway: process.env.WHATSAPP_GATEWAY || 'ultramsg',
     alertEmails: (process.env.WHATSAPP_WATCHDOG_ALERT_EMAILS || '')
       .split(',')
       .map((email) => email.trim())
