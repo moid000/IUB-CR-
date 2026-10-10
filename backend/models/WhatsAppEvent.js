@@ -14,6 +14,9 @@ const schema = new mongoose.Schema({
   msgType: { type: String, default: 'chat' },
   redelivery: { type: Boolean, default: false }, // provider re-sent an id we had seen
   at: { type: Date, default: Date.now },
+  // INVESTIGATION 2026-10-11: raw payload STRUCTURE (keys only, values
+  // redacted) — proves what the provider actually sends vs what we expect.
+  rawShape: { type: String, default: '' },
 }, { timestamps: true });
 
 export default mongoose.models.WhatsAppEvent || mongoose.model('WhatsAppEvent', schema);

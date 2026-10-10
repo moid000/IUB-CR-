@@ -152,6 +152,45 @@ router.get('/ops-diagnostics', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/** TEMP INVESTIGATION ROUTE (2026-10-11 targeted bug audit, owner-requested)
+ * — READ-ONLY evidence view: raw webhook events, question/task state, real
+ * DB mappings (teachers/CRs/sections), outbox + material pipelines. Same
+ * sweep-secret guard as ops-diagnostics. REMOVED once the audit closes. */
+router.get('/invdiag', async (req, res, next) => {
+  try {
+    assertSweepSecret(req);
+    const { WhatsAppEvent, TeacherQuestion, TeacherMaterial, Teacher, User, Section, OutboxMessage } = await import('../models/index.js');
+    const threeHAgo = new Date(Date.now() - 3 * 3600 * 1000);
+    const [events, questions, materials, outbox, teachers, sections] = await Promise.all([
+      WhatsAppEvent.find({ at: { $gte: threeHAgo } }).sort({ at: -1 }).limit(60).lean(),
+      TeacherQuestion.find({ askedAt: { $gte: new Date(Date.now() - 26 * 3600 * 1000) } }).sort({ askedAt: -1 }).limit(25).lean(),
+      TeacherMaterial.find({ createdAt: { $gte: threeHAgo } }).sort({ createdAt: -1 }).limit(20).lean(),
+      OutboxMessage.find({ updatedAt: { $gte: threeHAgo } }).sort({ updatedAt: -1 }).limit(40).lean(),
+      Teacher.find({}).select('name whatsapp subject section').populate('subject', 'name').populate('section', 'name semester').limit(30).lean(),
+      Section.find({}).populate('department', 'name').select('name semester department cr gr whatsappGroup').limit(15).lean(),
+    ]);
+    const crIds = [...new Set([...questions.map((q) => q.crUser), ...sections.map((s) => s.cr), ...sections.map((s) => s.gr)].filter(Boolean))];
+    const crs = crIds.length ? await User.find({ _id: { $in: crIds } }).select('name role phone').lean() : [];
+    res.json({ success: true, data: {
+      events: events.map((e) => ({ at: e.at, msgId: String(e.msgId).slice(-14), from: e.from,
+        chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery, rawShape: e.rawShape || null })),
+      questions: questions.map((q) => ({ ref: q.refCode, at: q.askedAt, teacherName: q.teacherName,
+        phone: q.phone, section: q.section, crUser: q.crUser, status: q.status,
+        attempts: q.crNotifyAttempts, notifiedAt: q.crNotifiedAt ?? null, lastCrAt: q.lastCrNotifyAt ?? null,
+        question: String(q.question).slice(0, 80) })),
+      materials: materials.map((m) => ({ at: m.createdAt, phone: m.phone,
+        filename: String(m.filename ?? '').slice(0, 60), status: m.status, sha: (m.sha256 ?? '').slice(0, 12) })),
+      outbox: outbox.map((o) => ({ at: o.updatedAt, kind: o.kind, refKey: o.refKey, phone: o.phone,
+        status: o.status, attempts: o.attempts, error: String(o.lastError ?? '').slice(0, 150), hasUrl: Boolean(o.url) })),
+      crs,
+      teachers: teachers.map((t) => ({ name: t.name, phone: t.whatsapp,
+        subject: t.subject?.name ?? null, section: t.section?.name ?? null })),
+      sections: sections.map((s) => ({ name: s.name, sem: s.semester, dept: s.department?.name ?? null,
+        group: s.whatsappGroup?.id ?? null })),
+    } });
+  } catch (err) { next(err); }
+});
+
 /**
  * Gateway watchdog — cron-job.org pings this hourly (same secret guard).
  * Checks the UltraMsg instance; renews the trial over plain HTTP if it
@@ -186,6 +225,10 @@ router.post('/watchdog', watchdogHandle);
 /** UltraMsg inbound replies. Secret lives ONLY in Vercel and in the gateway's
  * webhook URL, separate from the existing cron secret. Invalid/unrelated
  * messages are acknowledged silently; no WhatsApp auto-reply spam. */
+function rawMessageBodyHas(body) {
+  return typeof body?.data?.body === 'string' && body.data.body.length > 0;
+}
+
 router.post('/teacher-reply', async (req, res, next) => {
   try {
     const expected = env.whatsapp.webhookSecret;
@@ -196,23 +239,42 @@ router.post('/teacher-reply', async (req, res, next) => {
     if (!given || !constantTimeEqual(given, expected)) throw new ApiError(401, 'Invalid webhook secret');
     // Wasender payloads are normalized into the UltraMsg shape here —
     // every downstream handler sees the exact payload it has always seen.
-    const payload = await normalizeIncomingPayload(req.body);
-    // OBSERVABILITY (2026-10-11, owner spec item 9): record every accepted
-    // inbound event (id + sender only, never bodies) so ops-diagnostics can
-    // prove webhook health and surface provider redelivery storms.
+    // AUDIT RECORDING 2026-10-11 (owner bug investigation): record the event
+    // BEFORE normalization with RAW evidence — remoteJid vs cleanedSenderPn
+    // (LID bug), raw message kind (file events), payload structure. Values
+    // are redacted: sender digits only, never bodies, never URLs.
     try {
       const { WhatsAppEvent } = await import('../models/index.js');
-      const msgId = String(payload?.data?.id ?? '').slice(0, 220);
-      if (msgId) {
-        const seen = await WhatsAppEvent.findOne({ msgId }).lean();
-        await WhatsAppEvent.create({ msgId,
-          from: String(payload?.data?.from ?? '').slice(0, 120),
-          author: String(payload?.data?.author ?? '').slice(0, 120),
-          chatType: String(payload?.data?.from ?? '').endsWith('@g.us') ? 'group' : 'direct',
-          msgType: String(payload?.data?.type ?? 'chat'),
-          redelivery: Boolean(seen) }).catch(() => {});
+      const rawMsg = req.body?.data?.messages ?? {};
+      const rawKey = rawMsg?.key ?? {};
+      const rawMessage = rawMsg?.message ?? {};
+      const shapeOf = (v, depth = 0) => {
+        if (depth > 4) return '…';
+        if (Array.isArray(v)) return v.length ? [shapeOf(v[0], depth + 1)] : [];
+        if (v && typeof v === 'object') {
+          const out = {};
+          for (const k of Object.keys(v).slice(0, 30)) out[k] = shapeOf(v[k], depth + 1);
+          return out;
+        }
+        return typeof v;
+      };
+      const MEDIA_KEYS = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
+      const rawKind = MEDIA_KEYS.find((k) => rawMessage?.[k])?.replace('Message', '')
+        ?? (rawMessage?.conversation !== undefined || rawMessageBodyHas(req.body) ? 'chat'
+          : Object.keys(rawMessage)[0] ?? 'unknown');
+      const rawId = String(rawKey?.id ?? req.body?.data?.id ?? '').slice(0, 220);
+      const rawFrom = String(rawKey?.remoteJid ?? req.body?.data?.from ?? '').slice(0, 120)
+        + (rawKey?.cleanedSenderPn ? ` |pn:${String(rawKey.cleanedSenderPn).slice(0, 18)}` : ' |pn:NONE')
+        + (rawKey?.cleanedParticipantPn ? ` |part:${String(rawKey.cleanedParticipantPn).slice(0, 18)}` : '');
+      if (rawId) {
+        const seen = await WhatsAppEvent.findOne({ msgId: rawId }).lean();
+        await WhatsAppEvent.create({ msgId: rawId, from: rawFrom, author: '',
+          chatType: String(rawKey?.remoteJid ?? '').endsWith('@g.us') ? 'group' : 'direct',
+          msgType: String(rawKind), redelivery: Boolean(seen),
+          rawShape: JSON.stringify(shapeOf(req.body)).slice(0, 1500) }).catch(() => {});
       }
-    } catch { /* diagnostics must never block the flow */ }
+    } catch { /* audit must never block the flow */ }
+    const payload = await normalizeIncomingPayload(req.body);
     // Group messages go to the chatbot FIRST; when it is disabled or the
     // message is not a group message this is a no-op and the teacher flow
     // runs exactly as before.
