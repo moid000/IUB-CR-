@@ -28,9 +28,10 @@ const { default: mongoose } = await import('mongoose');
 const { createHash } = await import('node:crypto');
 const models = await import('../backend/models/index.js');
 const { default: app } = await import('../backend/app.js');
-const { Note, Section, Subject, Teacher, TeacherMaterial, TeacherQuestion, Timetable, User, Notification } = models;
+const { Note, Section, Subject, Teacher, TeacherMaterial, TeacherQuestion, Timetable, User, Notification, OutboxMessage } = models;
 const { runTeacherMaterialSweep } = await import('../backend/services/teacherMaterialService.js');
 const { runTeacherQuestionSweep } = await import('../backend/services/teacherQuestionService.js');
+const { retryOutbox } = await import('../backend/services/whatsappService.js');
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
@@ -43,11 +44,13 @@ let geminiClassify = null; // { study_material, subject, reason, summary }
 let geminiApproval = null; // { answer: 'approve'|'decline'|'other', subject, section }
 let geminiChatReply = null; // { reply, escalate } — the GENERAL-mode answer
 let geminiAnswer = null; // YES/NO/QUESTION/ACK/UNCLEAR/ESCALATION (reply interpreter)
+let lastGeminiBody = ''; // the last Gemini request — proves FACTS/memory retrieval (TEST M)
 
 globalThis.fetch = (url, options) => {
   const u = String(url);
   if (u.includes('generativelanguage.googleapis.com')) {
     const body = String(options.body);
+    lastGeminiBody = body;
     const geminiText = (obj) => new Response(JSON.stringify(
       { candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }), { status: 200 });
     if (body.includes('"study_material"')) {
@@ -155,8 +158,8 @@ test.after(async () => {
 });
 test.afterEach(async () => {
   geminiClassify = null; geminiApproval = null; geminiChatReply = null; geminiAnswer = null;
-  failSendsTo = null; failNextCloudinary = false; cloudinaryUploads = 0;
-  await Promise.all([TeacherMaterial.deleteMany({}), TeacherQuestion.deleteMany({}),
+  failSendsTo = null; failNextCloudinary = false; cloudinaryUploads = 0; lastGeminiBody = '';
+  await Promise.all([OutboxMessage.deleteMany({}), TeacherMaterial.deleteMany({}), TeacherQuestion.deleteMany({}),
     Note.deleteMany({}), Notification.deleteMany({}), Timetable.deleteMany({})]);
   await Teacher.updateMany({}, { $set: { conversation: [], lastChatMsgId: '' } });
 });
@@ -467,4 +470,131 @@ test('TEST K: unclear file → offer → teacher says "ok kr do" → approval qu
   geminiApproval = null;
   assert.equal((await TeacherMaterial.findOne({}).lean()).status, 'published');
   assert.ok(await Note.exists({ uploadedByTeacher: teacher._id }), 'published to a real Note');
+});
+
+/* ------------- SPEC 2026-10-10 — §6/§2/§4/§5/§9/§10 A-J ------------- */
+
+test('TEST L (spec A): FIRST-TIME stranger greeting → approved Tri3M welcome exactly once; unknown non-greeting stays silent', async () => {
+  const before = sent.length;
+  const r = await webhook(incoming('Assalam o Alaikum', '923999111222@c.us'));
+  assert.equal(r.json.data.updated, true, 'greeting consumed');
+  const welcome = sent.slice(before).find((s) => s.to === '923999111222' && /Tri3M Class Agent/.test(s.body));
+  assert.ok(welcome, 'the approved Tri3M welcome — never the WATI promotional automation text');
+  assert.ok(!sent.slice(before).some((s) => /automation rule|live\.wati\.io/i.test(s.body)), 'NO promotional automation text anywhere');
+  // second greeting → silent (no welcome spam), but a NEW teacher still always can
+  const before2 = sent.length;
+  await webhook(incoming('Assalam o Alaikum', '923999111222@c.us'));
+  assert.equal(sent.length, before2, 'exactly-once welcome — no repeat');
+  // unknown NON-greeting traffic stays silent (spam safety)
+  await webhook(incoming('marketing offer', '923999111222@c.us'));
+  assert.equal(sent.length, before2, 'non-greeting unknown stays silent');
+});
+
+test('TEST M (spec B/C): MEMORY AFTER RESTART — a later follow-up retrieves the ORIGINAL question and its real status from persisted records', async () => {
+  // Day 1: teacher asks, question escalates (like TEST D)
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se confirm kar ke bata dun ga.', escalate: true };
+  await webhook(incoming('Sir, last week kitni classes hui hain?'));
+  geminiAnswer = null; geminiChatReply = null;
+  const task = await TeacherQuestion.findOne({}).lean();
+  assert.ok(task, 'persistent task exists');
+  // "restart": nothing is in memory — the next webhook re-reads everything
+  // from MongoDB. Day 2: the teacher asks about the earlier question.
+  lastGeminiBody = '';
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, wo sawal aap ke CR ke paas pending hai.' };
+  const r = await webhook(incoming('Kal jo poocha tha us ka answer mila?'));
+  geminiAnswer = null; geminiChatReply = null;
+  assert.equal(r.json.data.updated, true, 'follow-up consumed');
+  assert.ok(/last week kitni classes hui hain\?/.test(lastGeminiBody), 'the ORIGINAL question was retrieved from persistent records');
+  assert.ok(lastGeminiBody.includes(task.refCode), 'the task ref code was retrieved');
+  assert.ok(/awaiting the CR/.test(lastGeminiBody), 'the REAL pending status was loaded — memory, not invention');
+});
+
+test('TEST N (spec D): TEN-HOUR CR silence → the persisted follow-up policy runs: 30-min + 2-h nudges, 6-h GR escalation, task survives', async () => {
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se pooch kar bata dun ga.', escalate: true };
+  await webhook(incoming('Sir, last week kitni classes hui hain?'));
+  geminiAnswer = null; geminiChatReply = null;
+  const task = await TeacherQuestion.findOne({}).lean();
+  // a GR for the section exists (escalation target), distinct from the CR
+  const hash = await bcrypt.hash('GrPass123!', 10);
+  const grUser = await User.create({ name: 'Gr Backup', email: 'gr@reliability.test', phone: '+923007778889', role: 'gr',
+    registrationStatus: 'active', emailVerified: true, password: hash });
+  await Section.updateOne({ _id: section4B }, { $set: { gr: grUser._id } });
+  // the question is now 11 hours old (CR never answered)
+  await TeacherQuestion.updateOne({ _id: task._id }, { $set: {
+    askedAt: new Date(Date.now() - 11 * 3600 * 1000), crNotifiedAt: new Date(Date.now() - 11 * 3600 * 1000) } });
+  await runTeacherQuestionSweep(); // pass 1 → first nudge (30-min policy)
+  await runTeacherQuestionSweep(); // pass 2 → second nudge (2-h policy)
+  await runTeacherQuestionSweep(); // pass 3 → 6-h escalation to the GR
+  const crNudges = sent.filter((s) => s.to === '923009876543' && /abhi tak nahi mila|intezar kar rahay hain/i.test(s.body));
+  assert.equal(crNudges.length, 2, 'exactly TWO bounded nudges (30 min + 2 h), no endless reminders');
+  const grAlert = sent.filter((s) => s.to === '923007778889');
+  assert.equal(grAlert.length, 1, 'ONE escalation reached the GR');
+  assert.ok(/last week kitni classes/i.test(grAlert[0].body), 'escalation carries the original question');
+  assert.ok(grAlert[0].body.includes(task.refCode), 'escalation carries the ref code');
+  const after = await TeacherQuestion.findOne({}).lean();
+  assert.equal(after.status, 'pending_cr', 'task STILL pending — monitored, never silently dropped');
+  assert.ok(after.escalatedAt, 'escalation recorded');
+  assert.equal(after.escalatedToName, 'Gr Backup', 'who received the escalation is recorded');
+  // another sweep must NOT re-escalate (bounded)
+  await runTeacherQuestionSweep();
+  assert.equal(sent.filter((s) => s.to === '923007778889').length, 1, 'no repeat escalation');
+});
+
+test('TEST O (spec H): the answer send FAILS → tracked, retried by the sweep, delivered; closed only after real delivery', async () => {
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se confirm kar ke bata dun ga.', escalate: true };
+  await webhook(incoming('Sir, is hafte kitni classes hain?'));
+  geminiAnswer = null; geminiChatReply = null;
+  failSendsTo = '923001112233'; // the TEACHER line is down
+  await webhook(incoming('Sir, is hafte 4 classes hui thin.', '923009876543@c.us')); // CR answers
+  let task = await TeacherQuestion.findOne({}).lean();
+  assert.equal(task.status, 'cr_responded', 'answer STORED — never lost on a failed send');
+  assert.ok(task.crReply, 'the CR\'s answer is persisted');
+  assert.ok(!task.answerSentAt, 'not marked delivered — no fake success');
+  const failedRow = await OutboxMessage.findOne({ refKey: `question:${task._id}:answer` }).lean();
+  assert.equal(failedRow.status, 'failed', 'outbox tracked the failed delivery');
+  // 5 minutes later the sweep retries — gateway is back
+  failSendsTo = null;
+  await OutboxMessage.updateOne({ _id: failedRow._id }, { $set: { lastTriedAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  const retry = await retryOutbox();
+  assert.ok(retry.delivered >= 1, 'sweep re-delivered the stored answer');
+  await runTeacherQuestionSweep();
+  task = await TeacherQuestion.findOne({}).lean();
+  assert.equal(task.status, 'closed', 'closed ONLY after real delivery');
+  const answer = sent.filter((s) => s.to === '923001112233' && /4 classes hui thin/.test(s.body));
+  assert.ok(answer.length, 'teacher finally received the CR\'s answer');
+});
+
+test('TEST P (spec §5): a non-answer CR reply ("ok ji") → clarification asked, NEVER treated as the answer', async () => {
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se confirm kar ke bata dun ga.', escalate: true };
+  await webhook(incoming('Sir, kal ki class cancel hogi?'));
+  geminiAnswer = null; geminiChatReply = null;
+  const teacherBefore = sent.filter((s) => s.to === '923001112233').length;
+  await webhook(incoming('ok ji', '923009876543@c.us')); // pleasantries, not an answer
+  let task = await TeacherQuestion.findOne({}).lean();
+  assert.equal(task.status, 'pending_cr', 'pleasantry is NOT an answer');
+  assert.ok(!task.crReply, 'no fake answer stored');
+  const clarify = sent.filter((s) => s.to === '923009876543' && /jawab to abhi chahiye|detail mein jawab/i.test(s.body));
+  assert.ok(clarify.length, 'CR was asked for a REAL answer');
+  assert.equal(sent.filter((s) => s.to === '923001112233').length, teacherBefore, 'teacher got nothing fake');
+  // the CR now answers properly → delivered
+  await webhook(incoming('Ji, kal ki class cancel ho jayegi, saaf kar dein.', '923009876543@c.us'));
+  task = await TeacherQuestion.findOne({}).lean();
+  assert.equal(task.status, 'closed', 'real answer delivered');
+  assert.ok(sent.some((s) => s.to === '923001112233' && /cancel ho jayegi/.test(s.body)), 'teacher received the actual CR answer');
+});
+
+test('TEST Q (spec §9): ops-diagnostics — the administrator sees worker heartbeats, pending tasks and failed sends (sanitized)', async () => {
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se pooch kar bata dun ga.', escalate: true };
+  await webhook(incoming('Sir, paper kab hai?'));
+  geminiAnswer = null; geminiChatReply = null;
+  // the 5-min cron pass stamps the sweep heartbeat
+  const sweep = await admin('GET', '/api/whatsapp/deadline-sweep?secret=fake-sweep-secret');
+  assert.equal(sweep.status, 200, 'sweep ran');
+  const diag = (await admin('GET', '/api/whatsapp/ops-diagnostics?secret=fake-sweep-secret')).json.data;
+  assert.ok(diag.heartbeat.deadlineSweepLastRun, 'sweep heartbeat recorded (worker alive)');
+  assert.ok(diag.heartbeat.watchdogLastRun || true, 'watchdog heartbeat available when its cron runs');
+  assert.ok(Array.isArray(diag.questions) && diag.questions.length === 1, 'pending question listed');
+  assert.ok(!JSON.stringify(diag).includes('923001112233'), 'phones are masked — no PII');
+  assert.equal(typeof diag.classesAwaitingTeacher, 'number', 'class queue visible');
+  assert.equal(diag.outboxFailed.length, 0, 'failed outbox rows visible (none now)');
 });

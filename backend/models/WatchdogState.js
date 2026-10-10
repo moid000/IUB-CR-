@@ -11,11 +11,14 @@ const { Schema } = mongoose;
  *   watchdog:renew-failed  — extend_trial call failed / instance still stopped
  *   watchdog:last-run      — heartbeat: the most recent watchdog ping (cron every 5 min)
  *   watchdog:last-renewal  — the last time the "Extend trial" button was auto-pressed successfully
+ *   watchdog:last-extend-error — the raw last extend_trial failure (ops-diagnostics)
+ *   deadline-sweep:last-run — heartbeat: the 5-min sweep is alive
  */
 const watchdogStateSchema = new Schema(
   {
     key: { type: String, required: true, unique: true, trim: true },
     lastSentAt: { type: Date, required: true },
+    value: { type: String, default: '', maxlength: 400 }, // §9 diagnostics (e.g. the last extend_trial error)
   },
   { timestamps: true },
 );

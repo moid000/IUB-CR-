@@ -270,6 +270,8 @@ async function watchdogPass() {
         'Tri3M watchdog: trial renewal FAILED',
         `Renewal error: ${err.message}. WhatsApp alerts are paused — log in to user.ultramsg.com → Instances and extend the trial manually.`,
       );
+      try { await WatchdogState.updateOne({ key: 'watchdog:last-extend-error' },
+        { $set: { value: String(err.message).slice(0, 300), lastSentAt: new Date() } }, { upsert: true }); } catch { /* best-effort */ }
       return {
         configured: true,
         status: health.status,
@@ -286,6 +288,8 @@ async function watchdogPass() {
         'Tri3M watchdog: trial renewal FAILED',
         `extend_trial answered: ${extendResponse.error}. Self-heal retry found no working instance either — WhatsApp alerts are paused, check user.ultramsg.com → Instances manually.`,
       );
+      try { await WatchdogState.updateOne({ key: 'watchdog:last-extend-error' },
+        { $set: { value: String(extendResponse.error).slice(0, 300), lastSentAt: new Date() } }, { upsert: true }); } catch { /* best-effort */ }
       return {
         configured: true,
         status: health.status,

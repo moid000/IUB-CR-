@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { Note, Section, Subject, Teacher, TeacherMaterial, Timetable, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
-import { isConfigured, sendText } from './whatsappService.js';
+import { isConfigured, sendText, sendTracked } from './whatsappService.js';
 import { allowedTypeForExt, uploadAttachmentFromServer } from './fileService.js';
 import { findMediaUrl } from './chatbotService.js';
 import { createNotification } from './notificationService.js';
@@ -67,6 +67,13 @@ const EXT_MIME_FALLBACK = {
 /** Filename-only heuristic (offline / non-parseable formats). CONSERVATIVE:
  * true only for clearly educational words or a subject-name match. */
 const EDUCATIONAL_RE = /(lecture|notes?|chapter|assignment|syllabus|handout|slides?|worksheet|quiz|paper|exercise|lab|book|reading|chapter|lab_manual|manual)/i;
+
+/* OWNER RELIABILITY SPEC §9 (2026-10-10): every teacher-facing material-flow
+ * message goes through the OUTBOX — a temporary WhatsApp failure is
+ * sweep-retried instead of silently lost. */
+async function sendTeacherText(sender, body) {
+  return sendTracked(sender, body, { kind: 'material' });
+}
 
 function extOf(filename, mime) {
   const name = String(filename ?? '');
@@ -371,7 +378,7 @@ export async function handleTeacherFile(payload) {
   const typeEntry = allowedTypeForExt(ext);
   if (!typeEntry) {
     chatLog('FILE', { phone: sender, msg: `unsupported type: ${filename}` });
-    await sendText(sender, unsupportedMessage({ ext }));
+    await sendTeacherText(sender, unsupportedMessage({ ext }));
     return true; // consumed, honestly answered — never silently dropped
   }
   const effectiveMime = (Array.isArray(typeEntry.mime) ? typeEntry.mime[0] : typeEntry.mime) || mime || EXT_MIME_FALLBACK[ext] || '';
@@ -381,7 +388,7 @@ export async function handleTeacherFile(payload) {
   const mediaUrl = await findMediaUrl(data);
   if (!mediaUrl) {
     chatLog('FILE', { phone: sender, msg: `no media url for ${filename}` });
-    await sendText(sender, 'Ji Sir, file poori tarah upload nahi hui — maazrat. Zara dobara bhej dein. 🙏\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Ji Sir, file poori tarah upload nahi hui — maazrat. Zara dobara bhej dein. 🙏\n\n— Tri3M Class Agent');
     return true; // consumed, honestly answered — never silently dropped
   }
 
@@ -390,7 +397,7 @@ export async function handleTeacherFile(payload) {
     // every record for this number lacks subject/section — the portal setup
     // is incomplete. NEVER silent: tell the teacher the honest next step.
     chatLog('FILE', { phone: sender, msg: `no subject/section on any teacher record for ${filename}` });
-    await sendText(sender, 'Ji Sir, aap ka teacher record abhi portal me complete nahi hua (subject aur section set nahi hai), is liye file save nahi ho saki. 🙏 Zara apne CR ko bata dein — wo portal me theek karwa kar aap ko 1 minute mein bata denge, phir file dobara bhej dein.\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Ji Sir, aap ka teacher record abhi portal me complete nahi hua (subject aur section set nahi hai), is liye file save nahi ho saki. 🙏 Zara apne CR ko bata dein — wo portal me theek karwa kar aap ko 1 minute mein bata denge, phir file dobara bhej dein.\n\n— Tri3M Class Agent');
     return true; // consumed, honestly answered — never silently dropped
   }
   let material;
@@ -404,7 +411,7 @@ export async function handleTeacherFile(payload) {
     // a UNIQUE waMsgId race from a concurrent webhook retry — the first copy wins
     if (String(err?.code) === '11000') return true;
     chatLog('FILE', { phone: sender, msg: `save failed: ${err.message}` });
-    await sendText(sender, 'Ji Sir, file save karne mein masla aa gaya — maazrat. 🙏 Zara thori dair baad dobara bhej dein.\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Ji Sir, file save karne mein masla aa gaya — maazrat. 🙏 Zara thori dair baad dobara bhej dein.\n\n— Tri3M Class Agent');
     return true; // consumed, honestly answered — never silently dropped
   }
   auditPush(material._id, 'received', `${filename} (${size || '?'} bytes, ${effectiveMime || 'unknown mime'})`);
@@ -423,7 +430,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   if (dl.error) {
     material.status = 'failed'; material.uploadError = dl.error; await material.save();
     auditPush(material._id, 'failed', `download: ${dl.error}`);
-    await sendText(sender, 'Ji Sir, file download nahi ho saki — maazrat. Zara dobara bhej dein. 🙏\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Ji Sir, file download nahi ho saki — maazrat. Zara dobara bhej dein. 🙏\n\n— Tri3M Class Agent');
     return true;
   }
   const sha256 = createHash('sha256').update(dl.buf).digest('hex');
@@ -434,7 +441,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   if (dupe) {
       material.status = 'ignored'; await material.save();
     auditPush(material._id, 'duplicate', `same content as ${dupe.status} material ${dupe._id}`);
-    await sendText(sender, duplicateMessage({ filename, status: dupe.status }));
+    await sendTeacherText(sender, duplicateMessage({ filename, status: dupe.status }));
     return true;
   }
   material.sha256 = sha256;
@@ -460,7 +467,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   if (cls.verdict !== 'study_material') {
     material.status = 'offered'; material.askedAt = new Date(); await material.save();
     auditPush(material._id, 'offered', `classification: ${cls.verdict} (${cls.reason})`);
-    await sendText(sender, notMaterialMessage({}));
+    await sendTeacherText(sender, notMaterialMessage({}));
     return true;
   }
 
@@ -488,7 +495,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
         title: `${primary.name} sent study material`,
         message: `${primary.name} sent "${material.filename}" (${subjectMatch[0].subjectName}) on WhatsApp — they teach it in multiple sections, so the agent asked which section it is for.`,
         lines: `${primary.name} (teacher) ne ${subjectMatch[0].subjectName} ki "${cleanFilename(material.filename, 60)}" bheji hai — aap un ke do sections mein hai, to maine un se pooch liya hai ke kis section ke liye hai.` });
-      await sendText(sender, askSectionMessage({ filename, subjectName: subjectMatch[0].subjectName, sectionNames }));
+      await sendTeacherText(sender, askSectionMessage({ filename, subjectName: subjectMatch[0].subjectName, sectionNames }));
       return true;
     }
   }
@@ -504,7 +511,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
       title: `${primary.name} sent study material`,
       message: `${primary.name} sent "${material.filename}" (${resolved.subject?.name ?? 'subject'}) on WhatsApp — the agent asked them for upload approval; it publishes to the Notes section once they reply YES.`,
       lines: `${primary.name} (teacher) ne WhatsApp par "${cleanFilename(material.filename, 60)}" bheji hai — lagta hai ${resolved.subject?.name ?? 'unke subject'} ki study material hai. Maine un se pooch liya hai ke kya main isay Notes section mein upload kar doon. Un ka YES aate hi upload ho jayegi.` });
-    await sendText(sender, askApprovalMessage({
+    await sendTeacherText(sender, askApprovalMessage({
       filename, subjectName: resolved.subject?.name ?? 'your subject', sectionName: resolved.section?.name ?? '',
       teacherName: primary.name, language: primary.chatProfile?.detectedLanguage,
     }));
@@ -519,7 +526,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
     title: `${primary.name} sent study material`,
     message: `${primary.name} sent "${material.filename}" on WhatsApp — the agent could not tell which subject it belongs to and asked them.`,
     lines: `${primary.name} (teacher) ne WhatsApp par "${cleanFilename(filename, 60)}" bheji hai — study material lagti hai, lekin subject clear nahi. Maine un se pooch liya hai ke kis subject ki hai.` });
-  await sendText(sender, askSubjectMessage({ filename, teacherName: primary.name, subjectNames }));
+  await sendTeacherText(sender, askSubjectMessage({ filename, teacherName: primary.name, subjectNames }));
   return true;
 }
 
@@ -540,20 +547,20 @@ async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
   const primary = usable[0] ?? teacherRecords[0];
   const prefix = 'Aur ek file bhi mili hai aap ki:';
   if (next.status === 'offered') {
-    await sendText(sender, `${prefix}\n\n${notMaterialMessage({})}`);
+    await sendTeacherText(sender, `${prefix}\n\n${notMaterialMessage({})}`);
   } else if (next.status === 'awaiting_subject') {
     const subjectNames = usable.map((t) => t.subject?.name).filter(Boolean);
-    await sendText(sender, `${prefix}\n\n${askSubjectMessage({ filename: next.filename, teacherName: primary?.name, subjectNames })}`);
+    await sendTeacherText(sender, `${prefix}\n\n${askSubjectMessage({ filename: next.filename, teacherName: primary?.name, subjectNames })}`);
   } else if (next.status === 'awaiting_section') {
     const candidates = usable.filter((t) => t.subject?.name === next.sectionSubjectName);
     const sectionNames = candidates.map((t) => t.section?.name).filter(Boolean);
-    await sendText(sender, `${prefix}\n\n${askSectionMessage({ filename: next.filename, subjectName: next.sectionSubjectName, sectionNames })}`);
+    await sendTeacherText(sender, `${prefix}\n\n${askSectionMessage({ filename: next.filename, subjectName: next.sectionSubjectName, sectionNames })}`);
   } else {
     const [subj, sec] = await Promise.all([
       Subject.findById(next.proposedSubject).select('name').lean(),
       Section.findById(next.section).select('name').lean(),
     ]);
-    await sendText(sender, `${prefix}\n\n${askApprovalMessage({
+    await sendTeacherText(sender, `${prefix}\n\n${askApprovalMessage({
       filename: next.filename, subjectName: subj?.name ?? 'your subject', sectionName: sec?.name ?? '',
       teacherName: primary?.name, language: primary?.chatProfile?.detectedLanguage,
     })}`);
@@ -639,7 +646,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     if (verdict.answer === 'decline') {
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'ignored', lastReplyMsgId: msgId } });
       auditPush(material._id, 'ignored', 'teacher declined the upload offer');
-      await sendText(sender, declinedMessage());
+      await sendTeacherText(sender, declinedMessage());
       await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
       return 'declined';
     }
@@ -653,7 +660,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
         section: resolved.section?._id ?? resolved.section,
         status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId } });
       auditPush(material._id, 'asked', `approval after offer accepted: ${resolved.subject?.name}`);
-      await sendText(sender, askApprovalMessage({
+      await sendTeacherText(sender, askApprovalMessage({
         filename: material.filename, subjectName: resolved.subject?.name ?? 'your subject',
         sectionName: resolved.section?.name ?? '', teacherName: teacherRecords[0]?.name,
         language: teacherRecords[0]?.chatProfile?.detectedLanguage,
@@ -663,7 +670,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
       status: 'awaiting_subject', askedAt: new Date(), lastReplyMsgId: msgId } });
     auditPush(material._id, 'asked', 'which subject after offer accepted (multiple authorized)');
-    await sendText(sender, askSubjectMessage({ filename: material.filename, teacherName: teacherRecords[0]?.name, subjectNames }));
+    await sendTeacherText(sender, askSubjectMessage({ filename: material.filename, teacherName: teacherRecords[0]?.name, subjectNames }));
     return 'reasked';
   }
 
@@ -678,7 +685,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
         title: 'Teacher declined the material upload',
         message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
         lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
-      await sendText(sender, declinedMessage());
+      await sendTeacherText(sender, declinedMessage());
       await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
       return 'declined';
     }
@@ -688,7 +695,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
       ? sectionCandidates.find((t) => t.section?.name === match[0].sectionName) : null;
     if (!resolved) { // still ambiguous → ask again with the section names
       await markReplySeen();
-      await sendText(sender, askSectionMessage({ filename: material.filename, subjectName: material.sectionSubjectName, sectionNames }));
+      await sendTeacherText(sender, askSectionMessage({ filename: material.filename, subjectName: material.sectionSubjectName, sectionNames }));
       return 'reasked';
     }
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
@@ -696,7 +703,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
       section: resolved.section?._id ?? resolved.section,
       status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId } });
     auditPush(material._id, 'asked', `approval after section answer: ${resolved.subject?.name} / ${resolved.section?.name}`);
-    await sendText(sender, askApprovalMessage({
+    await sendTeacherText(sender, askApprovalMessage({
       filename: material.filename, subjectName: resolved.subject?.name, sectionName: resolved.section?.name,
       teacherName: teacherRecords[0]?.name, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
     }));
@@ -714,7 +721,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
         title: 'Teacher declined the material upload',
         message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
         lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
-      await sendText(sender, declinedMessage());
+      await sendTeacherText(sender, declinedMessage());
       await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
       return 'declined';
     }
@@ -724,7 +731,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
       ? teacherRecords.find((t) => t.subject?.name === match[0].subjectName) : null;
     if (!resolved) { // still ambiguous → ask again with the names
       await markReplySeen();
-      await sendText(sender, askSubjectMessage({ filename: material.filename, teacherName: teacherRecords[0]?.name, subjectNames }));
+      await sendTeacherText(sender, askSubjectMessage({ filename: material.filename, teacherName: teacherRecords[0]?.name, subjectNames }));
       return 'reasked';
     }
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
@@ -732,7 +739,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
       section: resolved.section?._id ?? resolved.section,
       status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId } });
     auditPush(material._id, 'asked', `approval after subject answer: ${resolved.subject?.name}`);
-    await sendText(sender, askApprovalMessage({
+    await sendTeacherText(sender, askApprovalMessage({
       filename: material.filename, subjectName: resolved.subject?.name, sectionName: resolved.section?.name,
       teacherName: teacherRecords[0]?.name, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
     }));
@@ -750,7 +757,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
       title: 'Teacher declined the material upload',
       message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
       lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
-    await sendText(sender, declinedMessage());
+    await sendTeacherText(sender, declinedMessage());
     await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
     return 'declined';
   }
@@ -759,7 +766,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   // success claim before the Note actually exists)
   const outcome = await publishMaterial(material);
   if (outcome.ok) {
-    await sendText(sender, publishedMessage({
+    await sendTeacherText(sender, publishedMessage({
       filename: material.filename, subjectName: outcome.subjectName,
       sectionName: outcome.sectionName, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
       crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
@@ -767,7 +774,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
     return 'published';
   }
-  await sendText(sender, failedMessage({ filename: material.filename }));
+  await sendTeacherText(sender, failedMessage({ filename: material.filename }));
   await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
   return 'declined'; // consumed; upload honestly failed and was reported
 }

@@ -165,3 +165,66 @@ export async function listGroups() {
 }
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/* OWNER RELIABILITY SPEC §9 (2026-10-10): tracked teacher-flow send.
+ * Persists the outbound message BEFORE the gateway call; 'sent' only on
+ * real gateway confirmation. A failure leaves a retryable row for the
+ * sweep (bounded) — the reply is never silently lost. NEVER throws: the
+ * boolean result lets callers treat a failed send as "delivery pending".
+ * `once` (dedupeKey + windowMs) makes a send exactly-once per window. */
+export async function sendTracked(phone, body, { kind = 'teacher', refKey = '', dedupeKey = '', once = false, windowMs = 0 } = {}) {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  let row = null;
+  try {
+    const { OutboxMessage } = await import('../models/index.js');
+    if (once && dedupeKey) {
+      const since = new Date(Date.now() - (windowMs || 30 * 24 * 3600 * 1000));
+      const existing = await OutboxMessage.findOne({ dedupeKey, status: 'sent', sentAt: { $gte: since } }).lean();
+      if (existing) return { sent: true, alreadySent: true };
+    }
+    row = await OutboxMessage.create({ phone: digits, kind, refKey, dedupeKey, body: String(body ?? '').slice(0, 4000), status: 'queued' });
+  } catch (err) {
+    console.error('[outbox] persist failed:', err.message);
+  }
+  let ok = false; let error = '';
+  try {
+    const res = await sendText(digits, String(body ?? ''));
+    ok = Boolean(res?.sent);
+    if (!ok) error = 'gateway did not confirm send';
+  } catch (err) {
+    error = String(err?.message ?? err).slice(0, 300);
+  }
+  if (row) {
+    try {
+      const { OutboxMessage } = await import('../models/index.js');
+      await OutboxMessage.updateOne({ _id: row._id }, { $set: {
+        status: ok ? 'sent' : 'failed', sentAt: ok ? new Date() : null,
+        lastTriedAt: new Date(), attempts: 1, lastError: error } });
+    } catch { /* best-effort */ }
+  }
+  return { sent: ok, error };
+}
+
+/* Sweep step (bounded retry): failed outbox rows re-sent, max 6 attempts. */
+export async function retryOutbox(limit = 20) {
+  const out = { retried: 0, delivered: 0, dead: 0 };
+  try {
+    const { OutboxMessage } = await import('../models/index.js');
+    const due = await OutboxMessage.find({ status: 'failed', attempts: { $lt: 6 },
+      $or: [{ lastTriedAt: null }, { lastTriedAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) } }] })
+      .sort({ updatedAt: 1 }).limit(limit).lean();
+    for (const r of due) {
+      let ok = false; let error = '';
+      try {
+        const res = await sendText(r.phone, r.body);
+        ok = Boolean(res?.sent);
+        if (!ok) error = 'gateway did not confirm send';
+      } catch (err) { error = String(err?.message ?? err).slice(0, 300); }
+      await OutboxMessage.updateOne({ _id: r._id }, { $set: {
+        status: ok ? 'sent' : 'failed', sentAt: ok ? new Date() : null,
+        lastTriedAt: new Date() }, $inc: { attempts: 1 }, lastError: error });
+      out.retried += 1; if (ok) out.delivered += 1;
+    }
+  } catch (err) { console.error('[outbox retry]', err.message); }
+  return out;
+}

@@ -51,6 +51,11 @@ const questionSchema = new Schema(
     closedAt: { type: Date, default: null },
     teacherAckMsgId: { type: String, default: '', maxlength: 220 }, // the ack sent to the teacher — idempotency
     escalatedBy: { type: String, default: 'general-chat' }, // which flow created the task
+    lastFollowUpAt: { type: Date, default: null }, // last CR nudge time (spec §4 follow-up policy)
+    escalatedToUser: { type: ObjectId, ref: 'User', default: null }, // escalation target (section GR / admin)
+    escalatedToName: { type: String, default: '' },
+    escalatedAt: { type: Date, default: null },
+    escalationNote: { type: String, default: '', maxlength: 500 },
   },
   { timestamps: true }
 );

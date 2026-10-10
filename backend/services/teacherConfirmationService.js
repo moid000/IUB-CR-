@@ -799,7 +799,7 @@ async function converseWithTeacher(sender, payload, mode) {
 /* ================================================================== */
 const GREETING_RE = /\b(assalam|asalam|salaam|salam|hello|hey|good\s*(morning|afternoon|evening))\b/i;
 
-function buildGeneralFacts({ teacher, subjects, department, semester, section, nextClass, crName, crRole, crPhone, materials, teacherLanguage, chatExamples }) {
+function buildGeneralFacts({ teacher, subjects, department, semester, section, nextClass, crName, crRole, crPhone, materials, teacherLanguage, chatExamples, questions }) {
   const lines = [
     `Teacher: ${teacher}`,
     `Subject(s) they teach: ${subjects.join(', ') || '—'}`,
@@ -815,6 +815,15 @@ function buildGeneralFacts({ teacher, subjects, department, semester, section, n
   if (materials.length) {
     lines.push('Files they recently sent on WhatsApp and their status:');
     for (const m of materials) lines.push(`- "${m.filename}": ${m.statusText}`);
+  }
+  if (questions?.open?.length || questions?.done?.length) {
+    lines.push('Questions the teacher recently asked that Tri3M forwarded to the CR (their REAL status — if asked about these, state the status truthfully and do NOT escalate them again):');
+    for (const q of questions.open ?? []) {
+      lines.push(`- "${String(q.question).slice(0, 140)}" (ref ${q.refCode}) — ${q.status === 'cr_responded' ? 'the CR has answered; the answer is being delivered to them' : `with the CR since ${new Date(q.askedAt).toISOString().slice(0, 10)}${q.escalatedAt ? ', ESCALATED to the GR (CR unresponsive)' : ', awaiting the CR'}`}`);
+    }
+    for (const q of questions.done ?? []) {
+      lines.push(`- "${String(q.question).slice(0, 140)}" (ref ${q.refCode}) — ANSWERED by the CR: "${String(q.crReply ?? '').slice(0, 160)}" (delivered)`);
+    }
   }
   lines.push(`The section CR is ${crName ?? 'the CR'} (${crRole ?? 'CR'})${crPhone ? `, contact ${crPhone}` : ''} — the CR is the direct human line for anything personal.`);
   lines.push('The WhatsApp number texting the teacher is the Tri3M Class Agent line — an AI coordination assistant made by the section students (NOT a personal number).');
@@ -865,10 +874,29 @@ async function converseGeneralTeacher(sender, payload, mode) {
     'teacherConfirmation.phone': sender, 'teacherConfirmation.lastChatMsgId': msgId });
   if (seenInClassFlow) return true; // already answered once — stay silent
 
-  // recognize the teacher; strangers stay silent (existing safety rule)
+  // recognize the teacher; strangers stay silent (existing safety rule) —
+  // EXCEPT a first-contact GREETING, which gets the approved Tri3M welcome
+  // exactly once (owner spec §6, 2026-10-10). Non-greeting unknown traffic
+  // (spam, wrong numbers) stays silent so the line cannot be flooded.
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name').populate({ path: 'section', populate: { path: 'department' }, select: 'name semester department cr gr' }).lean();
-  if (!teacherRecords.length) return false;
+  if (!teacherRecords.length) {
+    // spec §6 welcome is for a 1:1 FIRST-TIME teacher contact only — a group
+    // JID can never receive a DM from this gate.
+    if (GREETING_RE.test(body) && !String(payload?.data?.from ?? '').includes('@g.us')) {
+      const { sendTracked } = await import('./whatsappService.js');
+      const r = await sendTracked(sender, [
+        'Assalam-o-Alaikum Sir! Main Tri3M Class Agent hoon — class coordination aur academic queries ke liye section students ka AI assistant.',
+        '',
+        'Aap apni class ka schedule pooch sakte hain, notes bhej sakte hain, ya koi bhi class-related sawal kar sakte hain. Batayein, main aapki kya madad kar sakta hoon?',
+        '',
+        '— Tri3M Class Agent',
+      ].join('\n'), { kind: 'welcome', dedupeKey: `welcome:${sender}`, once: true, windowMs: 30 * 24 * 3600 * 1000 });
+      chatLog('WELCOME-FIRST-CONTACT', { phone: sender, send: r.sent ? 'SENT' : `FAILED (${r.error || 'gateway'})` });
+      return r.sent; // consumed only when we actually replied
+    }
+    return false;
+  }
   // OWNER (2026-10-09 incident): a stale sibling record with NO subject/section
   // can sort first — facts (subjects, sections, CR) must come from a record
   // that actually has an authorized destination when one exists.
@@ -896,9 +924,18 @@ async function converseGeneralTeacher(sender, payload, mode) {
     ]);
     const subjects = [...new Set(teacherRecords.map((t) => t.subject?.name).filter(Boolean))];
     const sections = [...new Set(teacherRecords.map((t) => t.section?.name).filter(Boolean))];
+    // SPEC §2 (2026-10-10): memory must survive across DAYS — 72h window,
+    // 12 turns replayed, plus the structured question records below.
     const history = (claimed.conversation ?? [])
-      .filter((m) => m?.at && Date.now() - new Date(m.at).getTime() < 24 * 3600 * 1000)
-      .slice(-8).map((m) => ({ role: m.role, text: m.text, at: m.at }));
+      .filter((m) => m?.at && Date.now() - new Date(m.at).getTime() < 72 * 3600 * 1000)
+      .slice(-12).map((m) => ({ role: m.role, text: m.text, at: m.at }));
+    // structured memory: unresolved + recently resolved CR questions, so
+    // 'kal jo poocha tha us ka answer mila?' answers from the REAL task
+    const { TeacherQuestion } = await import('../models/index.js');
+    const qOpen = await TeacherQuestion.find({ teacher: primary._id, status: { $in: ['pending_cr', 'cr_responded'] } })
+      .sort({ askedAt: -1 }).limit(2).lean();
+    const qDone = await TeacherQuestion.find({ teacher: primary._id, status: 'closed', askedAt: { $gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) } })
+      .sort({ closedAt: -1 }).limit(3).lean();
     const facts = buildGeneralFacts({
       teacher: primary.name, subjects, department: primary.section?.department?.name,
       semester: primary.section?.semester, section: sections.join(', '),
@@ -918,6 +955,7 @@ async function converseGeneralTeacher(sender, payload, mode) {
           : 'awaiting their YES/NO approval to upload' })),
       teacherLanguage: primary.chatProfile?.detectedLanguage,
       chatExamples,
+      questions: { open: qOpen, done: qDone },
     });
     const reply = await chatReplyWithGemini(body, facts, { history, general: true, unclear: mode === 'unclear' });
     const message = reply?.reply ?? buildGeneralFallback({

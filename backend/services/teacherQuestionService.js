@@ -20,14 +20,29 @@
  */
 import { randomBytes } from 'node:crypto';
 import { Section, Teacher, TeacherQuestion, User } from '../models/index.js';
-import { sendText } from './whatsappService.js';
+import { sendText, sendTracked } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
 
 const REUSE_WINDOW_MS = 12 * 60 * 60 * 1000; // same unresolved question reuses its task
 const CR_RETRY_MAX = 6; // bounded WhatsApp dispatch retries (sweep)
 const CR_RETRY_EVERY_MS = 5 * 60 * 1000;
-const CR_REMINDER_AFTER_MS = 6 * 60 * 60 * 1000; // justified reminder policy
-const CR_REMINDER_MAX = 2;
+/* OWNER RELIABILITY SPEC §4 (2026-10-10): configurable, BOUNDED follow-up
+ * policy — a CR question never silently dies. Defaults: gentle nudge after
+ * 30 min, a firmer nudge after 2 h, ESCALATION to the section's GR (or the
+ * admin) after 6 h. All intervals configurable via env, all attempts
+ * persisted; after that the task stays pending and monitored forever. */
+const FOLLOWUP_MINUTES = String(process.env.QUESTION_FOLLOWUP_MINUTES ?? '30,120')
+  .split(',').map((n) => Number(n.trim())).filter((n) => Number.isFinite(n) && n > 0);
+const ESCALATE_AFTER_MINUTES = Number(process.env.QUESTION_ESCALATE_MINUTES ?? 360) || 360;
+const PLEASANTRY_RE = /^(ji|g|ok|okay|acha|achha|theek|theek hai|haan|han|yes|no|nahi|nahin|hmm+k|salam|assalam[^ ]*|hello|hi|thanks|shukriya|jazakallah|good|great|nice|sorry|ok ji|ji ok)[\s.!,.]*$/i;
+
+/** A CR reply that carries no actual answer content ("ok ji", "haan") must
+ * NOT be treated as the answer (spec §5) — ask the CR for the real content
+ * instead of inventing or delivering a non-answer. */
+function isMeaningfulAnswer(text) {
+  const stripped = String(text ?? '').replace(PLEASANTRY_RE, '').trim();
+  return stripped.length >= 5 && /[a-z0-9؀-\u06FF]/i.test(stripped);
+}
 
 function qlog(event, { phone, code, msg } = {}) {
   const masked = phone ? `…${String(phone).slice(-4)}` : '—';
@@ -158,7 +173,7 @@ export async function ackEscalatedTeacher({ sender, payload, task, crName, deliv
   const msgId = String(payload?.data?.id ?? '').slice(0, 220);
   if (task.teacherAckMsgId && task.teacherAckMsgId === msgId) return; // redelivery
   const ack = teacherAckMessage({ crName, delivered });
-  await sendText(sender, ack).catch(() => {});
+  await sendTracked(sender, ack, { kind: 'ack', refKey: `question:${task._id}:ack:${msgId}`, once: true, dedupeKey: `q-ack:${task._id}:${msgId}` });
   await TeacherQuestion.updateOne({ _id: task._id }, { $set: { teacherAckMsgId: msgId } }).catch(() => {});
   qlog('TEACHER-ACKED', { phone: sender, code: task.refCode, msg: delivered ? 'forwarded' : 'dispatch pending' });
 }
@@ -198,6 +213,20 @@ export async function handleCrQuestionReply(sender, body, payload) {
   }
   const task = pending[0];
   if (task.crReplyMsgId && task.crReplyMsgId === msgId) return true; // redelivery — already processed
+  // spec §5: an unclear/non-answer gets a clarification ask, never a fake
+  // delivery. Only a reply with real content becomes the answer.
+  if (!isMeaningfulAnswer(text)) {
+    await sendTracked(sender, [
+      `JazakAllah! Lekin is sawal ka jawab to abhi chahiye:`,
+      `*${task.refCode}*: "${String(task.question).slice(0, 120)}"`,
+      '',
+      'Thora detail mein jawab bhej dein — main teacher ko wahi pohancha dunga.',
+      '',
+      '— Tri3M Class Agent',
+    ].join('\n'), { kind: 'cr_clarify', refKey: `question:${task._id}:clarify:${msgId}`, once: true, dedupeKey: `q-clarify:${task._id}:${msgId}` });
+    qlog('CR-CLARIFY-ASKED', { phone: sender, code: task.refCode, msg: text });
+    return true;
+  }
   // store the CR's answer with identity + timestamp BEFORE delivering
   await TeacherQuestion.updateOne({ _id: task._id }, { $set: {
     crReply: text.slice(0, 1200), crReplyMsgId: msgId, crReplyAt: new Date(),
@@ -205,14 +234,16 @@ export async function handleCrQuestionReply(sender, body, payload) {
   qlog('CR-REPLIED', { phone: sender, code: task.refCode, msg: text });
   const crUser = users[0];
   const answer = teacherAnswerMessage({ crName: crUser?.name ?? task.crName ?? 'the CR', question: task.question, answer: text });
-  const sent = await sendText(task.phone, answer).catch(() => null);
-  if (sent?.sent) { // spec: closed ONLY after successful delivery
+  // tracked send: a temporary WhatsApp failure leaves a retryable outbox row
+  const delivered = await sendTracked(task.phone, answer, {
+    kind: 'answer', refKey: `question:${task._id}:answer`, once: true, dedupeKey: `q-answer:${task._id}` });
+  if (delivered.sent) { // spec: closed ONLY after successful delivery
     await TeacherQuestion.updateOne({ _id: task._id }, { $set: {
       status: 'closed', answerSentAt: new Date(), closedAt: new Date() } });
     qlog('ANSWER-SENT', { phone: task.phone, code: task.refCode });
   } else {
-    qlog('ANSWER-SEND-FAILED', { phone: task.phone, code: task.refCode });
-    // stays cr_responded — the sweep re-delivers the stored answer to the teacher
+    qlog('ANSWER-SEND-FAILED', { phone: task.phone, code: task.refCode, msg: delivered.error });
+    // stays cr_responded — the outbox sweep re-delivers the stored answer
   }
   return true;
 }
@@ -223,7 +254,7 @@ export async function handleCrQuestionReply(sender, body, payload) {
  * bounded reminder for unanswered questions, (3) re-deliver stored CR
  * answers whose teacher ping failed. NEVER throws. */
 export async function runTeacherQuestionSweep() {
-  const out = { redispatched: 0, reminders: 0, redelivered: 0 };
+  const out = { redispatched: 0, reminders: 0, redelivered: 0, escalated: 0 };
   try {
     const now = Date.now();
     // 1) dispatch retry
@@ -233,28 +264,71 @@ export async function runTeacherQuestionSweep() {
     for (const t of undelivered) {
       await dispatchToCr(t); out.redispatched++;
     }
-    // 2) justified reminder policy: unanswered after 6h, max 2 reminders
-    const stale = await TeacherQuestion.find({ status: 'pending_cr', crNotifiedAt: { $ne: null },
-      askedAt: { $lt: new Date(now - CR_REMINDER_AFTER_MS) }, crReminders: { $lt: CR_REMINDER_MAX } }).limit(20).lean();
-    for (const t of stale) {
+    // 2) SPEC §4 follow-up policy: gentle nudge at FOLLOWUP_MINUTES[0],
+    //    firmer nudge at [1], then ESCALATION to the section's GR (fallback:
+    //    the admin) after ESCALATE_AFTER_MINUTES. All bounded + persisted.
+    const openTasks = await TeacherQuestion.find({ status: 'pending_cr', crNotifiedAt: { $ne: null } })
+      .sort({ askedAt: 1 }).limit(40).lean();
+    for (const t of openTasks) {
+      const ageMs = now - new Date(t.askedAt).getTime();
       const crPhone = t.crUser ? (await User.findById(t.crUser).select('phone').lean())?.phone : null;
-      if (crPhone) {
-        await sendText(String(crPhone).replace(/\D/g, ''),
-          `Reminder: teacher ke sawal (${t.refCode}) ka jawab abhi pending hai — "${String(t.question).slice(0, 100)}". Reply kar dein, main teacher tak pohancha dunga.\n\n— Tri3M Class Agent`).catch(() => {});
+      if (t.crReminders < FOLLOWUP_MINUTES.length && ageMs >= FOLLOWUP_MINUTES[t.crReminders] * 60 * 1000) {
+        const first = t.crReminders === 0;
+        if (crPhone) {
+          await sendTracked(String(crPhone).replace(/\D/g, ''),
+            first
+              ? `Assalam-o-Alaikum! Teacher ke sawal (*${t.refCode}*) ka jawab abhi tak nahi mila — "${String(t.question).slice(0, 100)}". Jab foran ho jaye to bata dein, teacher intezar kar rahay hain. Shukriya!\n\n— Tri3M Class Agent`
+              : `Teacher ab bhi jawab ka intezar kar rahay hain (*${t.refCode}*) — "${String(t.question).slice(0, 100)}". Aaj hi jawab de dein, main teacher tak pohancha dunga.\n\n— Tri3M Class Agent`,
+            { kind: 'cr_nudge', refKey: `question:${t._id}:nudge${t.crReminders}`, once: true, dedupeKey: `q-nudge:${t._id}:${t.crReminders}` });
+        }
+        await TeacherQuestion.updateOne({ _id: t._id }, { $inc: { crReminders: 1 }, $set: { lastFollowUpAt: new Date() } }).catch(() => {});
+        out.reminders++;
+      } else if (t.crReminders >= FOLLOWUP_MINUTES.length && !t.escalatedAt && ageMs >= ESCALATE_AFTER_MINUTES * 60 * 1000) {
+        // escalate: the section's GR first, then the platform admin
+        const sec = t.section ? await Section.findById(t.section).select('cr gr name').lean() : null;
+        const target = (sec?.gr && (!t.crUser || String(sec.gr) !== String(t.crUser)))
+          ? await User.findById(sec.gr).select('name role phone').lean()
+          : await User.findOne({ role: 'admin' }).sort({ createdAt: 1 }).select('name role phone').lean();
+        if (target?.phone) {
+          await sendTracked(String(target.phone).replace(/\D/g, ''),
+            `Assalam-o-Alaikum! Section ke teacher ka ek sawal CR se ${Math.round(ageMs / 3600000)} ghante se pending hai (code *${t.refCode}*). GR hone ke nate aap isay CR se confirm karwa dein:\n\nSawal: "${String(t.question).slice(0, 200)}"\n\nJawab milte hi main teacher tak pohancha dunga.\n\n— Tri3M Class Agent`,
+            { kind: 'escalation', refKey: `question:${t._id}:escalation`, once: true, dedupeKey: `q-escalate:${t._id}` });
+        }
+        if (target?._id) {
+          await createNotification({
+            recipient: target._id, type: 'system',
+            title: `Teacher question ${t.refCode} needs escalation`,
+            message: `The CR has not answered: "${String(t.question).slice(0, 200)}". Please get it answered — the teacher is waiting.`,
+            refType: 'section', refId: t.section,
+            dedupeKey: `teacher-question-escalation:${String(t._id).slice(-12)}`,
+          }).catch(() => {});
+        }
+        await TeacherQuestion.updateOne({ _id: t._id }, { $set: {
+          escalatedToUser: target?._id ?? null, escalatedToName: target?.name ?? '',
+          escalatedAt: new Date(), escalationNote: 'CR unresponsive after nudges; escalated per spec §4' } }).catch(() => {});
+        out.escalated = (out.escalated ?? 0) + 1;
       }
-      await TeacherQuestion.updateOne({ _id: t._id }, { $inc: { crReminders: 1 } });
-      out.reminders++;
     }
-    // 3) a stored CR answer that never reached the teacher
+    // 3) a stored CR answer that never reached the teacher — the OUTBOX row
+    //    is the retry vehicle: close only when delivery really succeeded.
     const unsentAnswers = await TeacherQuestion.find({ status: 'cr_responded' }).limit(20).lean();
     for (const t of unsentAnswers) {
-      const sent = await sendText(t.phone,
-        teacherAnswerMessage({ crName: t.crName ?? 'the CR', question: t.question, answer: t.crReply })).catch(() => null);
-      if (sent?.sent) {
+      const { OutboxMessage } = await import('../models/index.js');
+      const row = await OutboxMessage.findOne({ refKey: `question:${t._id}:answer` }).sort({ updatedAt: -1 }).lean();
+      if (row?.status === 'sent') {
         await TeacherQuestion.updateOne({ _id: t._id }, { $set: {
-          status: 'closed', answerSentAt: new Date(), closedAt: new Date() } });
+          status: 'closed', answerSentAt: row.sentAt ?? new Date(), closedAt: new Date() } });
         out.redelivered++;
-      }
+      } else if (!row) { // crash before any outbox row existed
+        const delivered = await sendTracked(t.phone,
+          teacherAnswerMessage({ crName: t.crName ?? 'the CR', question: t.question, answer: t.crReply }),
+          { kind: 'answer', refKey: `question:${t._id}:answer`, once: true, dedupeKey: `q-answer:${t._id}` });
+        if (delivered.sent) {
+          await TeacherQuestion.updateOne({ _id: t._id }, { $set: {
+            status: 'closed', answerSentAt: new Date(), closedAt: new Date() } });
+          out.redelivered++;
+        }
+      } // row failed → the outbox sweep retries it; we close it next pass
     }
   } catch (err) { console.error('[teacher-question sweep]', err?.message ?? err); }
   return out;

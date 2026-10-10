@@ -27,3 +27,4 @@ export { default as ChatbotSetting } from './ChatbotSetting.js';
 export { default as ExperienceExample } from './ExperienceExample.js';
 export { default as TeacherMaterial } from './TeacherMaterial.js';
 export { default as TeacherQuestion } from './TeacherQuestion.js';
+export { default as OutboxMessage } from './OutboxMessage.js';
