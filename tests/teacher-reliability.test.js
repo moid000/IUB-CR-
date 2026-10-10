@@ -229,7 +229,7 @@ test('TEST C: teacher confirmation reflects the REAL CR-notification status — 
   const teacherMsgs = sent.filter((s) => s.to === '923001112233');
   const confirm = teacherMsgs.find((s) => /Confirm_File\.pdf/.test(s.body) && /upload ho gayi/i.test(s.body));
   assert.ok(confirm, 'confirmation sent');
-  assert.match(confirm.body, /CR ko bhi update kar diya gaya hai/, 'CR-informed line because delivery SUCCEEDED');
+  assert.match(confirm.body, /CR ko bhi bata diya hai/, 'CR-informed line because delivery SUCCEEDED');
 
   // now make the CR ping fail: the SAME upload still succeeds, the line is honest
   failSendsTo = '923009876543';
@@ -237,7 +237,7 @@ test('TEST C: teacher confirmation reflects the REAL CR-notification status — 
   const confirm2 = sent.filter((s) => s.to === '923001112233')
     .find((s) => /Pending_CR_File\.pdf/.test(s.body) && /upload ho gayi/i.test(s.body));
   assert.ok(confirm2, 'confirmation still sent (upload succeeded)');
-  assert.match(confirm2.body, /CR ka update abhi pending hai/, 'honest pending line — no fake CR-informed claim');
+  assert.match(confirm2.body, /retry kar raha hoon/, 'honest pending line — no fake CR-informed claim');
   assert.equal(await Note.countDocuments({}), 2, 'both notes exist regardless of CR ping');
 });
 
@@ -485,7 +485,7 @@ test('TEST K: unclear file → offer → teacher says "ok kr do" → approval qu
   geminiClassify = null;
   const mat = await TeacherMaterial.findOne({}).lean();
   assert.equal(mat.status, 'offered', 'unclear file stays an OPEN offer');
-  assert.match(sent[sent.length - 1].body, /file mil gayi/i, 'honest offer sent');
+  assert.match(sent[sent.length - 1].body, /study material hai to bata dein/i, 'honest offer sent');
   // the teacher accepts the offer — offline net, exactly like the live incident
   const r = await webhook(incoming('ok kr do'));
   assert.equal(r.json.data.updated, true, 'offer acceptance consumed by the file flow');

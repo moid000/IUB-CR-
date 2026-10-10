@@ -189,128 +189,64 @@ const cleanFilename = (v, max = 100) => String(v ?? '').replace(/[\r\n\t]/g, ' '
 
 function askApprovalMessage({ filename, subjectName, sectionName, teacherName, language }) {
   const short = cleanFilename(filename, 70);
+  // OWNER STYLE SPEC (2026-10-11): natural human coordinator — ONE short
+  // message, no footer, no essay.
   if (language === 'english') {
-    return [
-      `Thank you, Sir. "${short}" appears to be study material for *${subjectName}* (Section ${sectionName}).`,
-      '',
-      `Would you like me to upload it to the ${subjectName} Notes section on the class portal for the students?`,
-      'Reply *YES* to upload it, or *NO* to skip.',
-      '',
-      '— Tri3M Class Agent',
-    ].join('\n');
+    return `Sir, "${short}" looks like ${subjectName} study material for Section ${sectionName}. Upload it to the portal's Notes section for the students? (YES / NO)`;
   }
-  return [
-    `Shukriya ${teacherName ? `Sir` : 'Sir'}. "${short}" ${subjectName} ki study material lag rahi hai (Section ${sectionName}).`,
-    '',
-    `Kya main isay ${subjectName} ke Notes section mein students ke liye upload kar doon?`,
-    '*YES* likh dein to upload ho jayega, *NO* to nahi.',
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return `Sir, "${short}" ${subjectName} ki study material lag rahi hai (Section ${sectionName}). Portal ke Notes mein upload kar doon? (YES / NO)`;
 }
 
 function askSubjectMessage({ filename, teacherName, subjectNames }) {
   const short = cleanFilename(filename, 70);
-  return [
-    `Ji Sir, "${short}" study material lag rahi hai — lekin aap ke do ya zyada subjects hain.`,
-    '',
-    `Kis subject ke Notes mein upload karoon: ${subjectNames.join(' ya ')}?`,
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return `Sir, "${short}" kis subject ke Notes mein upload karoon — ${subjectNames.join(' ya ')}?`;
 }
 
 function askSectionMessage({ filename, subjectName, sectionNames }) {
   const short = cleanFilename(filename, 70);
-  return [
-    `Ji Sir, "${short}" ${subjectName} ki study material lag rahi hai — lekin aap ${subjectName} ke Sections *${sectionNames.join('* aur *')}* dono mein parhate hain.`,
-    '',
-    `Kis section ke students ke liye Notes mein upload karoon: ${sectionNames.join(' ya ')}?`,
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return `Sir, "${short}" ${subjectName} ki material hai — aap Sections ${sectionNames.join(' aur ')} dono mein parhate hain. Kis section ke liye upload karoon?`;
 }
 
 /* OWNER (2026-10-08 night): unknown extension — HONEST at receipt, with the
  * supported list, never a silent fail-after-approval later. */
 function unsupportedMessage({ ext }) {
   const e = clean(ext, 12);
-  return [
-    `Ji Sir,${e ? ` ${e}` : ' is type'} ki file class portal abhi support nahi karta. 🙏`,
-    '',
-    'Jo file types chalti hain: PDF, images (JPG/PNG/WEBP/GIF), Word/PowerPoint/Excel, TXT/CSV/RTF, IPYNB, ZIP/RAR/7Z, audio (MP3/WAV/M4A/OGG/AAC/FLAC), video (MP4/MKV/MOV/AVI/WEBM).',
-    '',
-    'Behtar hoga PDF ya image ki soorat mein bhej dein — wo seedha Notes mein chali jayegi.',
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return `Sir, ${e || 'is type'} ki file portal abhi support nahi karta. PDF ya image bhej dein to seedha Notes mein chali jayegi.`;
 }
 
 function notMaterialMessage({ teacherName }) {
-  return [
-    'Ji Sir, file mil gayi. 🙏',
-    '',
-    'Agar ye students ke liye study material hai jo class portal ke Notes mein share karni ho, to bas bata dein — main upload kar doon ga.',
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return 'Sir, agar ye students ke liye study material hai to bata dein — main portal ke Notes mein upload kar doon ga.';
 }
 
 function publishedMessage({ subjectName, sectionName, filename, language, crDelivered, alreadyPublished }) {
   const short = cleanFilename(filename, 70);
-  // OWNER spec §4: the CR line is stated ONLY as delivery really happened —
-  // a pending CR notification is told as pending, never claimed as done.
-  const crLineEn = crDelivered
-    ? 'The relevant CR has also been informed.'
-    : 'The CR notification is still pending — it will be retried shortly.';
-  const crLineUr = crDelivered
-    ? 'Relevant CR ko bhi update kar diya gaya hai.'
-    : 'CR ka update abhi pending hai — thori dair mein bhej kar raha hoon.';
+  // OWNER STYLE SPEC (2026-10-11 §4): ONE concise final confirmation that
+  // states BOTH verified outcomes — never a separate CR-update message.
   if (language === 'english') {
-    return [
-      `Done, Sir. Your study material "${short}" has been uploaded to the *${subjectName}* Notes section for Section ${sectionName} — students can open it on the portal now.`,
-      '',
-      crLineEn,
-      alreadyPublished ? '(This file was already uploaded — nothing was duplicated.)' : '',
-      '',
-      '— Tri3M Class Agent',
-    ].filter(Boolean).join('\n');
+    return crDelivered
+      ? `Done Sir, "${short}" is uploaded to the ${subjectName} Notes section for Section ${sectionName}, and the CR has been informed.`
+      : `Done Sir, "${short}" is uploaded to the ${subjectName} Notes section for Section ${sectionName}. The CR notification is going through — it will be retried.`;
   }
-  return [
-    `Ho gaya Sir. "${short}" *${subjectName}* ke Notes section mein Section ${sectionName} ke liye upload ho gayi hai — students portal par dekh sakte hain.`,
-    '',
-    crLineUr,
-    alreadyPublished ? '(Ye file pehle hi upload ho chuki thi — dobara kuch nahi hua.)' : '',
-    '',
-    '— Tri3M Class Agent',
-  ].filter(Boolean).join('\n');
+  return crDelivered
+    ? `Done Sir, "${short}" ${subjectName} ke Notes (Section ${sectionName}) mein upload ho gayi hai aur CR ko bhi bata diya hai.`
+    : `Done Sir, "${short}" ${subjectName} ke Notes (Section ${sectionName}) mein upload ho gayi hai. CR ko notify karne mein issue aa raha hai — retry kar raha hoon.`;
 }
 
 function declinedMessage() {
-  return [
-    'Ji Sir, koi file upload nahi ki. 🙏',
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return 'Theek hai Sir, koi upload nahi hui.';
 }
 
 function failedMessage({ filename }) {
   const short = cleanFilename(filename, 70);
-  return [
-    `Maazrat Sir, "${short}" upload nahi ho saki — portal/storage me masla aa gaya.`,
-    '',
-    'Aap thori dair baad dobara bhej dein, ya apne CR se kahein — wo khud bhi upload kar sakte hain. Jab masla hal ho jaye main aap ko bata dunga.',
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return `Maazrat Sir, "${short}" upload nahi ho saki — thori dair baad dobara bhej dein ya CR se bata dein.`;
 }
 
 function duplicateMessage({ filename, status }) {
   const short = cleanFilename(filename, 70);
   if (status === 'published') {
-    return `Ji Sir, "${short}" pehle hi portal ke Notes mein upload ho chuki hai — students ke liye available hai. 🙏`;
+    return `Sir, "${short}" pehle hi Notes mein upload ho chuki hai — students portal par dekh sakte hain.`;
   }
-  return `Ji Sir, "${short}" pehle hi mere paas pending hai — pehle wali ka jawab de dein, phir main isi ko upload kar dunga.`;
+  return `Sir, "${short}" pending hai — pehle wali file ka jawab de dein, phir isi ko upload kar dunga.`;
 }
 
 /* ---------------------------- audit helper ------------------------------ */
@@ -389,7 +325,7 @@ export async function handleTeacherFile(payload) {
   const mediaUrl = await findMediaUrl(data);
   if (!mediaUrl) {
     chatLog('FILE', { phone: sender, msg: `no media url for ${filename}` });
-    await sendTeacherText(sender, 'Ji Sir, file poori tarah upload nahi hui — maazrat. Zara dobara bhej dein. 🙏\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Maazrat Sir, file poori tarah upload nahi hui — dobara bhej dein.');
     return true; // consumed, honestly answered — never silently dropped
   }
 
@@ -398,7 +334,7 @@ export async function handleTeacherFile(payload) {
     // every record for this number lacks subject/section — the portal setup
     // is incomplete. NEVER silent: tell the teacher the honest next step.
     chatLog('FILE', { phone: sender, msg: `no subject/section on any teacher record for ${filename}` });
-    await sendTeacherText(sender, 'Ji Sir, aap ka teacher record abhi portal me complete nahi hua (subject aur section set nahi hai), is liye file save nahi ho saki. 🙏 Zara apne CR ko bata dein — wo portal me theek karwa kar aap ko 1 minute mein bata denge, phir file dobara bhej dein.\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Sir, aap ka teacher record portal me complete nahi hai (subject/section set nahi) — isi liye file save nahi ho saki. CR se theek karwa dein, phir dobara bhej dein.');
     return true; // consumed, honestly answered — never silently dropped
   }
   let material;
@@ -412,7 +348,7 @@ export async function handleTeacherFile(payload) {
     // a UNIQUE waMsgId race from a concurrent webhook retry — the first copy wins
     if (String(err?.code) === '11000') return true;
     chatLog('FILE', { phone: sender, msg: `save failed: ${err.message}` });
-    await sendTeacherText(sender, 'Ji Sir, file save karne mein masla aa gaya — maazrat. 🙏 Zara thori dair baad dobara bhej dein.\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Maazrat Sir, file save karne mein masla aa gaya — thori dair baad dobara bhej dein.');
     return true; // consumed, honestly answered — never silently dropped
   }
   auditPush(material._id, 'received', `${filename} (${size || '?'} bytes, ${effectiveMime || 'unknown mime'})`);
@@ -431,7 +367,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   if (dl.error) {
     material.status = 'failed'; material.uploadError = dl.error; await material.save();
     auditPush(material._id, 'failed', `download: ${dl.error}`);
-    await sendTeacherText(sender, 'Ji Sir, file download nahi ho saki — maazrat. Zara dobara bhej dein. 🙏\n\n— Tri3M Class Agent');
+    await sendTeacherText(sender, 'Maazrat Sir, file download nahi ho saki — dobara bhej dein.');
     return true;
   }
   const sha256 = createHash('sha256').update(dl.buf).digest('hex');
@@ -546,7 +482,7 @@ async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
     .populate('subject', 'name code').populate('section', 'name').lean();
   const usable = teacherRecords.filter((t) => t.subject && t.section);
   const primary = usable[0] ?? teacherRecords[0];
-  const prefix = 'Aur ek file bhi mili hai aap ki:';
+  const prefix = 'Aur ek file:';
   if (next.status === 'offered') {
     await sendTeacherText(sender, `${prefix}\n\n${notMaterialMessage({})}`);
   } else if (next.status === 'awaiting_subject') {
@@ -592,7 +528,20 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     'teacherConfirmation.phone': sender, 'teacherConfirmation.status': 'awaiting',
     'teacherConfirmation.sentAt': { $gt: new Date(material.askedAt) } }).select('_id').lean();
   if (newerClassAsk) return null;
-  if (msgId && material.lastReplyMsgId === msgId) return 'pending'; // redelivery — already answered
+  // OWNER SPEC 2026-10-11 §2/§6 (root-cause duplicate fix): ONE event = ONE
+  // action. Wasender redelivers webhooks aggressively (same msgId up to 3x,
+  // often while the first invocation is still mid-publish). The old
+  // read-then-check let a concurrent duplicate pass, re-run classification,
+  // race the publish claim and send the teacher a SECOND confirmation.
+  // Atomic claim: the first invocation to write lastReplyMsgId owns the
+  // reply; every redelivery/concurrent copy loses the race at DB level and
+  // exits without any user-facing message.
+  if (msgId) {
+    const claimed = await TeacherMaterial.findOneAndUpdate(
+      { _id: material._id, lastReplyMsgId: { $ne: msgId } },
+      { $set: { lastReplyMsgId: msgId } }, { new: true }).lean();
+    if (!claimed) return 'pending'; // duplicate delivery — already claimed/answered
+  }
 
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name code').populate('section', 'name').lean();
@@ -767,11 +716,15 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   // success claim before the Note actually exists)
   const outcome = await publishMaterial(material);
   if (outcome.ok) {
-    await sendTeacherText(sender, publishedMessage({
+    // OWNER SPEC §2: the final confirmation is DEDUPE-KEYED per material —
+    // even if a redelivery slips past the claim, the outbox sends this
+    // exactly once. The message states both VERIFIED outcomes together.
+    await sendTracked(sender, publishedMessage({
       filename: material.filename, subjectName: outcome.subjectName,
       sectionName: outcome.sectionName, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
       crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
-    }));
+    }), { kind: 'material', refKey: `material:${material._id}:published-ack`,
+      dedupeKey: `material:${material._id}:published-ack`, once: true });
     await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
     return 'published';
   }
@@ -782,7 +735,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
 
 /* ------------------------------ publication ----------------------------- */
 
-async function publishMaterial(material) {
+async function publishMaterial(material, { resume = false } = {}) {
   // RETRY-SAFE (owner spec §1/G/H): an already-published material is NEVER
   // uploaded again — verify the recorded Note and report success.
   if (material.publishedNote) {
@@ -793,8 +746,14 @@ async function publishMaterial(material) {
     // ATOMIC CLAIM (owner spec §1/H): awaiting_approval → uploading. A webhook
     // redelivery or the sweep racing this call finds status 'uploading' and
     // never publishes twice; a crash mid-publish is resumed by the sweep.
+    // 2026-10-11: a webhook redelivery may never re-claim an in-flight
+    // publish ('uploading') — only the SWEEP's stale resume may. Prevents
+    // two racing publishes from double-uploading / double-confirming.
+    const claimFilter = resume
+      ? { _id: material._id, status: { $in: ['awaiting_approval', 'uploading'] } }
+      : { _id: material._id, status: 'awaiting_approval' };
     const claim = await TeacherMaterial.findOneAndUpdate(
-      { _id: material._id, status: { $in: ['awaiting_approval', 'uploading'] } },
+      claimFilter,
       { $set: { status: 'uploading', uploadClaimedAt: new Date() }, $inc: { uploadAttempts: 1 } },
       { new: true }).lean();
     if (!claim) { // someone else published/declined it concurrently
@@ -997,7 +956,7 @@ export async function runTeacherMaterialSweep() {
       uploadAttempts: { $lte: 3 } }).limit(10).lean();
     for (const m of stuckUploading) {
       try {
-        const outcome = await publishMaterial(m);
+        const outcome = await publishMaterial(m, { resume: true });
         if (outcome.ok) {
           out.resumedUploading++;
           let { subjectName, sectionName } = outcome;
@@ -1005,10 +964,13 @@ export async function runTeacherMaterialSweep() {
             const note = await Note.findById(m.publishedNote).populate('subject', 'name').populate('section', 'name').lean();
             subjectName = note?.subject?.name ?? ''; sectionName = note?.section?.name ?? '';
           }
-          await sendText(m.phone, publishedMessage({
+          // same dedupe key as the webhook path — if the teacher already got
+          // the final confirmation, the sweep never repeats it (spec §2)
+          await sendTracked(m.phone, publishedMessage({
             filename: m.filename, subjectName: subjectName || 'your subject', sectionName: sectionName || '',
             language: undefined, crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
-          })).catch(() => {});
+          }), { kind: 'material', refKey: `material:${m._id}:published-ack`,
+            dedupeKey: `material:${m._id}:published-ack`, once: true }).catch(() => {});
         } else { out.failed++; auditPush(m._id, 'failed', `sweep publish resume: ${outcome.error}`); }
       } catch (err) { auditPush(m._id, 'failed', `sweep resume: ${String(err?.message ?? err).slice(0, 200)}`); out.failed++; }
     }

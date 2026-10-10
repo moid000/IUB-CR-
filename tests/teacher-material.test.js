@@ -274,7 +274,7 @@ test('MASTER UPGRADE TEST E: teacher approves → file uploaded to Cloudinary, r
     assert.ok(note.attachments[0].url.startsWith('https://res.cloudinary.com/demo/iub-cr-lms/note/'), 'attachment in the app namespace');
     assert.ok(note.uploadedByTeacher, 'teacher identity preserved as uploader');
     assert.equal(String(note.author), String(crId), 'CR is the technical author');
-    assert.match(sent[sent.length - 1].body, /ho gaya|uploaded/i, 'success reply only AFTER verification');
+    assert.match(sent[sent.length - 1].body, /ho gay|uploaded/i, 'success reply only AFTER verification');
   } finally { geminiClassify = null; geminiApproval = null; geminiAnswer = null; }
 });
 
@@ -324,7 +324,7 @@ test('MASTER UPGRADE TEST G: teacher declines → nothing published, honest ack'
     const mat = await TeacherMaterial.findOne({}).lean();
     assert.equal(mat.status, 'declined');
     assert.equal(sent.length, before + 2, 'one honest ack to the teacher + one decline ping to the CR');
-    assert.match(sent.slice(-2).map((m) => m.body).join(' \n '), /koi file upload nahi/i);
+    assert.match(sent.slice(-2).map((m) => m.body).join(' \n '), /koi upload nahi/i);
   } finally { geminiClassify = null; geminiApproval = null; }
 });
 

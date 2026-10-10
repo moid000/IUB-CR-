@@ -82,31 +82,18 @@ function crQuestionAlert({ teacherName, sectionLabel, question, refCode }) {
 }
 
 function teacherAckMessage({ crName, delivered }) {
+  // OWNER STYLE SPEC 2026-10-11 §1/§5: one concise ack, honest about
+  // dispatch state, no footer, no 'correct information' phrasing.
   if (delivered) {
-    return [
-      'Sir, main aap ko correct information dena chahta hoon — is liye aap ka sawal aap ke relevant CR ko confirm karne bhej diya hai.',
-      'Jawab milte hi main aap ko foran bata dunga.',
-      '',
-      '— Tri3M Class Agent',
-    ].join('\n');
+    return 'Sir, yeh detail main ne aap ke CR se confirm karne ke liye bhej di hai. Jawab milte hi bata dunga.';
   }
-  return [
-    'Sir, aap ka sawal note kar liya hai — CR ko bhejne mein masla aa raha hai, main dobara try kar raha hoon.',
-    'Jawab milte hi aap ko bata dunga.',
-    '',
-    '— Tri3M Class Agent',
-  ].join('\n');
+  return 'Sir, sawal note kar liya hai — CR ko bhejne mein masla aa raha hai, thori dair mein retry karta hoon.';
 }
 
 function teacherAnswerMessage({ crName, question, answer }) {
+  // OWNER STYLE SPEC 2026-10-11: one concise delivered answer.
   return [
-    `Sir, aap ke sawal ka jawab ${crName ?? 'aap ke CR'} ne confirm kar ke bheja hai:`,
-    '',
-    `Sawal: "${String(question ?? '').slice(0, 120)}"`,
-    '',
-    `Jawab: "${String(answer ?? '').slice(0, 600)}"`,
-    '',
-    '— Tri3M Class Agent',
+    `Sir, aap ke sawal ("${String(question ?? '').slice(0, 100)}") ka jawab ${crName ?? 'aap ke CR'} ne bheja hai: "${String(answer ?? '').slice(0, 600)}"`,
   ].join('\n');
 }
 
