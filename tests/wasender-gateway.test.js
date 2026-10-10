@@ -234,3 +234,54 @@ test('gateway flag flip: env.whatsapp.gateway=ultramsg routes sends to UltraMsg 
     env.whatsapp.gateway = saved;
   }
 });
+
+test('watchdog wasender branch: connected session -> quiet success + state updated', async () => {
+  const { WatchdogState, OutboxMessage } = models;
+  await WatchdogState.deleteMany({});
+  const wd = await import('../backend/services/ultramsgWatchdogService.js');
+  const saved = env.whatsapp.gateway;
+  env.whatsapp.gateway = 'wasender';
+  try {
+    const r = await wd.runWatchdog();
+    assert.equal(r.gateway, 'wasender');
+    assert.equal(r.status, 'connected');
+    const last = await WatchdogState.findOne({ key: 'watchdog:last-run' }).lean();
+    assert.ok(last, 'heartbeat recorded');
+    const renew = await WatchdogState.findOne({ key: 'watchdog:last-renewal' }).lean();
+    assert.equal(renew?.value, 'wasender:connected');
+    // no alert state created on success
+    const alert = await WatchdogState.findOne({ key: 'watchdog:wasender-session' }).lean();
+    assert.equal(alert, null);
+  } finally {
+    env.whatsapp.gateway = saved;
+  }
+});
+
+test('watchdog wasender branch: disconnected session -> alert state + error record', async () => {
+  const { WatchdogState } = models;
+  await WatchdogState.deleteMany({});
+  const wd = await import('../backend/services/ultramsgWatchdogService.js');
+  const saved = env.whatsapp.gateway;
+  env.whatsapp.gateway = 'wasender';
+  // make /api/status report a disconnect
+  const inner = globalThis.fetch;
+  globalThis.fetch = (url, options = {}) => {
+    if (String(url).endsWith('/status')) {
+      return Promise.resolve(new Response(JSON.stringify({ status: 'disconnected' }), { status: 200 }));
+    }
+    return inner(url, options);
+  };
+  try {
+    const r = await wd.runWatchdog();
+    assert.equal(r.gateway, 'wasender');
+    assert.equal(r.status, 'disconnected');
+    assert.ok(r.alerted !== undefined, 'alert attempt recorded');
+    const err = await WatchdogState.findOne({ key: 'watchdog:last-extend-error' }).lean();
+    assert.ok(err && /wasender session/.test(err.value), 'error state persisted for the dashboard');
+    const alert = await WatchdogState.findOne({ key: 'watchdog:wasender-session' }).lean();
+    assert.ok(alert, 'throttle state created so repeats stay quiet');
+  } finally {
+    globalThis.fetch = inner;
+    env.whatsapp.gateway = saved;
+  }
+});
