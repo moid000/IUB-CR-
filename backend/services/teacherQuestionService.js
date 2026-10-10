@@ -19,6 +19,7 @@
  *   runTeacherQuestionSweep() on the existing 5-minute cron.
  */
 import { randomBytes } from 'node:crypto';
+import { normalizePhone, samePhone } from './phoneUtils.js';
 import { Section, Teacher, TeacherQuestion, User } from '../models/index.js';
 import { sendText, sendTracked, isRateLimitError } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
@@ -143,7 +144,8 @@ async function dispatchToCr(task, crUserIn) {
   const sectionLabel = sec ? `${sec.department?.name ?? ''} · Semester ${sec.semester ?? ''} · Section ${sec.name ?? ''}` : '—';
   const alert = crQuestionAlert({ teacherName: task.teacherName || 'Teacher', sectionLabel, question: task.question, refCode: task.refCode });
   let delivered = false;
-  const crPhone = crUser?.phone ? String(crUser.phone).replace(/\D/g, '') : null;
+  // 2026-10-11 fix: CR phones stored local ('03088787753') — Wasender needs E.164.
+  const crPhone = crUser?.phone ? normalizePhone(crUser.phone) : null;
   let sendErr = '';
   if (crPhone) {
     try {
@@ -196,7 +198,11 @@ export async function handleCrQuestionReply(sender, body, payload) {
   const msgId = String(payload?.data?.id ?? '').slice(0, 220);
   let text = String(body ?? '').trim();
   if (!msgId || !sender || !text) return false;
-  const users = await User.find({ phone: { $regex: `^\\+?${sender.replace(/^0+/, '')}$` }, role: { $in: ['cr', 'gr'] } }).select('_id name role phone').lean();
+  // 2026-10-11 fix: inbound sender is ALWAYS E.164 digits; stored phones may
+  // be local format. Regex equality never matched both — CR replies were
+  // misclassified as teacher messages. Match on normalized identity instead.
+  const allLeaders = await User.find({ role: { $in: ['cr', 'gr'] } }).select('_id name role phone').lean();
+  const users = allLeaders.filter((u) => samePhone(sender, u.phone));
   if (!users.length) return false;
   const ids = users.map((u) => u._id);
   let pending = await TeacherQuestion.find({ crUser: { $in: ids }, status: { $in: ['pending_cr', 'cr_responded'] } }).sort({ askedAt: 1 }).lean();
@@ -293,7 +299,7 @@ export async function runTeacherQuestionSweep() {
       if (t.crReminders < FOLLOWUP_MINUTES.length && ageMs >= FOLLOWUP_MINUTES[t.crReminders] * 60 * 1000) {
         const first = t.crReminders === 0;
         if (crPhone) {
-          await sendTracked(String(crPhone).replace(/\D/g, ''),
+          await sendTracked(normalizePhone(crPhone),
             first
               ? `Assalam-o-Alaikum! Teacher ke sawal (*${t.refCode}*) ka jawab abhi tak nahi mila — "${String(t.question).slice(0, 100)}". Jab foran ho jaye to bata dein, teacher intezar kar rahay hain. Shukriya!\n\n— Tri3M Class Agent`
               : `Teacher ab bhi jawab ka intezar kar rahay hain (*${t.refCode}*) — "${String(t.question).slice(0, 100)}". Aaj hi jawab de dein, main teacher tak pohancha dunga.\n\n— Tri3M Class Agent`,
@@ -308,7 +314,7 @@ export async function runTeacherQuestionSweep() {
           ? await User.findById(sec.gr).select('name role phone').lean()
           : await User.findOne({ role: 'admin' }).sort({ createdAt: 1 }).select('name role phone').lean();
         if (target?.phone) {
-          await sendTracked(String(target.phone).replace(/\D/g, ''),
+          await sendTracked(normalizePhone(target.phone),
             `Assalam-o-Alaikum! Section ke teacher ka ek sawal CR se ${Math.round(ageMs / 3600000)} ghante se pending hai (code *${t.refCode}*). GR hone ke nate aap isay CR se confirm karwa dein:\n\nSawal: "${String(t.question).slice(0, 200)}"\n\nJawab milte hi main teacher tak pohancha dunga.\n\n— Tri3M Class Agent`,
             { kind: 'escalation', refKey: `question:${t._id}:escalation`, once: true, dedupeKey: `q-escalate:${t._id}` });
         }

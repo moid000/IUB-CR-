@@ -59,7 +59,7 @@ function pickMedia(message) {
   return null;
 }
 
-async function decryptMediaUrl(message) {
+async function decryptMediaUrl(message, key) {
   const media = pickMedia(message);
   if (!media) return { url: null, mimetype: null, filename: null, caption: null };
   const { kind, raw } = media;
@@ -75,7 +75,9 @@ async function decryptMediaUrl(message) {
     const res = await fetch(`${base}/decrypt-media`, {
       method: 'POST',
       headers: { authorization: `Bearer ${env.wasender.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ data: { messages: { message } } }),
+      // Wasender docs (decrypt-media-file): every request example carries
+      // data.messages.key.id alongside data.messages.message — 2026-10-11 fix.
+      body: JSON.stringify({ data: { messages: { key: { id: key?.id ?? '' }, message } } }),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     const text = await res.text();
@@ -140,7 +142,7 @@ export async function normalizeWasenderPayload(raw) {
   if (author) out.data.author = author;
 
   if (media) {
-    const { url, mimetype, filename, caption } = await decryptMediaUrl(message);
+    const { url, mimetype, filename, caption } = await decryptMediaUrl(message, key);
     if (url) {
       out.data.media = url;
       out.data.mediaUrl = url;

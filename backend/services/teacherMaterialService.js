@@ -21,6 +21,7 @@ import { ApiError } from '../middleware/error.js';
 import { isConfigured, sendText, sendTracked } from './whatsappService.js';
 import { allowedTypeForExt, uploadAttachmentFromServer } from './fileService.js';
 import { findMediaUrl } from './chatbotService.js';
+import { normalizePhone } from './phoneUtils.js';
 import { createNotification } from './notificationService.js';
 import { broadcastToSubjectGroup, noteMessage } from './whatsappGroupService.js';
 
@@ -917,7 +918,7 @@ async function notifyCr({ section, event, materialId, lines, title, message, ref
       dedupeKey: `teacher-material:${event}:${String(materialId).slice(-12)}`,
     }).catch(() => {});
     if (crUser.phone) {
-      const crPhone = String(crUser.phone).replace(/\D/g, '');
+      const crPhone = normalizePhone(crUser.phone); // 2026-10-11: local-format stored phones need E.164 for Wasender
       if (crPhone) {
         const out = await sendText(crPhone, `${lines}\n\n— Tri3M Class Agent`).catch(() => null);
         return { delivered: Boolean(out?.sent), crPhone };
@@ -1022,7 +1023,7 @@ export async function runTeacherMaterialSweep() {
         const sec = await Section.findById(m.section).select('cr gr name').lean();
         const crId = sec?.cr ?? sec?.gr ?? null;
         const crUser = crId ? await User.findById(crId).select('phone role').lean() : null;
-        const crPhone = crUser?.phone ? String(crUser.phone).replace(/\D/g, '') : null;
+        const crPhone = crUser?.phone ? normalizePhone(crUser.phone) : null; // 2026-10-11 E.164 fix
         let delivered = false;
         if (crPhone) delivered = Boolean((await sendText(crPhone, `${m.crNotify?.lines ?? ''}\n\n— Tri3M Class Agent`).catch(() => null))?.sent);
         await TeacherMaterial.updateOne({ _id: m._id }, { $set: {

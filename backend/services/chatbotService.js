@@ -1,6 +1,7 @@
 import { Section, Subject, Note, Assignment, Timetable, User, Teacher, Announcement, ChatbotLog, ChatbotSetting } from '../models/index.js';
 import { recordVoiceDiag } from '../models/VoiceDiag.js';
 import { env } from '../config/env.js';
+import { samePhone } from './phoneUtils.js';
 import {
   isConfigured, sendText, sendImage, sendDocument, sendAudio, sendVideo,
 } from './whatsappService.js';
@@ -1030,7 +1031,10 @@ export async function handleGroupMessage(payload) {
       ? (await User.find({ _id: { $in: leaderIds } }).select('phone').lean())
           .map((u) => digitsOf(u.phone)).filter(Boolean)
       : [];
-    const askerIsLeader = Boolean(author) && leaderPhones.includes(author);
+    // 2026-10-11 fix: CR/GR phones may be stored LOCAL format ('03XX…') while
+    // group authors arrive E.164 ('92 3XX…') — exact includes() never matched,
+    // so the CR got roasted instead of the mandated FULL RESPECT.
+    const askerIsLeader = Boolean(author) && leaderPhones.some((p) => samePhone(p, author));
 
     const ctx = await buildContext(section._id);
     const dataJson = contextData(ctx);

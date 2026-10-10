@@ -293,6 +293,29 @@ test('TEST E: the CR answers on WhatsApp → the teacher receives the answer in 
   assert.equal(sent.filter((s) => s.to === '923001112233' && /Library Room 2/.test(s.body)).length, countBefore, 'redelivery answered once');
 });
 
+test('TEST PKPHONE (2026-10-11 incident): CR phone stored LOCAL format \'03088787753\' → dispatch goes E.164, CR replies still match, never misclassified', async () => {
+  // the LIVE bug: portal stores local-format phones; Wasender needs E.164
+  // (dispatch failed + burned attempts) and inbound senders are E.164
+  // (regex equality missed → CR replies fell to the teacher flows).
+  await User.updateOne({ _id: crUser._id }, { phone: '03088787753' });
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se pooch kar bata dun ga.', escalate: true };
+  await webhook(incoming('Kal test hai?'));
+  geminiAnswer = null; geminiChatReply = null;
+  // dispatch must have gone to the E.164 form, not the raw local digits
+  const crPing = sent.find((s) => s.to === '923088787753');
+  assert.ok(crPing, 'CR dispatch sent to E.164 923088787753');
+  assert.ok(!sent.some((s) => s.to === '03088787753'), 'never sent to the invalid local form');
+  // CR replies from the E.164 number — must bind to the pending task
+  const reply = { ...incoming('x'), data: { id: 'pk-phone-1', from: '923088787753@c.us', body: 'Ji kal test hai, syllabus chapter 1-3.', type: 'chat', fromMe: false, time: Math.floor(Date.now() / 1000) } };
+  const r = await webhook(reply);
+  assert.equal(r.json.data.updated, true, 'local-format CR reply matched, not misclassified');
+  assert.ok(sent.some((s) => s.to === '923001112233' && /chapter 1-3/.test(s.body)), 'teacher got the answer');
+  const t = await TeacherQuestion.findOne({ phone: '923001112233' }).sort({ askedAt: -1 }).lean();
+  assert.equal(t.status, 'closed', 'closed after delivery');
+  // restore for later tests
+  await User.updateOne({ _id: crUser._id }, { phone: '+923009876543' });
+});
+
 test('TEST E2: CR with SEVERAL pending questions → asked WHICH one; ref-code targeting routes correctly', async () => {
   geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main confirm kar ke bata dun ga.', escalate: true };
   await webhook(incoming('Kal ki class hogi?'));
