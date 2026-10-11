@@ -525,7 +525,7 @@ test('NIGHT-3: bare IMAGE (no filename, no mimetype, real capture shape) → app
     assert.ok(sent.length > before, 'a reply was sent');
     const bodies = sent.slice(before).map((s) => s.body).join(' ');
     assert.ok(!/support nahi karta/i.test(bodies), 'NOT the unsupported-type reply');
-    assert.ok(/upload kar do|study material/i.test(bodies), 'approval question asked');
+    assert.ok(/upload kar do|study material|study notes|share kar doon/i.test(bodies), 'approval question asked');
     const mat = await TeacherMaterial.findOne({}).sort({ createdAt: -1 }).lean();
     assert.equal(mat.status, 'awaiting_approval');
     assert.equal(mat.ext, 'jpg');

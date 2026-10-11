@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { Note, Section, Subject, Teacher, TeacherMaterial, Timetable, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
-import { isConfigured, sendText, sendTracked } from './whatsappService.js';
+import { isConfigured, sendText, sendTracked, sendCrTracked, sanitizeWhatsAppText, cleanWhatsAppField } from './whatsappService.js';
 import { allowedTypeForExt, uploadAttachmentFromServer } from './fileService.js';
 import { findMediaUrl } from './chatbotService.js';
 import { normalizePhone } from './phoneUtils.js';
@@ -494,7 +494,11 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
       await notifyCr({ section: material.section, event: 'asked', materialId: material._id,
         title: `${primary.name} sent study material`,
         message: `${primary.name} sent "${material.filename}" (${subjectMatch[0].subjectName}) on WhatsApp — they teach it in multiple sections, so the agent asked which section it is for.`,
-        lines: `${primary.name} (teacher) ne ${subjectMatch[0].subjectName} ki "${cleanFilename(material.filename, 60)}" bheji hai — aap un ke do sections mein hai, to maine un se pooch liya hai ke kis section ke liye hai.` });
+        lines: [
+          `Sir, ${cleanWhatsAppField(primary.name)} ne ${cleanWhatsAppField(subjectMatch[0].subjectName)} ki ek file${material.filename ? ` ("${cleanFilename(material.filename, 60)}")` : ''} bheji hai.`,
+          '',
+          'Un ke 2 sections hain — maine un se pooch liya hai ke kis section ke liye hai.',
+        ].join('\n') });
       await sendTeacherText(sender, askSectionMessage({ filename, subjectName: subjectMatch[0].subjectName, sectionNames }));
       return true;
     }
@@ -517,7 +521,11 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
     await notifyCr({ section: material.section, event: 'asked', materialId: material._id,
       title: `${primary.name} sent study material`,
       message: `${primary.name} sent "${material.filename}" (${resolved.subject?.name ?? 'subject'}) on WhatsApp — the agent asked them for upload approval; it publishes to the Notes section once they reply YES.`,
-      lines: `${primary.name} (teacher) ne WhatsApp par "${cleanFilename(material.filename, 60)}" bheji hai — lagta hai ${resolved.subject?.name ?? 'unke subject'} ki study material hai. Maine un se pooch liya hai ke kya main isay Notes section mein upload kar doon. Un ka YES aate hi upload ho jayegi.` });
+      lines: [
+        `Sir, ${cleanWhatsAppField(primary.name)} ne ${cleanWhatsAppField(resolved.subject?.name)} ki ek file${material.filename ? ` ("${cleanFilename(material.filename, 60)}")` : ''} bheji hai.`,
+        '',
+        'Maine un se upload ki permission pooch li hai — YES aate hi Notes mein jayegi.',
+      ].join('\n') });
     await sendTeacherText(sender, askApprovalMessage({
       filename, subjectName: resolved.subject?.name ?? 'your subject', sectionName: resolved.section?.name ?? '',
       teacherName: primary.name, language: primary.chatProfile?.detectedLanguage,
@@ -705,7 +713,11 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
         event: 'declined',
         title: 'Teacher declined the material upload',
         message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
-        lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
+        lines: [
+          `Sir, "${cleanFilename(material.filename, 60)}" upload karne se teacher ne mana kar diya hai.`,
+          '',
+          'Portal par kuch upload nahi hua.',
+        ].join('\n') });
       await sendTeacherText(sender, declinedMessage());
       await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
       return 'declined';
@@ -741,7 +753,11 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
         event: 'declined',
         title: 'Teacher declined the material upload',
         message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
-        lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
+        lines: [
+          `Sir, "${cleanFilename(material.filename, 60)}" upload karne se teacher ne mana kar diya hai.`,
+          '',
+          'Portal par kuch upload nahi hua.',
+        ].join('\n') });
       await sendTeacherText(sender, declinedMessage());
       await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
       return 'declined';
@@ -777,7 +793,11 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
       event: 'declined',
       title: 'Teacher declined the material upload',
       message: `The teacher declined uploading "${material.filename}" — nothing was published.`,
-      lines: `Teacher ne "${cleanFilename(material.filename, 60)}" upload karne se mana kar diya hai — portal par kuch upload nahi hua.` });
+      lines: [
+        `Sir, "${cleanFilename(material.filename, 60)}" upload karne se teacher ne mana kar diya hai.`,
+        '',
+        'Portal par kuch upload nahi hua.',
+      ].join('\n') });
     await sendTeacherText(sender, declinedMessage());
     await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
     return 'declined';
@@ -916,15 +936,21 @@ async function publishMaterial(material, { resume = false } = {}) {
 
     const teacherDoc = await Teacher.findById(material.teacher).select('name').lean();
     const when = new Intl.DateTimeFormat('en-PK', { timeZone: 'Asia/Karachi', dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
+    // OWNER SPEC 2026-10-11: short, action-oriented, mobile-readable lines
+    const publishedLines = [
+      `Sir, ${cleanWhatsAppField(teacherDoc?.name)} ne ${cleanWhatsAppField(subjectDoc.name)} ke notes portal par upload kiye hain.`,
+      '',
+      `Section: ${cleanWhatsAppField(sectionDoc.name)}`,
+      material.filename ? `File: "${cleanFilename(material.filename, 60)}"` : '',
+      groupSent ? 'Class WhatsApp group mein bhi bhej di hai.' : '',
+      '',
+      'Ek baar check kar lein.',
+    ].filter(Boolean).join('\n');
     const crOut = await notifyCrPersisted(material, {
       event: 'published', refId: note._id,
       title: `Teacher material published: ${subjectDoc.name}`,
       message: `"${material.filename}" from ${teacherDoc?.name ?? 'the teacher'} was uploaded to the ${subjectDoc.name} Notes section after their WhatsApp approval. Students can open it now.`,
-      lines: [
-        `Assalam-o-Alaikum. Tri3M update: Sir ${teacherDoc?.name ?? 'teacher'} ne ${subjectDoc.name} ki study material (${sectionDoc.department?.name ?? ''} Semester ${sectionDoc.semester ?? ''}, Section ${sectionDoc.name ?? ''}) share ki hai.`,
-        `File "${cleanFilename(material.filename, 60)}" un ke approval ke baad ${when} PKT par ${subjectDoc.name} ke Notes section mein successfully UPLOAD ho gayi hai — verified.${groupSent ? ' Class WhatsApp group mein bhi bhej di gayi hai.' : ''}`,
-        'CR portal ke Notes section me verify kar lein.',
-      ].join('\n'),
+      lines: publishedLines,
     });
     return { ok: true, subjectName: subjectDoc.name, sectionName: sectionDoc.name, crDelivered: Boolean(crOut?.delivered) };
   } catch (err) {
@@ -940,7 +966,11 @@ async function publishMaterial(material, { resume = false } = {}) {
       // OWNER SPEC 2026-10-11 §3: the CR sees a SHORT professional message —
       // the raw internal error stays in the DB record + audit (admin only).
       message: `"${material.filename}" could not be uploaded after the teacher approved it. The teacher was told honestly — you may upload it manually. (Technical detail: Administration → materials audit)`,
-      lines: `Assalam-o-Alaikum. Sir ${failedTeacher?.name ?? 'teacher'} ki file "${cleanFilename(material.filename, 60)}" upload nahi ho saki — technical issue tha. Teacher ko saaf bata diya gaya hai. Aap chahen to wo file teacher se le kar khud Notes mein upload kar dein.` });
+      lines: [
+        `Sir, "${cleanFilename(material.filename, 60)}" upload nahi ho saki.`,
+        '',
+        'Teacher ko bata diya hai. Aap portal par manually upload kar sakte hain.',
+      ].join('\n') });
     return { ok: false, error: String(err?.message ?? err) };
   }
 }
@@ -965,8 +995,12 @@ async function notifyCr({ section, event, materialId, lines, title, message, ref
     if (crUser.phone) {
       const crPhone = normalizePhone(crUser.phone); // 2026-10-11: local-format stored phones need E.164 for Wasender
       if (crPhone) {
-        const out = await sendText(crPhone, `${lines}\n\n— Tri3M Class Agent`).catch(() => null);
-        return { delivered: Boolean(out?.sent), crPhone };
+        // OWNER SPEC 2026-10-11 (short CR notifications): sanitized text,
+        // outbox-deduped by refKey (one message per event — retries and
+        // repeated handlers can never double-send), provider msg id stored.
+        const out = await sendCrTracked(crPhone, lines, {
+          kind: 'cr_notify', refKey: `cr-notify:${String(materialId)}:${event}` });
+        return { delivered: Boolean(out?.sent || out?.alreadySent), crPhone };
       }
     }
     return { delivered: false };
@@ -1073,7 +1107,11 @@ export async function runTeacherMaterialSweep() {
         const crUser = crId ? await User.findById(crId).select('phone role').lean() : null;
         const crPhone = crUser?.phone ? normalizePhone(crUser.phone) : null; // 2026-10-11 E.164 fix
         let delivered = false;
-        if (crPhone) delivered = Boolean((await sendText(crPhone, `${m.crNotify?.lines ?? ''}\n\n— Tri3M Class Agent`).catch(() => null))?.sent);
+        if (crPhone) {
+          const out = await sendCrTracked(crPhone, m.crNotify?.lines ?? '', {
+            kind: 'cr_notify', refKey: `cr-notify:${String(m._id)}:${m.crNotify?.event ?? 'retry'}` });
+          delivered = Boolean(out?.sent || out?.alreadySent);
+        }
         await TeacherMaterial.updateOne({ _id: m._id }, { $set: {
           'crNotify.attempts': (m.crNotify?.attempts ?? 0) + 1, 'crNotify.lastTriedAt': new Date(),
           ...(delivered ? { 'crNotify.status': 'delivered' } : {}) } });
@@ -1092,7 +1130,9 @@ export async function runTeacherMaterialSweep() {
         await notifyCrPersisted(m, { event: 'expired',
           title: 'Teacher material question expired',
           message: `"${m.filename}" was never answered by the teacher within 24h — the file was dropped, nothing was published.`,
-          lines: `Teacher ki "${cleanFilename(m.filename, 60)}" ka jawab 24 ghante tak nahi aya — file drop kar di gayi hai, portal par kuch upload nahi hua.` });
+          lines: [
+            `Sir, "${cleanFilename(m.filename, 60)}" ka jawab teacher se nahi aya — maine task band kar diya hai.`,
+          ].join('\n') });
         out.expired++;
       } catch { /* best-effort */ }
     }

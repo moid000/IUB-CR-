@@ -171,7 +171,7 @@ test('SPEC 1+3: same file event delivered TWICE → ONE question; approval WITH 
   assert.match(note.content, /chapter 3 ki tayari ke liye hai/, 'extra instructions preserved in the DESCRIPTION');
   assert.doesNotMatch(note.title, /chapter 3/i, 'instructions never go into the title');
   assert.match(note.title, /Lecture 3 Notes/, 'title keeps the original filename');
-  assert.equal(crPings(before).filter((m) => /UPLOAD ho gayi/i.test(m.body)).length, 1, 'exactly ONE CR published notification');
+  assert.equal(crPings(before).filter((m) => /portal par upload/i.test(m.body)).length, 1, 'exactly ONE CR published notification');
   const confirmations = teacherMsgs(before).filter((m) => /upload ho gaye hain|upload ho gayi/i.test(m.body));
   assert.equal(confirmations.length, 1, 'exactly ONE final teacher confirmation — no progress + duplicate success pair');
   assert.equal(sent.length - beforeApprove >= 1, true);
@@ -304,7 +304,7 @@ test('SPEC 7: CR-facing messages contain no raw code/JSON/stack; outbox tracks t
   await runTeacherQuestionSweep();
   await runTeacherQuestionSweep();
   await runTeacherQuestionSweep();
-  const nudges = crPings(from7).filter((m) => /jawab abhi tak nahi mila/i.test(m.body));
+  const nudges = crPings(from7).filter((m) => /abhi pending hai/i.test(m.body));
   assert.equal(nudges.length, 1, 'exactly ONE reminder across repeated sweeps');
 });
 

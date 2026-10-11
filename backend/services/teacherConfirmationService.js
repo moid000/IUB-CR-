@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { ExperienceExample, Section, Subject, Teacher, Timetable, User } from '../models/index.js';
 import { env } from '../config/env.js';
-import { isConfigured, sendText, sendTracked } from './whatsappService.js';
+import { isConfigured, sendText, sendTracked, sendCrTracked } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
 // OWNER night #8: teacher VOICE NOTES reuse the group bot's Whisper helper
 import { transcribeVoice } from './chatbotService.js';
@@ -510,17 +510,15 @@ function buildEscalationMessage(ctx) {
 
 /** The CR's own alert (WhatsApp + portal inbox): verbatim teacher message,
  * the class context, and the manual-override action. */
+/* OWNER SPEC 2026-10-11 (professional short CR notifications): short,
+ * action-oriented, no footer, real newlines, sanitized fields. */
 function buildCrEscalationAlert(ctx, teacherBody) {
   return [
-    `Assalam-o-Alaikum ${ctx.crName ?? 'CR'}!`,
+    `Sir, ${ctx.teacher ?? 'teacher'} ne ${ctx.subject ?? 'class'} (${ctx.section ?? '—'}, ${ctx.day} ${ctx.time}) ke liye message bheja hai:`,
     '',
-    `Aapke teacher *${ctx.teacher}* ne *${ctx.subject ?? 'class'}* (${ctx.section ?? '—'}, ${ctx.day} ${ctx.time}) ke liye ye message bheja hai:`,
     `"${String(teacherBody ?? '').slice(0, 200)}"`,
     '',
-    'Class abhi bhi *pending* hai — portal me manually status set kar dein:',
-    PORTAL_URL,
-    '',
-    '— Tri3M Class Agent',
+    'Class abhi pending hai — portal par status set kar dein.',
   ].join('\n');
 }
 
@@ -760,7 +758,8 @@ async function converseWithTeacher(sender, payload, mode) {
       try {
         const alert = buildCrEscalationAlert(ctx, teacherBody);
         const crPhone = crDoc?.phone ? String(crDoc.phone).replace(/[^\d]/g, '') : null;
-        if (crPhone) await sendText(crPhone, alert);
+        if (crPhone) await sendCrTracked(crPhone, alert, {
+          kind: 'cr_escalation', refKey: `cr-escalation:${String(slot._id)}:${String(payload.data.id ?? '').slice(0, 120)}` });
         if (crDoc?._id) {
           await createNotification({ recipient: crDoc._id, type: 'system',
             title: `Teacher needs you: ${ctx.subject ?? 'class'}`,

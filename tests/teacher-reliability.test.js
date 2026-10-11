@@ -381,7 +381,7 @@ test('TEST G: CR ping fails after a successful upload → sweep retries the NOTI
   assert.equal(mat.crNotify.status, 'delivered', 'notification delivered on retry');
   assert.equal(await Note.countDocuments({}), 1, 'STILL exactly one Note — notification failure never re-uploads');
   assert.equal(cloudinaryUploads, 1, 'no second Cloudinary upload');
-  assert.ok(sent.some((s) => s.to === '923009876543' && /Retry_Notify_File\.pdf/.test(s.body)), 'CR finally informed');
+  assert.ok(sent.some((s) => s.to === '923009876543' && /portal par upload kiye hain/i.test(s.body)), 'CR finally informed');
 });
 
 /* ---------------------- TEST H — REPEATED WEBHOOK ----------------------- */
@@ -557,7 +557,7 @@ test('TEST N (owner spec A 2026-10-11): TEN-HOUR CR silence → EXACTLY ONE remi
   await runTeacherQuestionSweep(); // pass 1 → the ONE reminder
   await runTeacherQuestionSweep(); // pass 2 — must NOT remind again
   await runTeacherQuestionSweep(); // pass 3 — must NOT remind again
-  const crReminders = sent.filter((s) => s.to === '923009876543' && /abhi tak nahi mila/i.test(s.body));
+  const crReminders = sent.filter((s) => s.to === '923009876543' && /abhi pending hai/i.test(s.body));
   assert.equal(crReminders.length, 1, 'exactly ONE follow-up reminder, never two');
   assert.equal(sent.filter((s) => s.to === '923007778889').length, 0, 'NO automatic GR escalation under spec A');
   const after = await TeacherQuestion.findOne({}).lean();
@@ -566,7 +566,7 @@ test('TEST N (owner spec A 2026-10-11): TEN-HOUR CR silence → EXACTLY ONE remi
   assert.equal(after.crReminders, 1, 'counter recorded exactly one reminder');
   // a fourth sweep hours later — still silence
   await runTeacherQuestionSweep();
-  assert.equal(sent.filter((s) => s.to === '923009876543' && /abhi tak nahi mila/i.test(s.body)).length, 1, 'indefinitely silent after the one reminder');
+  assert.equal(sent.filter((s) => s.to === '923009876543' && /abhi pending hai/i.test(s.body)).length, 1, 'indefinitely silent after the one reminder');
   // the CR answers → the original asker (teacher) receives the answer
   await webhook(incoming('Sir, pichle hafte 5 classes hui thin.', '923009876543@c.us'));
   const done = await TeacherQuestion.findOne({}).lean();

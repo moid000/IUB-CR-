@@ -93,6 +93,63 @@ const destPhone = (phone) => {
  * sweep (bounded) — the reply is never silently lost. NEVER throws: the
  * boolean result lets callers treat a failed send as "delivery pending".
  * `once` (dedupeKey + windowMs) makes a send exactly-once per window. */
+/* ==========================================================================
+ * OWNER SPEC 2026-10-11 (professional short CR notifications + clean
+ * WhatsApp formatting): every bot-to-CR message passes through these two
+ * helpers. Nothing raw, concatenated, or machine-shaped ever reaches a CR.
+ * ========================================================================== */
+
+/** Normalize text for WhatsApp: keep meaningful line breaks, kill noise.
+ * - CRLF -> LF; literal escaped '\\n' text -> a real newline
+ * - collapse repeated spaces/tabs INSIDE a line (never joins words)
+ * - max ONE blank line between lines; strip markdown/HTML artifacts
+ * - drop "Label: undefined/null" fragments and empty label lines
+ * - strip a trailing "— Tri3M Class Agent"-style bot footer (owner wants
+ *   short action-oriented CR text; identity lives in the sender number) */
+export function sanitizeWhatsAppText(text) {
+  let out = String(text ?? '');
+  out = out.replace(/\r\n?/g, '\n');
+  out = out.replace(/\\+n/g, '\n');              // literal "\n" artifacts
+  out = out.replace(/<br\s*\/?>/gi, '\n');        // stray HTML breaks
+  out = out.replace(/<[^>]{1,80}>/g, '');           // malformed HTML tags
+  out = out.replace(/```+/g, '');                   // markdown fences
+  out = out.replace(/\{(?:\s*"[^"{}]{0,60}"\s*:\s*[^{}]{0,80}\s*,?\s*){1,4}\}/g, ''); // JSON-shaped blobs
+  out = out.replace(/[\u200B-\u200D\uFEFF]/g, ''); // zero-width chars
+  out = out.split('\n').map((line) => line
+    .replace(/[ \t]{2,}/g, ' ')          // collapse accidental double spaces
+    .replace(/\s*:\s*(undefined|null|NaN|\[object Object\])\s*/gi, ' ') // dead labels
+    .replace(/^(subject|section|teacher|filename|file|reference)\s*:\s*$/i, '') // empty labels
+    .trim()).join('\n');
+  out = out.replace(/\n{3,}/g, '\n\n');            // max one blank line
+  out = out.replace(/^\s+|\s+$/g, '');
+  // footer spam (agent sign-off lines) — CR messages end with the action
+  out = out.replace(/\n*\s*[—-]\s*Tri3M(\s+Class(\s+Agent)?)?\s*$/i, '').trim();
+  return out;
+}
+
+/** One-line field sanitizer for dynamic values (names, questions, subjects):
+ * no newlines, no machine text, single spaces, capped length. */
+export function cleanWhatsAppField(text, max = 120) {
+  const out = String(text ?? '')
+    .replace(/\{(?:\s*"[^"{}]{0,60}"\s*:\s*[^{}]{0,80}\s*,?\s*){1,4}\}/g, '') // JSON-shaped blobs
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[""\u201C\u201D]/g, '"')
+    .replace(/[''\u2018\u2019]/g, "'")
+    .replace(/\{\{.*?\}\}|\b(undefined|null|NaN)\b/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/["*]{3,}/g, '')
+    .trim();
+  return out.slice(0, max);
+}
+
+/** CR-bound tracked send: sanitized + outbox-deduped + provider id stored.
+ * A repeated handler/sweep call can never double-send the same event. */
+export async function sendCrTracked(phone, body, { kind = 'cr_notify', refKey = '', dedupeKey = '', once = true } = {}) {
+  const clean = sanitizeWhatsAppText(body);
+  if (!clean) return { sent: false, error: 'empty message' };
+  return sendTracked(phone, clean, { kind, refKey, dedupeKey: dedupeKey || refKey, once });
+}
+
 export async function sendTracked(phone, body, { kind = 'teacher', refKey = '', dedupeKey = '', once = false, windowMs = 0 } = {}) {
   const digits = destPhone(phone);
   let row = null;

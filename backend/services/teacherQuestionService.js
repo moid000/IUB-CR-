@@ -21,7 +21,7 @@
 import { randomBytes } from 'node:crypto';
 import { normalizePhone, samePhone } from './phoneUtils.js';
 import { Section, Teacher, TeacherQuestion, User } from '../models/index.js';
-import { sendText, sendTracked, isRateLimitError } from './whatsappService.js';
+import { sendText, sendTracked, sendCrTracked, cleanWhatsAppField, isRateLimitError } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
 
 const REUSE_WINDOW_MS = 12 * 60 * 60 * 1000; // same unresolved question reuses its task
@@ -75,16 +75,16 @@ async function uniqueRefCode() {
 
 /* ------------------------------ messages -------------------------------- */
 
+/* OWNER SPEC 2026-10-11 (professional short CR notifications):
+ * short, respectful, action-oriented, real newlines between sections. */
 function crQuestionAlert({ teacherName, sectionLabel, question, refCode }) {
+  const q = cleanWhatsAppField(question, 300);
   return [
-    `Assalam-o-Alaikum! Aap ke section ke teacher *${teacherName}* ne ek aisa sawal poocha hai jis ka jawab main confirmed nahi kar sakta.`,
+    `Sir, ${cleanWhatsAppField(teacherName)} ka sawal hai:`,
     '',
-    `Section: ${sectionLabel}`,
-    `Sawal: "${String(question ?? '').slice(0, 300)}"`,
+    `"${q}"${refCode ? ` (${refCode})` : ''}`,
     '',
-    `Jawab isi number par reply kar dein${refCode ? ` (ya "*${refCode}* <jawab>" likh kar specific sawal ka)"` : ''} — main teacher tak pohancha dunga.`,
-    '',
-    '— Tri3M Class Agent',
+    'Jab mumkin ho, jawab de dein.',
   ].join('\n');
 }
 
@@ -143,7 +143,10 @@ async function dispatchToCr(task, crUserIn) {
   let sendErr = '';
   if (crPhone) {
     try {
-      delivered = Boolean((await sendText(crPhone, alert))?.sent);
+      const out = await sendCrTracked(crPhone, alert, {
+        kind: 'cr_question', refKey: `q-dispatch:${task._id}` });
+      delivered = Boolean(out?.sent || out?.alreadySent);
+      if (!delivered && out?.error) sendErr = out.error; // rate-limit text must reach isRateLimitError
     } catch (e) { sendErr = String(e?.message ?? e); }
   }
   // portal inbox too (deduped) — the passive channel is never lost
@@ -313,9 +316,15 @@ export async function runTeacherQuestionSweep() {
         { new: true }).lean();
       if (!claimed) continue;
       if (crPhone) {
-        await sendTracked(normalizePhone(crPhone),
-          `Assalam-o-Alaikum! Teacher ke sawal (*${t.refCode}*) ka jawab abhi tak nahi mila — "${String(t.question).slice(0, 100)}". Jab foran ho jaye to bata dein, teacher intezar kar rahay hain. Shukriya!`,
-          { kind: 'cr_nudge', refKey: `question:${t._id}:reminder`, once: true, dedupeKey: `q-reminder:${t._id}` });
+        await sendCrTracked(normalizePhone(crPhone),
+          [
+            `Sir, ${cleanWhatsAppField(t.teacherName)} ka sawal abhi pending hai:`,
+            '',
+            `"${cleanWhatsAppField(t.question, 100)}" (${t.refCode})`,
+            '',
+            'Jab mumkin ho, jawab de dein.',
+          ].join('\n'),
+          { kind: 'cr_nudge', refKey: `question:${t._id}:reminder`, dedupeKey: `q-reminder:${t._id}` });
       }
       out.reminders++;
       continue;

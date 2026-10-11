@@ -206,7 +206,7 @@ test('T2: CR notification fails → honest partial message; sweep retries the pi
   const out = await runTeacherMaterialSweep();
   assert.equal(out.crNotifyRetried, 1, 'sweep retried the CR notification');
   assert.equal(out.crNotifyDelivered, 1, 'retry delivered it');
-  assert.ok(sent.some((s) => s.to === CR_PHONE && /T2_Notes\.pdf/.test(s.body)), 'CR actually received the ping');
+  assert.ok(sent.some((s) => s.to === CR_PHONE && /portal par upload kiye hain/i.test(s.body)), 'CR actually received the ping');
   const after = await TeacherMaterial.findOne({ filename: 'T2_Notes.pdf' });
   assert.equal(after.crNotify.status, 'delivered', 'CR notification delivered by retry');
   assert.equal(await Note.countDocuments({}), notesBefore, 'no re-upload happened');
