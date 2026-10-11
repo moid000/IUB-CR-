@@ -115,8 +115,10 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
     // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
-    const [lastEvent, inbound24h, redeliveries24h, lastSentRow] = await Promise.all([
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups] = await Promise.all([
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
+      WhatsAppEvent.find({}).sort({ at: -1 }).limit(15).lean(),
+      Section.find({ whatsappGroup: { $ne: null } }).select('name whatsappGroup.id whatsappGroup.name').lean(),
       WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
       OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
@@ -143,6 +145,10 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         lastInboundFrom: mask(lastEvent[0]?.author || lastEvent[0]?.from),
         lastInboundType: lastEvent[0]?.chatType ?? null,
         inbound24h, redeliveries24h,
+        linkedGroups: linkedGroups.map((sec) => ({ section: sec.name, groupId: sec.whatsappGroup?.id?.slice(-14), groupName: sec.whatsappGroup?.name })),
+        recentEvents: recentEvents.map((e) => ({ at: e.at, chatType: e.chatType, msgType: e.msgType,
+          redelivery: Boolean(e.redelivery), from: String(e.from ?? '').slice(-22), author: String(e.author ?? '').slice(-14),
+          shape: String(e.rawShape ?? '').slice(0, 500), botHandled: e.botHandled === true })),
       },
       outbound: {
         lastSentAt: lastSentRow[0]?.sentAt ?? null,
