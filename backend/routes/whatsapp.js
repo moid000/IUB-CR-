@@ -113,6 +113,44 @@ router.post('/ops-chatbot', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/* OWNER E2E VERIFICATION (2026-10-11, repair mandate item D): secret-guarded
+ * live-injection endpoint. It builds a NORMALIZED inbound payload and runs the
+ * REAL handlers — the full production pipeline (tag gate, Gemini, gateway
+ * sends) executes exactly as for a genuine webhook, minus only the webhook
+ * signature (the sweep secret guards this instead). For group mode the bot's
+ * own LID (resolved live) rides in mentionedJid so the tag gate passes the
+ * same way a real picker-@ mention does. */
+router.post('/ops-replay', async (req, res, next) => {
+  try {
+    assertSweepSecret(req);
+    const mode = String(req.body?.mode ?? '');
+    const body = String(req.body?.body ?? '').slice(0, 400);
+    const digits = (v) => String(v ?? '').replace(/\D/g, '');
+    if (!body) throw new ApiError(400, '"body" required');
+    if (mode === 'group') {
+      const { Section } = await import('../models/index.js');
+      const sec = await Section.findOne({ 'whatsappGroup.id': { $ne: null } }).lean();
+      if (!sec?.whatsappGroup?.id) throw new ApiError(503, 'no linked group');
+      let selfLid = null;
+      try { selfLid = await whatsappService.getLidFromPhone(env.whatsapp?.gatewayPhone ?? ''); } catch { /* optional */ }
+      const payload = { event_type: 'message_received',
+        data: { id: `opsreplay_${Date.now()}`, from: sec.whatsappGroup.id, author: `${digits(req.body?.authorDigits)}@c.us`,
+          type: 'chat', body, time: Math.floor(Date.now() / 1000), fromMe: false,
+          mentionedJid: selfLid ? [selfLid] : [] } };
+      const handled = await handleGroupMessage(payload);
+      res.json({ success: true, data: { handled, groupId: sec.whatsappGroup.id.slice(-12), selfLidTail: String(selfLid ?? '').replace(/\D/g, '').slice(-8) || null } });
+    } else if (mode === 'teacher') {
+      const from = digits(req.body?.fromDigits);
+      if (!from) throw new ApiError(400, '"fromDigits" required');
+      const payload = { event_type: 'message_received',
+        data: { id: `opsreplay_${Date.now()}`, from: `${from}@c.us`, type: 'chat', body,
+          time: Math.floor(Date.now() / 1000), fromMe: false } };
+      const handled = await handleTeacherReply(payload);
+      res.json({ success: true, data: { handled } });
+    } else throw new ApiError(400, '"mode" must be group or teacher');
+  } catch (err) { next(err); }
+});
+
 router.get('/ops-diagnostics', async (req, res, next) => {
   try {
     assertSweepSecret(req);
@@ -134,7 +172,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
     // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
-    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, botRecent] = await Promise.all([
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, botRecent, recentDirect] = await Promise.all([
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
       WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
@@ -149,6 +187,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         { $group: { _id: { t: '$chatType', m: '$msgType' }, n: { $sum: 1 } } },
         { $sort: { n: -1 } }, { $limit: 25 }]),
       WhatsAppEvent.findOne({ chatType: 'direct' }).sort({ at: -1 }).lean(),
+      WhatsAppEvent.find({ chatType: 'direct' }).sort({ at: -1 }).limit(12).lean(),
       // last 5 bot answers — live proof a group reply really went out
       ChatbotLog.find({}).sort({ createdAt: -1 }).limit(5)
         .select('createdAt question reply source error sentFiles').lean(),
@@ -216,6 +255,8 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         inbound24h, redeliveries24h,
         lastDirectAt: lastDirect?.at ?? null,
         lastDirectType: lastDirect?.msgType ?? null,
+        recentDirect: recentDirect.map((e) => ({ at: e.at, msgType: e.msgType, from: String(e.from ?? '').slice(-30),
+          redelivery: e.redelivery === true, shape: String(e.rawShape ?? '').slice(0, 220) })),
         byType24h: byType24h.map((r) => ({ kind: `${r._id.t}/${r._id.m}`, count: r.n })),
         botRecent: botRecent.map((b) => ({ at: b.createdAt, q: (b.question ?? '').slice(0, 120),
           a: (b.reply ?? '').slice(0, 160), source: b.source, error: b.error ?? null, sentFiles: b.sentFiles ?? 0 })),
