@@ -191,12 +191,12 @@ function askApprovalMessage({ filename, subjectName, sectionName, teacherName, l
   const short = cleanFilename(filename, 70);
   // OWNER STYLE SPEC (2026-10-11): natural human coordinator — ONE short
   // message, no footer, no essay.
-  // OWNER SPEC 2026-10-11 §2: ask ONCE, wording invites extra instructions —
-  // they are preserved into the Notes description when the approval carries them.
+  // OWNER SPEC 2026-10-11 (file-upload conversation): ONE natural question,
+  // subject named, upload approval + optional student message asked TOGETHER.
   if (language === 'english') {
-    return `Sir, "${short}" looks like ${subjectName} study material for Section ${sectionName}. Share it with the students in the portal's Notes section? If there are any instructions for it, let me know — otherwise I'll upload it as it is.`;
+    return `Sir, this looks like ${subjectName} study material for Section ${sectionName}. Share it with the students on the portal? If the students should get a message with it, let me know that too.`;
   }
-  return `Sir, "${short}" ${subjectName} ki study material lag rahi hai (Section ${sectionName}). Kya main students ke saath share kar doon? Agar koi instruction hai to bata dein — warna main Notes mein upload kar deta hoon.`;
+  return `Sir, ye ${subjectName} ke study notes lag rahe hain (Section ${sectionName}). Kya main students ke saath share kar doon? Agar upload ke saath students ko koi message dena hai to woh bhi bata dein.`;
 }
 
 function askSubjectMessage({ filename, teacherName, subjectNames }) {
@@ -224,18 +224,54 @@ function publishedMessage({ subjectName, sectionName, filename, language, crDeli
   const short = cleanFilename(filename, 70);
   // OWNER STYLE SPEC (2026-10-11 §4): ONE concise final confirmation that
   // states BOTH verified outcomes — never a separate CR-update message.
+  // OWNER SPEC 2026-10-11 (file-upload conversation) example wording —
+  // subject + section, no filename clutter; CR outcome stated in the SAME message.
   if (language === 'english') {
     return crDelivered
-      ? `Done Sir, "${short}" is uploaded to the ${subjectName} Notes section for Section ${sectionName}, and the CR has been informed.`
-      : `Done Sir, "${short}" is uploaded to the ${subjectName} Notes section for Section ${sectionName}. The CR notification is going through — it will be retried.`;
+      ? `Done Sir, the ${subjectName} notes are uploaded to Section ${sectionName}'s portal and the CR has been informed.`
+      : `Done Sir, the ${subjectName} notes are uploaded to Section ${sectionName}'s portal. The CR notification is going through — it will be retried.`;
   }
   return crDelivered
-    ? `Done Sir, "${short}" ${subjectName} ke Notes (Section ${sectionName}) mein upload ho gayi hai aur CR ko bhi bata diya hai.`
-    : `Done Sir, "${short}" ${subjectName} ke Notes (Section ${sectionName}) mein upload ho gayi hai. CR ko notify karne mein issue aa raha hai — retry kar raha hoon.`;
+    ? `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain aur CR ko bhi bata diya hai.`
+    : `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. CR ko notify karne mein issue aa raha hai — retry kar raha hoon.`;
 }
 
 function declinedMessage() {
   return 'Theek hai Sir, koi upload nahi hui.';
+}
+
+/* OWNER SPEC 2026-10-11 (file-upload conversation): a caption with a CLEAR
+ * upload/share instruction ('ye upload kar do', 'share kr do students ke
+ * liye') IS the teacher's approval — the bot never asks the approval
+ * question again. Ambiguous/captions with questions never auto-approve. */
+function clearUploadInstruction(text) {
+  const s = String(text ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!s) return false;
+  const declines = /(^|\b)(no|nahi|nahin|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(s) && !/matlab/.test(s);
+  if (declines || s.includes('?')) return false;
+  return /(?:upload|share|post|publish|bhej)[\s]+(?:kar|kr|kro|kardo|krdo|kardi)?[\s]*(?:do|doon|doon ga|de|dein|dena|dijiye|d)\b/.test(s)
+    || /(?:^|\s)(?:kr|kar|kro|kardo|krdo)[\s]+(?:do|doon|de|dein|dena|dijiye|d)\b/.test(s);
+}
+
+/* Publish + ONE dedupe-keyed confirmation + advance the pending queue.
+ * Shared by the approval path and the caption auto-approve path so both are
+ * retry-safe and never double-confirm. */
+async function publishAndConfirm(material, teacherRecords) {
+  const outcome = await publishMaterial(material);
+  if (outcome.ok) {
+    await sendTracked(material.phone, publishedMessage({
+      filename: material.filename, subjectName: outcome.subjectName,
+      sectionName: outcome.sectionName,
+      language: teacherRecords?.[0]?.chatProfile?.detectedLanguage,
+      crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
+    }), { kind: 'material', refKey: `material:${material._id}:published-ack`,
+      dedupeKey: `material:${material._id}:published-ack`, once: true });
+    await askNextPendingMaterial(material.phone, material._id, teacherRecords).catch(() => {});
+    return 'published';
+  }
+  await sendTeacherText(material.phone, failedMessage({ filename: material.filename }));
+  await askNextPendingMaterial(material.phone, material._id, teacherRecords).catch(() => {});
+  return 'failed';
 }
 
 /* OWNER SPEC 2026-10-11 §2: the approval reply may carry extra instructions
@@ -414,6 +450,11 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   }
   material.classification = { verdict: cls.verdict, engine, reason: cls.reason, extractedSummary: cls.summary };
   auditPush(material._id, 'classified', `${cls.verdict} via ${engine}: ${cls.reason}`);
+  // OWNER SPEC 2026-10-11 (file-upload conversation): a caption that clearly
+  // instructs upload/share IS the approval — never ask again. It also
+  // overrides an 'unclear/not-material' verdict: the teacher's own explicit
+  // instruction is the authority.
+  const autoApprove = clearUploadInstruction(caption);
 
   // OWNER RELIABILITY FIX (2026-10-09, live incident 09:18): an unclear/not-
   // material verdict is NOT a dead end. The reply OFFERS the upload, so the
@@ -422,7 +463,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   // approval flow resumes. Previously the offer had no listener and the
   // teacher's YES fell into general chat, which invented a fake "I told the
   // CR" claim.
-  if (cls.verdict !== 'study_material') {
+  if (cls.verdict !== 'study_material' && !autoApprove) {
     material.status = 'offered'; material.askedAt = new Date(); await material.save();
     auditPush(material._id, 'offered', `classification: ${cls.verdict} (${cls.reason})`);
     await sendTeacherText(sender, notMaterialMessage({}));
@@ -446,6 +487,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
       const sectionNames = candidates.map((t) => t.section?.name).filter(Boolean);
       material.sectionSubjectName = subjectMatch[0].subjectName;
       material.status = 'awaiting_section';
+      material.autoApproved = Boolean(autoApprove); // the caption approval carries through the clarification
       material.askedAt = new Date();
       await material.save();
       auditPush(material._id, 'asked', `which section for ${subjectMatch[0].subjectName} (${sectionNames.join(' / ')})`);
@@ -463,6 +505,13 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
     material.section = resolved.section?._id ?? resolved.section ?? material.section;
     material.status = 'awaiting_approval';
     material.askedAt = new Date();
+    if (autoApprove) {
+      material.autoApproved = true;
+      await material.save();
+      auditPush(material._id, 'auto-approved', `caption carried a clear upload instruction (${resolved.subject?.name ?? ''})`);
+      chatLog('FILE-AUTO', { phone: sender, msg: `caption approved → publishing ${filename}` });
+      return await publishAndConfirm(material, teacherRecords);
+    }
     await material.save();
     auditPush(material._id, 'asked', `approval for subject ${(resolved.subject?.name ?? '')} (Section ${(resolved.section?.name ?? '')})`);
     await notifyCr({ section: material.section, event: 'asked', materialId: material._id,
@@ -477,6 +526,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
   }
 
   material.status = 'awaiting_subject';
+  material.autoApproved = Boolean(autoApprove); // caption approval carries through
   material.askedAt = new Date();
   await material.save();
   auditPush(material._id, 'asked', 'which subject (multiple authorized)');
@@ -745,25 +795,9 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   }
   const materialForPublish = instructions ? await TeacherMaterial.findById(material._id).lean() : material;
 
-  // APPROVE → publish now (spec §7: verified result, honest reply, never a
-  // success claim before the Note actually exists)
-  const outcome = await publishMaterial(materialForPublish);
-  if (outcome.ok) {
-    // OWNER SPEC §2: the final confirmation is DEDUPE-KEYED per material —
-    // even if a redelivery slips past the claim, the outbox sends this
-    // exactly once. The message states both VERIFIED outcomes together.
-    await sendTracked(sender, publishedMessage({
-      filename: material.filename, subjectName: outcome.subjectName,
-      sectionName: outcome.sectionName, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
-      crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
-    }), { kind: 'material', refKey: `material:${material._id}:published-ack`,
-      dedupeKey: `material:${material._id}:published-ack`, once: true });
-    await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
-    return 'published';
-  }
-  await sendTeacherText(sender, failedMessage({ filename: material.filename }));
-  await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
-  return 'declined'; // consumed; upload honestly failed and was reported
+  // publishAndConfirm: verified upload + ONE dedupe-keyed confirmation
+  // (spec §2/§6) — a redelivery can never repeat the upload or confirmation.
+  return await publishAndConfirm(materialForPublish, teacherRecords);
 }
 
 /* ------------------------------ publication ----------------------------- */

@@ -166,7 +166,7 @@ test('T1+T3: approve → upload + CR notification verified → ONE combined conf
   const yesId = `yes-t1-${Math.random()}`;
   geminiApproval = { answer: 'approve', subject: '', section: '' };
   await webhook(incoming('haan upload kar do', `${TEACHER}@c.us`, yesId));
-  const confirmations = sent.filter((s) => s.to === TEACHER && /T1_Notes\.pdf/.test(s.body) && /upload ho gay/.test(s.body));
+  const confirmations = sent.filter((s) => s.to === TEACHER && /upload ho gaye hain|upload ho gayi/.test(s.body));
   assert.equal(confirmations.length, 1, 'exactly ONE final confirmation for THIS file');
   assert.match(confirmations[0].body, /CR ko bhi bata diya hai/, 'CR outcome stated in the SAME message');
   assert.equal(await Note.countDocuments({}), 1, 'one Note');
@@ -184,13 +184,14 @@ test('T1+T3: approve → upload + CR notification verified → ONE combined conf
 /* T2 — upload succeeds, CR notification FAILS: honest partial confirmation +
  * sweep retries the CR ping WITHOUT re-uploading. */
 test('T2: CR notification fails → honest partial message; sweep retries the ping, never re-uploads', async () => {
+  const fromT2 = sent.length;
   geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
   await webhook(fileMsg({ filename: 'T2_Notes.pdf' }));
   failSendsTo = CR_PHONE; // the CR ping fails at the gateway
   geminiApproval = { answer: 'approve', subject: '', section: '' };
   await webhook(incoming('yes', `${TEACHER}@c.us`, `yes-t2-${Math.random()}`));
   failSendsTo = null;
-  const confirm = sent.filter((s) => s.to === TEACHER && /T2_Notes\.pdf/.test(s.body) && /upload ho gay/.test(s.body));
+  const confirm = sent.slice(fromT2).filter((s) => s.to === TEACHER && /upload ho gaye hain|upload ho gayi/.test(s.body));
   assert.equal(confirm.length, 1, 'one final confirmation');
   assert.match(confirm[0].body, /retry kar raha hoon/i, 'honest CR-pending line — no fake CR-informed claim');
   assert.doesNotMatch(confirm[0].body, /CR ko bhi bata diya hai/, 'never claims the CR was informed');
@@ -215,14 +216,15 @@ test('T2: CR notification fails → honest partial message; sweep retries the pi
 
 /* T4 — after all the dedupe work, a genuinely NEW file is still processed. */
 test('T4: a separate NEW file after the duplicates → processed normally', async () => {
+  const fromT4 = sent.length;
   geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
   await webhook(fileMsg({ filename: 'T4_Fresh_Notes.pdf' }));
   assert.equal(await TeacherMaterial.countDocuments({ filename: 'T4_Fresh_Notes.pdf' }), 1, 'new material row');
-  const asks = sent.filter((s) => s.to === TEACHER && /T4_Fresh_Notes\.pdf/.test(s.body) && /share kar doon|upload kar deta hoon/i.test(s.body));
+  const asks = sent.slice(fromT4).filter((s) => s.to === TEACHER && /study notes lag rahe hain/i.test(s.body));
   assert.equal(asks.length, 1, 'its own approval question asked once');
   geminiApproval = { answer: 'approve', subject: '', section: '' };
   await webhook(incoming('YES', `${TEACHER}@c.us`, `yes-t4-${Math.random()}`));
-  const confirms = sent.filter((s) => s.to === TEACHER && /T4_Fresh_Notes\.pdf/.test(s.body) && /upload ho gay/.test(s.body));
+  const confirms = sent.slice(fromT4).filter((s) => s.to === TEACHER && /upload ho gaye hain|upload ho gayi/.test(s.body));
   assert.equal(confirms.length, 1, 'its own single final confirmation');
   assert.equal(await Note.countDocuments({}), 3, 'third Note published');
   geminiApproval = null; geminiClassify = null;
@@ -230,25 +232,26 @@ test('T4: a separate NEW file after the duplicates → processed normally', asyn
 
 /* T5 — unknown question: ONE ack, then the CR's answer is delivered once. */
 test('T5: unknown question → exactly ONE ack; CR reply → answer delivered to the teacher ONCE', async () => {
+  const fromT5 = sent.length;
   geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se confirm kar ke bata dun ga.', escalate: true };
   const qId = `q-t5-${Math.random()}`;
   const r = await webhook(incoming('Kal room change hai?', `${TEACHER}@c.us`, qId));
   assert.equal(r.json.data.updated, true, 'question consumed');
   assert.equal(await TeacherQuestion.countDocuments({ status: 'pending_cr' }), 1, 'task persisted');
-  const acks = sent.filter((s) => s.to === TEACHER && /bhej di hai/.test(s.body));
+  const acks = sent.slice(fromT5).filter((s) => s.to === TEACHER && /bhej di hai/.test(s.body));
   assert.equal(acks.length, 1, 'exactly ONE acknowledgement');
   assert.doesNotMatch(acks[0].body, /correct information/i, 'banned meta-phrase never used');
   // webhook redelivery of the same question → no second ack
   await webhook(incoming('Kal room change hai?', `${TEACHER}@c.us`, qId));
-  assert.equal(sent.filter((s) => s.to === TEACHER && /bhej di hai/.test(s.body)).length, 1, 'redelivery: still ONE ack');
+  assert.equal(sent.slice(fromT5).filter((s) => s.to === TEACHER && /bhej di hai/.test(s.body)).length, 1, 'redelivery: still ONE ack');
   // the CR answers → the teacher gets the answer, once
   const crReplyId = `cr-t5-${Math.random()}`;
   await webhook(incoming('Ji kal ki class Library Room 2 mein hai, 9 AM.', `${CR_PHONE}@c.us`, crReplyId));
-  const answers = sent.filter((s) => s.to === TEACHER && /Library Room 2/.test(s.body));
+  const answers = sent.slice(fromT5).filter((s) => s.to === TEACHER && /Library Room 2/.test(s.body));
   assert.equal(answers.length, 1, 'answer delivered to the teacher once');
   // redelivered CR reply → no duplicate delivery
   await webhook(incoming('Ji kal ki class Library Room 2 mein hai, 9 AM.', `${CR_PHONE}@c.us`, crReplyId));
-  assert.equal(sent.filter((s) => s.to === TEACHER && /Library Room 2/.test(s.body)).length, 1, 'redelivery: still one answer');
+  assert.equal(sent.slice(fromT5).filter((s) => s.to === TEACHER && /Library Room 2/.test(s.body)).length, 1, 'redelivery: still one answer');
   const task = await TeacherQuestion.findOne({});
   assert.equal(task.status, 'closed', 'task closed after delivery');
   geminiAnswer = null; geminiChatReply = null;
@@ -256,23 +259,24 @@ test('T5: unknown question → exactly ONE ack; CR reply → answer delivered to
 
 /* T6 — concise natural style + language mirroring. */
 test('T6: concise style — no signatures, no essays, English mirror for an English-profiled teacher', async () => {
+  const fromT6 = sent.length;
   geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
   await Teacher.updateOne({ whatsapp: TEACHER }, { $set: { 'chatProfile.detectedLanguage': 'english' } });
   await webhook(fileMsg({ filename: 'T6_English_Notes.pdf' }));
-  const ask = sent.filter((s) => s.to === TEACHER && /T6_English_Notes\.pdf/.test(s.body)).pop();
+  const ask = sent.slice(fromT6).filter((s) => s.to === TEACHER && /study material for Section 4B/i.test(s.body)).pop();
   assert.match(ask.body, /Share it with the students/i, 'English teacher → English question');
   assert.doesNotMatch(ask.body, /Tri3M Class Agent/i, 'no signature footer');
   geminiApproval = { answer: 'approve', subject: '', section: '' };
   await webhook(incoming('yes', `${TEACHER}@c.us`, `yes-t6-${Math.random()}`));
-  const confirm = sent.filter((s) => s.to === TEACHER && /T6_English_Notes\.pdf/.test(s.body) && /(uploaded|upload)/i.test(s.body)).pop();
+  const confirm = sent.slice(fromT6).filter((s) => s.to === TEACHER && /notes are uploaded|upload ho gay/i.test(s.body)).pop();
   assert.match(confirm.body, /has been informed|will be retried/i, 'CR outcome in the same message');
   assert.doesNotMatch(confirm.body, /— Tri3M Class Agent/, 'no signature footer on the confirmation');
   assert.ok(confirm.body.split('\n').length <= 3, '1-2 sentence confirmation, not an essay');
   // Roman Urdu teacher gets natural Roman Urdu (the default builders)
   await Teacher.updateOne({ whatsapp: TEACHER }, { $set: { 'chatProfile.detectedLanguage': '' } });
   await webhook(fileMsg({ filename: 'T6_Urdu_Notes.pdf' }));
-  const askUr = sent.filter((s) => s.to === TEACHER && /T6_Urdu_Notes\.pdf/.test(s.body)).pop();
-  assert.match(askUr.body, /share kar doon|upload kar deta hoon/i, 'Roman Urdu question');
+  const askUr = sent.slice(fromT6).filter((s) => s.to === TEACHER && /study notes lag rahe hain/i.test(s.body)).pop();
+  assert.match(askUr.body, /share kar doon/i, 'Roman Urdu question');
   geminiApproval = null; geminiClassify = null;
 });
 

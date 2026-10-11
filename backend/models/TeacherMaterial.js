@@ -46,6 +46,10 @@ const materialSchema = new Schema(
     // APPROVAL reply ("haan kar do, ye chapter 3 ke liye hai") — preserved
     // verbatim into the Notes description, never the title.
     teacherInstructions: { type: String, default: '', maxlength: 600 },
+    // OWNER SPEC 2026-10-11 §file-upload: the caption itself carried a CLEAR
+    // upload/share instruction → approval already given, the bot must never
+    // ask again; after a subject/section clarification it publishes directly.
+    autoApproved: { type: Boolean, default: false },
     classification: {
       verdict: { type: String, enum: ['study_material', 'not_material', 'unclear', null], default: null },
       engine: { type: String, default: '' }, // 'gemini' | 'filename-heuristic'

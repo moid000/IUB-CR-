@@ -203,8 +203,10 @@ test('MASTER UPGRADE TEST D: teacher sends a study-material PDF → examined, ap
     assert.equal(r.json.data.updated, true);
     assert.equal(sent.length, before + 2, 'one approval question + one CR ping');
     const body = sent[sent.length - 1].body;
-    assert.match(body, /Data_Structures_Lecture_03\.pdf/, 'question names the exact file');
-    assert.match(body, /Data Structures/i, 'question names the resolved subject');
+    // OWNER SPEC 2026-10-11 (file-upload conversation): the question names the
+    // SUBJECT (owner's example wording) — the file is identified by content+subject
+    assert.doesNotMatch(body, /Data_Structures_Lecture_03\.pdf/, 'owner wording: filename not repeated in the question');
+    assert.match(body, /Data Structures ke study notes lag rahe hain/i, 'question names the resolved subject');
     assert.match(body, /share kar doon|upload kar deta hoon/i, 'asks permission — never publishes by itself');
     const mat = await TeacherMaterial.findOne({}).lean();
     assert.equal(mat.status, 'awaiting_approval');
