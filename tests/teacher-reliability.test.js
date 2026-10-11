@@ -498,11 +498,13 @@ test('TEST K: unclear file → offer → teacher says "ok kr do" → approval qu
   const mat = await TeacherMaterial.findOne({}).lean();
   assert.equal(mat.status, 'offered', 'unclear file stays an OPEN offer');
   assert.match(sent[sent.length - 1].body, /study material hai to bata dein/i, 'honest offer sent');
-  // the teacher accepts the offer — offline net, exactly like the live incident
-  const r = await webhook(incoming('ok kr do'));
+  // the teacher accepts the offer with a BARE YES — exactly like the live
+  // incident minus the verb: the real approval question is still asked.
+  // (Acceptance WITH a verb now publishes directly — owner complaint test 1.)
+  const r = await webhook(incoming('haan'));
   assert.equal(r.json.data.updated, true, 'offer acceptance consumed by the file flow');
   const mat2 = await TeacherMaterial.findOne({}).lean();
-  assert.equal(mat2.status, 'awaiting_approval', 'offer → real approval question');
+  assert.equal(mat2.status, 'awaiting_approval', 'bare-yes offer acceptance → real approval question');
   assert.ok(sent.slice(before).some((m) => /share kar doon|upload kar deta hoon/i.test(m.body)),
     'the REAL approval question was asked for THIS file');
   // teacher approves → publishes
@@ -511,6 +513,75 @@ test('TEST K: unclear file → offer → teacher says "ok kr do" → approval qu
   geminiApproval = null;
   assert.equal((await TeacherMaterial.findOne({}).lean()).status, 'published');
   assert.ok(await Note.exists({ uploadedByTeacher: teacher._id }), 'published to a real Note');
+});
+
+/* -------- OWNER COMPLAINT 2026-10-11 EVENING: flaky file flow ---------- */
+
+test('OWNER COMPLAINT 1: unclear file → offer → "ok kr do" = the approval ITSELF → published with ONE ack, no second confirmation', async () => {
+  geminiClassify = { study_material: false, subject: '', reason: 'unclear scanned pages', summary: '' };
+  const before = sent.length;
+  await webhook(fileMsg({ filename: 'Offer_Direct.pdf' }));
+  geminiClassify = null;
+  assert.match(sent[sent.length - 1].body, /study material hai to bata dein/i, 'honest offer sent');
+  // the acceptance carries a CLEAR upload verb — that IS the approval
+  await webhook(incoming('ok kr do'));
+  const mat = await TeacherMaterial.findOne({ filename: 'Offer_Direct.pdf' }).lean();
+  assert.equal(mat.status, 'published', 'offer + clear verb → published directly');
+  assert.equal(await Note.countDocuments({}), 1, 'one real Note');
+  const acks = sent.slice(before).filter((m) => /upload ho gaye hain|upload ho gayi/i.test(m.body));
+  assert.equal(acks.length, 1, 'exactly ONE confirmation — no redundant second approval question');
+  assert.ok(!sent.slice(before).some((m) => /share kar doon\?|upload kar deta hoon\?/i.test(m.body)),
+    'the second approval question was NEVER asked');
+});
+
+test('OWNER COMPLAINT 2: declined file → teacher says "karo" again → RE-OPENED and published (was: terminal decline, 10x karo = silence)', async () => {
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: '' };
+  const before = sent.length;
+  await webhook(fileMsg({ filename: 'Changed_Mind.pdf' }));
+  geminiClassify = null;
+  geminiApproval = { answer: 'decline' };
+  await webhook(incoming('nahi rehne do')); // teacher declines
+  geminiApproval = null;
+  const declined = await TeacherMaterial.findOne({ filename: 'Changed_Mind.pdf' }).lean();
+  assert.equal(declined.status, 'declined', 'file declined');
+  assert.match(sent[sent.length - 1].body, /koi upload nahi hui/i, 'decline ack sent');
+  // teacher changes his mind — a CLEAR upload verb re-opens the file
+  await webhook(incoming('haan karo'));
+  const reopened = await TeacherMaterial.findOne({ filename: 'Changed_Mind.pdf' }).lean();
+  assert.equal(reopened.status, 'published', 'declined file RE-OPENED and published');
+  assert.ok(await Note.exists({ uploadedByTeacher: teacher._id }), 'published to a real Note');
+  assert.ok(sent.slice(before).some((m) => /upload ho gaye hain|upload ho gayi/i.test(m.body)),
+    'teacher got the published confirmation');
+});
+
+test('OWNER COMPLAINT 2b: a NON-verb reply after decline never re-opens (no accidental publishes)', async () => {
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: '' };
+  await webhook(fileMsg({ filename: 'No_Reopen.pdf' }));
+  geminiClassify = null;
+  geminiApproval = { answer: 'decline' };
+  await webhook(incoming('nahi rehne do'));
+  geminiApproval = null;
+  assert.equal((await TeacherMaterial.findOne({ filename: 'No_Reopen.pdf' }).lean()).status, 'declined');
+  // a question / chit-chat must NOT re-open the declined file
+  await webhook(incoming('hello kaise ho'));
+  assert.equal((await TeacherMaterial.findOne({ filename: 'No_Reopen.pdf' }).lean()).status, 'declined',
+    'non-verb reply left the decline terminal');
+  assert.equal(await Note.countDocuments({}), 0, 'nothing published');
+});
+
+test('OWNER COMPLAINT 3: offline net — "hn" approves, "nhi" declines (Roman-Urdu short forms the teacher actually types)', async () => {
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: '' };
+  geminiApproval = null; // OFFLINE — no Gemini
+  await webhook(fileMsg({ filename: 'Short_Forms.pdf' }));
+  assert.match(sent[sent.length - 1].body, /share kar doon|upload kar deta hoon/i, 'approval question asked');
+  await webhook(incoming('hn')); // bare short yes
+  let mat = await TeacherMaterial.findOne({ filename: 'Short_Forms.pdf' }).lean();
+  assert.equal(mat.status, 'published', '"hn" understood as YES offline');
+  geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: '' };
+  await webhook(fileMsg({ filename: 'Short_Forms2.pdf' }));
+  await webhook(incoming('nhi')); // bare short no
+  mat = await TeacherMaterial.findOne({ filename: 'Short_Forms2.pdf' }).lean();
+  assert.equal(mat.status, 'declined', '"nhi" understood as NO offline');
 });
 
 /* ------------- SPEC 2026-10-10 — §6/§2/§4/§5/§9/§10 A-J ------------- */

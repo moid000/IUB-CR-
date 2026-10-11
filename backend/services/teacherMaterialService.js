@@ -282,7 +282,7 @@ async function publishAndConfirm(material, teacherRecords) {
 function extraInstructionsFromBody(body) {
   const t = String(body ?? '').replace(/\s+/g, ' ').trim();
   if (!t) return '';
-  const bareYes = /^(yes|haan|han|yeah|yep|sure|ji haan|haan ji|ji|g|ok|okay|theek hai|acha|achha)(\s*[.!,\s]*)$/i.test(t);
+  const bareYes = /^(yes|haan|han|hn|hnn|yeah|yep|sure|ji haan|haan ji|ji|g|ok|okay|theek hai|acha|achha)(\s*[.!,\s]*)$/i.test(t);
   const karDoOnly = /^(?:haan\s+|ji\s+|yes\s+|g\s+)?(?:upload|share|post|publish|bhej)?\s*(?:kr|kar|kro|kardo|krdo|kardi)\s+(?:do|doon|doon ga|de|dein|dena|dijiye|d)\s*(?:sab\s+k\s+logon\s+ke\s+liye)?\s*[.!,\s]*$/i.test(t);
   if (bareYes || karDoOnly) return '';
   // strip only a LEADING approval cluster; the rest is preserved verbatim
@@ -594,12 +594,69 @@ async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
  * 'pending' means the reply was a question/other: the normal chat pipeline
  * must answer it, the material stays pending. Returns null when there is
  * nothing to interpret (no open material, or the reply is a duplicate). */
+/* OWNER FLAKY-FILE FIX (2026-10-11 evening): does this reply itself carry a
+ * CLEAR upload instruction? "ok kr do", "haan kar do", "upload kar do",
+ * "kardo" — the same authorization strength as a caption pre-approval.
+ * Shared by the offer-acceptance path and the declined-file reopen path. */
+function clearUploadVerbIn(body) {
+  const t = String(body ?? '').toLowerCase().trim();
+  const declines = /(^|\b)(no|nahi|nahin|nhi|nai|nah|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(t) && !/matlab/.test(t);
+  if (declines || /\?/.test(t)) return false;
+  // interrogatives ("kaise karo?", "kya karo") are questions, never orders
+  if (/\b(kaise|kya|kyu|kyun|kab|kahan|kaun|kon|kaam)\b/.test(t)) return false;
+  // future-question forms ("karo ge?") are proposals, never orders
+  if (/\b(?:karo|kro|kardo|krdo|kar|kr)\s*(?:ge|ga|gi|gy)\b/.test(t)) return false;
+  const karDo = /(?:^|\s)(?:upload\s+|share\s+|post\s+|publish\s+|bhej\s+)?(?:kar|kr|kro|kardo|kardi|krdo)(?:\s+|-)?(?:do|doon|doon ga|de|dein|dena|dijiye|d|o)(?:\s|$|[.!,])/.test(t);
+  return /\b(upload|share|post|publish|bhej|dijiye)\b/.test(t) || karDo;
+}
+
+/* OWNER COMPLAINT FIX (2026-10-11 evening, "10 baar confirm karta phir bhi
+ * nahi karta"): after a decline (sometimes a misfired verdict), the teacher
+ * saying "karo / kr do / upload kar do" again was consumed by NOTHING — the
+ * declined record was terminal and the reply fell to general chat. A clear
+ * later upload verb now RE-OPENS the most recent declined/ignored file with a
+ * resolved destination (24h window) and publishes with the ONE standard
+ * confirmation. A pending CLASS question still owns the reply (never races). */
+async function reopenDeclinedMaterial(sender, body, payload) {
+  const msgId = String(payload?.data?.id ?? '').slice(0, 220);
+  if (!msgId || !clearUploadVerbIn(body)) return false;
+  // WASENDER REDELIVERY GUARD: a redelivered copy of a message that ALREADY
+  // consumed a material action (approval/publish/decline) must never
+  // re-open a DIFFERENT declined file — that would publish it out of the
+  // blue. The same msgId may drive exactly ONE material action, ever.
+  if (await TeacherMaterial.exists({ lastReplyMsgId: msgId })) return false;
+  const { Timetable } = await import('../models/index.js');
+  const classBusy = await Timetable.findOne({ status: 'active',
+    'teacherConfirmation.phone': sender,
+    'teacherConfirmation.status': { $in: ['awaiting', 'sending'] } }).select('_id').lean();
+  if (classBusy) return false; // a pending CLASS question owns this reply
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
+  const reopened = await TeacherMaterial.findOneAndUpdate(
+    { phone: sender, status: { $in: ['declined', 'ignored'] },
+      updatedAt: { $gte: dayAgo }, lastReplyMsgId: { $ne: msgId },
+      proposedSubject: { $ne: null }, section: { $ne: null } },
+    { $set: { status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId } },
+    { new: true }).sort({ updatedAt: -1 }).lean();
+  if (!reopened) return false;
+  auditPush(reopened._id, 'reopened', 'teacher changed their mind — clear upload verb re-opened the declined file');
+  const teacherRecords = await Teacher.find({ whatsapp: sender })
+    .populate('subject', 'name code').populate('section', 'name').lean();
+  await publishAndConfirm(reopened, teacherRecords);
+  return true;
+}
+
 export async function handleMaterialApprovalIntent(sender, body, payload) {
   const msgId = String(payload?.data?.id ?? '').slice(0, 220);
   const material = await TeacherMaterial.findOne({ phone: sender,
     status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered'] } }).sort({ askedAt: -1 }).lean();
-  if (!material) return null;
-  if (!material.askedAt || Date.now() - new Date(material.askedAt).getTime() > APPROVAL_BIND_WINDOW_MS) return null;
+  if (!material) {
+    if (await reopenDeclinedMaterial(sender, body, payload)) return 'reopened';
+    return null;
+  }
+  if (!material.askedAt || Date.now() - new Date(material.askedAt).getTime() > APPROVAL_BIND_WINDOW_MS) {
+    if (await reopenDeclinedMaterial(sender, body, payload)) return 'reopened';
+    return null;
+  }
   // RECENCY BINDING (spec §5 + class-confirmation safety): when the class
   // confirmation question was asked MORE RECENTLY than the upload question,
   // a bare YES/NO belongs to the CLASS — this material stays pending.
@@ -654,13 +711,18 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   // "ok"/"acha"/"thanks"/"got it" is still NEVER an authorization.
   if (!verdict) {
     const t = String(body ?? '').toLowerCase().trim();
-    const declines = /(^|\b)(no|nahi|nahin|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(t) && !/matlab/.test(t);
-    const bareYes = /^(yes|haan|han|yeah|yep|sure|ji haan|haan ji)(\s*[.!\s]\s*)*$/.test(t);
+    const declines = /(^|\b)(no|nahi|nahin|nhi|nai|nah|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(t) && !/matlab/.test(t);
+    const bareYes = /^(yes|haan|han|hn|hnn|yeah|yep|sure|ji haan|haan ji)(\s*[.!\s]\s*)*$/.test(t);
     // upload-authorization verbs, including the Roman-Urdu short forms the
     // owner's teacher actually types (live incident: "ok kr do"): kr/kro/
     // kardo/krdo + a completion word (do/dein/d/...), optionally preceded
     // by an English/Urdu upload verb.
-    const karDo = /(?:^|\s)(?:upload\s+|share\s+|post\s+|publish\s+|bhej\s+)?(?:kar|kr|kro|kardo|kardi|krdo)(?:\s+|-)?(?:do|doon|doon ga|de|dein|dena|dijiye|d)(?:\s|$|[.!,])/.test(t);
+    // 2026-10-11 owner complaint: "karo/kro" (bare imperatives the teacher
+    // types) never matched the completion-form regex — offline they fell to
+    // 'other' and the publish NEVER happened. Same guards as clearUploadVerbIn.
+    const karDo = /(?:^|\s)(?:upload\s+|share\s+|post\s+|publish\s+|bhej\s+)?(?:kar|kr|kro|kardo|kardi|krdo)(?:\s+|-)?(?:do|doon|doon ga|de|dein|dena|dijiye|d|o)(?:\s|$|[.!,])/.test(t)
+      && !/\b(kaise|kya|kyu|kyun|kab|kahan|kaun|kon|kaam)\b/.test(t)
+      && !/\b(?:karo|kro|kardo|krdo|kar|kr)\s*(?:ge|ga|gi|gy)\b/.test(t);
     const approves = (/\b(upload|share|post|publish|bhej|dijiye)\b/.test(t) || karDo || bareYes)
       && !declines && !/\?/.test(t);
     verdict = declines ? { answer: 'decline' } : approves ? { answer: 'approve' } : { answer: 'other' };
@@ -684,11 +746,25 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     const usable = teacherRecords.filter((t) => t.subject && t.section);
     if (usable.length === 1) {
       const resolved = usable[0];
+      // OWNER COMPLAINT FIX (2026-10-11 evening, "kabhi 10 baar confirm
+      // karta"): when the offer ACCEPTANCE itself already carries a clear
+      // upload verb ("ok kr do", "haan kar do") that IS the authorization —
+      // same rule as caption pre-approval — so publish directly instead of
+      // asking a redundant second confirmation. A bare yes still gets the
+      // real approval question.
+      const direct = clearUploadVerbIn(body);
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
         proposedSubject: resolved.subject?._id ?? resolved.subject,
         section: resolved.section?._id ?? resolved.section,
-        status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId } });
-      auditPush(material._id, 'asked', `approval after offer accepted: ${resolved.subject?.name}`);
+        status: 'awaiting_approval', askedAt: new Date(), lastReplyMsgId: msgId,
+        ...(direct ? { autoApproved: true } : {}) } });
+      auditPush(material._id, 'asked', direct
+        ? 'offer accepted WITH an upload verb — pre-approved, publishing'
+        : `approval after offer accepted: ${resolved.subject?.name}`);
+      if (direct) {
+        const fresh = await TeacherMaterial.findById(material._id).lean();
+        return await publishAndConfirm(fresh, teacherRecords);
+      }
       await sendTeacherText(sender, askApprovalMessage({
         filename: material.filename, subjectName: resolved.subject?.name ?? 'your subject',
         sectionName: resolved.section?.name ?? '', teacherName: teacherRecords[0]?.name,
@@ -914,8 +990,13 @@ async function publishMaterial(material, { resume = false } = {}) {
       throw new ApiError(500, 'note verification failed after save');
     }
 
+    // 2026-10-11 owner-audit fix: never $set lastReplyMsgId here — `material`
+    // was loaded BEFORE the atomic reply claim, so its stale value CLOBBERED
+    // the claimed msgId. That re-opened the redelivery-idempotency hole (a
+    // Wasender redelivery of the YES re-opened a DIFFERENT declined file and
+    // published it a second time). The claim owns that field exclusively.
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
-      status: 'published', publishedNote: note._id, attachment: meta, lastReplyMsgId: material.lastReplyMsgId } });
+      status: 'published', publishedNote: note._id, attachment: meta } });
     auditPush(material._id, 'published', `note ${note._id} → subject ${subjectDoc.name}, section ${sectionDoc.name}`);
     chatLog('PUBLISHED', { phone: material.phone, msg: `${material.filename} → ${subjectDoc.name}/${sectionDoc.name}` });
 
