@@ -159,6 +159,7 @@ router.post('/ops-replay', async (req, res, next) => {
       const from = digits(req.body?.fromDigits);
       if (!from) throw new ApiError(400, '"fromDigits" required');
       const payload = { event_type: 'message_received',
+        instanceId: env.whatsapp?.instanceId ?? null,
         data: { id: `opsreplay_${Date.now()}`, from: `${from}@c.us`, type: 'chat', body,
           time: Math.floor(Date.now() / 1000), fromMe: false } };
       const handled = await handleTeacherReply(payload);
@@ -174,6 +175,7 @@ router.post('/ops-replay', async (req, res, next) => {
       if (!/^https?:\/\//.test(mediaUrl)) throw new ApiError(400, '"mediaUrl" must be a public http(s) URL');
       if (!filename) throw new ApiError(400, '"filename" required');
       const payload = { event_type: 'message_received',
+        instanceId: env.whatsapp?.instanceId ?? null,
         data: { id: `opsreplay_${Date.now()}`, from: `${from}@c.us`, type: 'document',
           filename, mimetype: req.body?.mimetype ?? 'application/pdf',
           caption: String(req.body?.caption ?? '').slice(0, 600), media: mediaUrl,
