@@ -1314,7 +1314,7 @@ test('LID mention: body has LID digits + mentionedJid carries the bot phone jid 
   const sentBefore = waSent.length;
   assert.equal(await handleGroupMessage(payload), true);
   const row = await WhatsAppEvent.findOne({ msgId: 'LID-ME' }).lean();
-  assert.equal(row?.groupTrace?.why ?? null, null, 'no gate trace expected: ' + JSON.stringify(row?.groupTrace));
+  assert.equal(row?.groupTrace?.why ?? null, 'answered', 'tagged mention flows to a full answer: ' + JSON.stringify(row?.groupTrace));
   assert.ok(waSent.length > sentBefore, 'bot answered the picker-mention');
   assert.ok(waSent.at(-1).params.body.length > 0);
 });

@@ -72,7 +72,10 @@ export async function sendText(to, body, mentioned = []) {
   }
   const payload = { to: String(to ?? ''), text: String(body ?? '') };
   if (Array.isArray(mentioned) && mentioned.length) {
-    payload.mentions = mentioned.map((m) => `${String(m).replace(/[^\d]/g, '')}@c.us`).filter((j) => j !== '@c.us');
+    // OWNER BUG 2026-10-11 (live trace): Wasender REJECTS '@c.us' mentions with
+    // "mentions.0 must be a valid WhatsApp User JID format" — its API requires
+    // full '@s.whatsapp.net' JIDs. Bare digits and '@c.us' both fail.
+    payload.mentions = mentioned.map((m) => `${String(m).replace(/[^\d]/g, '')}@s.whatsapp.net`).filter((j) => j !== '@s.whatsapp.net');
   }
   const { ok, status, json } = await postJson('/send-message', payload);
   if (!ok || json?.success === false) {

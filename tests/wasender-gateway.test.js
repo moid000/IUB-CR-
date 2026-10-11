@@ -113,7 +113,7 @@ test('sendText: JSON + Bearer + mentions mapped to @c.us JIDs; sent:true normali
   const call = wasenderCalls.find((c) => c.path === '/send-message' && c.body?.mentions);
   assert.ok(call, 'mentions call made');
   assert.equal(call.body.to, '923009876543');
-  assert.deepEqual(call.body.mentions, ['923001112233@c.us']);
+  assert.deepEqual(call.body.mentions, ['923001112233@s.whatsapp.net']);
 });
 
 test('sendText: gateway failure throws ApiError 502 with the vendor message', async () => {
