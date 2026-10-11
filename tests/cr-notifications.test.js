@@ -226,16 +226,35 @@ test('CR-3: failed CR ping → pending status, sweep retries ONCE, no duplicates
   assert.equal(mat0.crNotify.status, 'pending', 'honestly marked pending — never claimed delivered');
   const teacherConfirm = sent.slice(before).filter((s) => s.to === TEACHER && /upload ho gaye hain/.test(s.body));
   assert.match(teacherConfirm[0].body, /retry kar raha hoon/i, 'teacher told the CR ping is pending');
-  // age the retry clock so the sweep's CR retry is due
+  // age both retry clocks (material + the outbox row that owns the ping)
   await TeacherMaterial.updateOne({ waMsgId: 'cr-retry-1' },
     { $set: { 'crNotify.lastTriedAt': new Date(Date.now() - 6 * 60 * 1000) } });
-  await runTeacherMaterialSweep();
+  await OutboxMessage.updateOne({ refKey: `cr-notify:${mat0._id}:published` },
+    { $set: { lastTriedAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  // OWNER LIVE AUDIT (2026-10-11 double CR ping): the material sweep DEFERS
+  // to the outbox row (single retry owner) — the old behavior sent from BOTH
+  // paths and the CR received the same ping twice in production.
+  const first = await runTeacherMaterialSweep();
+  assert.equal(first.crNotifyRetried, 0, 'material sweep deferred to the outbox owner');
+  assert.equal(crMsgs(before).filter((m) => /portal par upload kiye hain/i.test(m.body)).length, 0,
+    'material sweep sent nothing — the outbox owns the retry');
+  const { retryOutbox } = await import('../backend/services/whatsappService.js');
+  const rOut = await retryOutbox();
+  assert.ok(rOut.delivered >= 1, 'outbox sweep delivered the CR ping');
   const pubs = crMsgs(before).filter((m) => /portal par upload kiye hain/i.test(m.body));
-  assert.equal(pubs.length, 1, 'sweep delivered the CR ping exactly once');
+  assert.equal(pubs.length, 1, 'CR ping delivered EXACTLY once');
   const mat = await TeacherMaterial.findOne({ waMsgId: 'cr-retry-1' }).lean();
-  assert.equal(mat.crNotify.status, 'delivered', 'status now delivered');
+  assert.equal(mat.crNotify.status, 'pending', 'still pending until the material sweep reconciles');
+  await TeacherMaterial.updateOne({ waMsgId: 'cr-retry-1' },
+    { $set: { 'crNotify.lastTriedAt': new Date(Date.now() - 6 * 60 * 1000) } });
+  const reconcile = await runTeacherMaterialSweep();
+  assert.equal(reconcile.crNotifyDelivered, 1, 'material sweep reconciles from the sent outbox row');
+  assert.equal(reconcile.crNotifyRetried, 0, 'reconcile never resends');
+  const mat2 = await TeacherMaterial.findOne({ waMsgId: 'cr-retry-1' }).lean();
+  assert.equal(mat2.crNotify.status, 'delivered', 'status now delivered');
   await runTeacherMaterialSweep();
-  assert.equal(crMsgs(before).filter((m) => /portal par upload kiye hain/i.test(m.body)).length, 1, 'no duplicate on the next sweep');
+  assert.equal(crMsgs(before).filter((m) => /portal par upload kiye hain/i.test(m.body)).length, 1,
+    'no duplicate on the next sweep');
 });
 
 /* --------------------- teacher question → CR alert ----------------------- */

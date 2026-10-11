@@ -1102,6 +1102,25 @@ export async function runTeacherMaterialSweep() {
       status: { $in: ['published', 'failed', 'declined', 'expired'] } }).limit(20).lean();
     for (const m of pendingNotifies) {
       try {
+        // OWNER LIVE AUDIT (2026-10-11, double CR ping): the outbox sweep
+        // (retryOutbox) also retries failed CR-ping rows with the SAME
+        // refKey. Both paths fired in one sweep pass and the CR received
+        // the same ping twice, 6s apart. SINGLE-OWNER RULE: when the outbox
+        // already owns this ping (queued/failed/sent row), ONLY the outbox
+        // sweep retries it — this block sends only when no row exists (the
+        // original persist itself failed) or trusts a delivered row.
+        const refKey = `cr-notify:${String(m._id)}:${m.crNotify?.event ?? 'retry'}`;
+        const { OutboxMessage } = await import('../models/index.js');
+        const owned = await OutboxMessage.findOne({ refKey }).sort({ updatedAt: -1 }).lean();
+        if (owned?.status === 'sent') { // the outbox delivered it — reconcile, never resend
+          await TeacherMaterial.updateOne({ _id: m._id }, { $set: {
+            'crNotify.status': 'delivered', 'crNotify.lastTriedAt': new Date() } });
+          out.crNotifyDelivered++; continue;
+        }
+        if (owned) { // queued/failed — the outbox sweep owns the retry; rescan in 5 min
+          await TeacherMaterial.updateOne({ _id: m._id }, { $set: { 'crNotify.lastTriedAt': new Date() } });
+          continue;
+        }
         const sec = await Section.findById(m.section).select('cr gr name').lean();
         const crId = sec?.cr ?? sec?.gr ?? null;
         const crUser = crId ? await User.findById(crId).select('phone role').lean() : null;
@@ -1109,7 +1128,7 @@ export async function runTeacherMaterialSweep() {
         let delivered = false;
         if (crPhone) {
           const out = await sendCrTracked(crPhone, m.crNotify?.lines ?? '', {
-            kind: 'cr_notify', refKey: `cr-notify:${String(m._id)}:${m.crNotify?.event ?? 'retry'}` });
+            kind: 'cr_notify', refKey });
           delivered = Boolean(out?.sent || out?.alreadySent);
         }
         await TeacherMaterial.updateOne({ _id: m._id }, { $set: {

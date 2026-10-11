@@ -200,15 +200,34 @@ test('T2: CR notification fails → honest partial message; sweep retries the pi
   const mat = await TeacherMaterial.findOne({ filename: 'T2_Notes.pdf' });
   assert.equal(mat.crNotify.status, 'pending', 'crNotify pending — a REAL retry job owns it');
   const attemptsBefore = mat.uploadAttempts;
-  // pretend 6 minutes passed → the sweep's crNotify retry is due
+  // pretend 6 minutes passed → the retry paths are due
   await TeacherMaterial.updateOne({ _id: mat._id },
     { $set: { 'crNotify.lastTriedAt': new Date(Date.now() - 6 * 60 * 1000) } });
+  await OutboxMessage.updateOne({ refKey: `cr-notify:${mat._id}:published` },
+    { $set: { lastTriedAt: new Date(Date.now() - 6 * 60 * 1000) } });
+  // OWNER LIVE AUDIT (2026-10-11 double CR ping): the material sweep must
+  // DEFER to the outbox row (single retry owner) — sending from both paths
+  // delivered the same ping twice in production.
   const out = await runTeacherMaterialSweep();
-  assert.equal(out.crNotifyRetried, 1, 'sweep retried the CR notification');
-  assert.equal(out.crNotifyDelivered, 1, 'retry delivered it');
-  assert.ok(sent.some((s) => s.to === CR_PHONE && /portal par upload kiye hain/i.test(s.body)), 'CR actually received the ping');
+  assert.equal(out.crNotifyRetried, 0, 'material sweep deferred — the outbox row owns the retry');
+  const { retryOutbox } = await import('../backend/services/whatsappService.js');
+  const rOut = await retryOutbox();
+  assert.ok(rOut.delivered >= 1, 'outbox sweep delivered the CR notification');
+  // The original attempt FAILED (recorded by the mock), retryOutbox
+  // delivered it — a duplicate would be a THIRD attempt / second row.
+  assert.equal(sent.slice(fromT2).filter((s) => s.to === CR_PHONE && /portal par upload kiye hain/i.test(s.body)).length, 2,
+    'CR ping attempted exactly twice: one FAILED original + one DELIVERED retry — no duplicate');
+  assert.equal(await OutboxMessage.countDocuments({ refKey: `cr-notify:${mat._id}:published` }), 1,
+    'exactly ONE outbox row — the material sweep never added a second row');
   const after = await TeacherMaterial.findOne({ filename: 'T2_Notes.pdf' });
-  assert.equal(after.crNotify.status, 'delivered', 'CR notification delivered by retry');
+  assert.equal(after.crNotify.status, 'pending', 'still pending until the material sweep reconciles the outbox row');
+  await TeacherMaterial.updateOne({ _id: mat._id },
+    { $set: { 'crNotify.lastTriedAt': new Date(Date.now() - 6 * 60 * 1000) } });
+  const reconcile = await runTeacherMaterialSweep();
+  assert.equal(reconcile.crNotifyDelivered, 1, 'next material sweep reconciles from the sent outbox row');
+  assert.ok(reconcile.crNotifyRetried === 0, 'reconcile never resends');
+  const done = await TeacherMaterial.findOne({ filename: 'T2_Notes.pdf' });
+  assert.equal(done.crNotify.status, 'delivered', 'CR notification delivered — status reconciled');
   assert.equal(await Note.countDocuments({}), notesBefore, 'no re-upload happened');
   assert.equal(after.uploadAttempts, attemptsBefore, 'publish not repeated');
   geminiApproval = null; geminiClassify = null;

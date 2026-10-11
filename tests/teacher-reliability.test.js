@@ -372,11 +372,20 @@ test('TEST G: CR ping fails after a successful upload → sweep retries the NOTI
   let mat = await TeacherMaterial.findOne({ filename: 'Retry_Notify_File.pdf' }).lean();
   assert.equal(mat.crNotify.status, 'pending', 'notification task persisted as pending');
   assert.equal(mat.crNotify.attempts, 1, 'first attempt recorded');
-  // backdate the retry throttle and let the 5-min sweep retry
+  // backdate the retry throttles (material + the outbox row it owns)
   await TeacherMaterial.updateOne({ _id: mat._id }, { $set: { 'crNotify.lastTriedAt': new Date(Date.now() - 10 * 60 * 1000) } });
+  await OutboxMessage.updateOne({ refKey: `cr-notify:${mat._id}:published` },
+    { $set: { lastTriedAt: new Date(Date.now() - 10 * 60 * 1000) } });
   failSendsTo = null;
+  // SINGLE RETRY OWNER (owner live audit 2026-10-11): the material sweep
+  // defers to the failed outbox row; retryOutbox is the one that resends.
   const out = await runTeacherMaterialSweep();
-  assert.ok(out.crNotifyRetried >= 1 && out.crNotifyDelivered >= 1, 'sweep delivered the pending CR notification');
+  assert.equal(out.crNotifyRetried, 0, 'material sweep deferred to the outbox owner');
+  const rOut = await retryOutbox();
+  assert.ok(rOut.delivered >= 1, 'outbox sweep delivered the pending CR notification');
+  await TeacherMaterial.updateOne({ _id: mat._id }, { $set: { 'crNotify.lastTriedAt': new Date(Date.now() - 10 * 60 * 1000) } });
+  const reconcile = await runTeacherMaterialSweep();
+  assert.equal(reconcile.crNotifyDelivered, 1, 'material sweep reconciles the delivered row');
   mat = await TeacherMaterial.findOne({ filename: 'Retry_Notify_File.pdf' }).lean();
   assert.equal(mat.crNotify.status, 'delivered', 'notification delivered on retry');
   assert.equal(await Note.countDocuments({}), 1, 'STILL exactly one Note — notification failure never re-uploads');
