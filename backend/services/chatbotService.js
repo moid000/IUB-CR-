@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { samePhone } from './phoneUtils.js';
 import {
   isConfigured, sendText, sendImage, sendDocument, sendAudio, sendVideo,
+  getLidFromPhone,
 } from './whatsappService.js';
 
 /**
@@ -118,6 +119,18 @@ export function isTri3mTag(text, selfPhone) {
   const self = String(selfPhone ?? '').replace(/\D/g, '');
   if (self && t.includes('@' + self)) return true;
   return /@tri\s?3?m\b/i.test(t);
+}
+
+/** Does a mention JID point at THIS bot? Matches by phone digits OR LID
+ * digits; device suffixes ("923019670950:9@s.whatsapp.net") are stripped
+ * before comparison. */
+export function jidMatchesSelf(jid, selfPhone, selfLid) {
+  const base = String(jid ?? '').split(':')[0].replace(/\D/g, '');
+  if (!base) return false;
+  const self = String(selfPhone ?? '').replace(/\D/g, '');
+  if (self && base === self) return true;
+  const lid = String(selfLid ?? '').replace(/\D/g, '');
+  return Boolean(lid) && base === lid;
 }
 
 /** Removes WhatsApp mention tokens so the LLM sees the bare question. */
@@ -1059,10 +1072,20 @@ export async function handleGroupMessage(payload) {
       question = transcript.slice(0, 400);
     } else {
       question = stripMentions(data.body);
-      if (!isTri3mTag(data.body, selfPhone)) {
-        // THE 2026-10-11 mystery exit: a tagged-looking message that the
-        // gate did not recognize. bodyLen + mentionTails say whether the
-        // mention digits mismatched the gateway number or the body is empty.
+      // OWNER 2026-10-11 LID-mention bug: a picker-@ mention can carry the
+      // bot's LID digits in the text (not its phone digits), so the text
+      // match misses. The AUTHORITATIVE tag proof is contextInfo.mentionedJid
+      // — match if ANY mentioned jid is the bot (phone form OR LID form).
+      const mentioned = Array.isArray(data.mentionedJid) ? data.mentionedJid : [];
+      let selfLid = null;
+      if (mentioned.length) {
+        try { selfLid = await getLidFromPhone(selfPhone); } catch { /* optional lookup */ }
+      }
+      const textTagged = isTri3mTag(data.body, selfPhone);
+      const mentionTagged = mentioned.some((j) => jidMatchesSelf(j, selfPhone, selfLid));
+      if (!textTagged && !mentionTagged) {
+        // trace says whether the mention digits mismatched the gateway
+        // number (mentionTails) or the body is empty — redacted, no content.
         await traceGroup(data.id, 'untagged',
           { bodyLen: rawBody.length, hasAt: rawBody.includes('@'), mentionTails });
         return true;

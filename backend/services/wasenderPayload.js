@@ -169,6 +169,16 @@ export async function normalizeWasenderPayload(raw) {
   };
   if (author) out.data.author = author;
 
+  // OWNER 2026-10-11 LID-mention bug: when a sender tags the bot via the
+  // @-mention picker, the BODY text can carry the bot's LID digits (not its
+  // phone digits), so the phone-digit tag match misses. The AUTHORITATIVE
+  // identity is contextInfo.mentionedJid — carry it through so the chatbot
+  // can match the bot by either its phone jid OR its LID jid.
+  const mentionedJid = message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  if (Array.isArray(mentionedJid) && mentionedJid.length) {
+    out.data.mentionedJid = mentionedJid.map((j) => String(j)).slice(0, 20);
+  }
+
   if (media) {
     const { url, mimetype, filename, caption } = await decryptMediaUrl(message, key);
     if (url) {

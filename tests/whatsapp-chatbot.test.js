@@ -1292,4 +1292,54 @@ test('gate traces: untagged + no-section + stale exits are recorded on the event
   await handleGroupMessage(mkPayload('TRACE-3', '@tri3m purani baat', GROUP_ID, 600));
   const t3 = await WhatsAppEvent.findOne({ msgId: 'TRACE-3' }).lean();
   assert.equal(t3.groupTrace?.why, 'stale');
+
+  // RESTORE the base fixture — later tests (LID-mention suite) reply via the
+  // linked section; leaving it deleted would cascade 'no-section' failures.
+  await Section.create(section.toObject());
+});
+
+/* OWNER 2026-10-11 LID-MENTION BUG: when a sender tags the bot via the @-mention
+ * picker, the body text can carry the bot's LID digits (NOT its phone digits)
+ * — the text tag match misses and the message dies 'untagged'. The
+ * AUTHORITATIVE tag proof is contextInfo.mentionedJid: match if any mentioned
+ * jid is the bot (phone form OR LID form). */
+test('LID mention: body has LID digits + mentionedJid carries the bot phone jid -> bot replies', async () => {
+  chatbot.__resetGuards();
+  await WhatsAppEvent.create({ msgId: 'LID-ME', from: GROUP_ID, chatType: 'group', msgType: 'chat' });
+  const payload = groupMsg('kal ka test hai?', { tagged: false, id: 'LID-ME' });
+  // body text mentions a LID (wrong digits for the text match)...
+  payload.data.body = '@987654321098 kal ka test hai?';
+  // ...but the AUTHORITATIVE mention list contains the bot's phone jid
+  payload.data.mentionedJid = [`${process.env.ULTRAMSG_GATEWAY_PHONE}@s.whatsapp.net`];
+  const sentBefore = waSent.length;
+  assert.equal(await handleGroupMessage(payload), true);
+  const row = await WhatsAppEvent.findOne({ msgId: 'LID-ME' }).lean();
+  assert.equal(row?.groupTrace?.why ?? null, null, 'no gate trace expected: ' + JSON.stringify(row?.groupTrace));
+  assert.ok(waSent.length > sentBefore, 'bot answered the picker-mention');
+  assert.ok(waSent.at(-1).params.body.length > 0);
+});
+
+test('LID mention: jidMatchesSelf matches phone, device-suffix and LID forms', async () => {
+  const { jidMatchesSelf } = chatbot;
+  const SELF = '923001234567';
+  assert.ok(jidMatchesSelf('923001234567@s.whatsapp.net', SELF, null));
+  assert.ok(jidMatchesSelf('923001234567:9@s.whatsapp.net', SELF, null)); // device suffix stripped
+  assert.ok(jidMatchesSelf('987654321098@s.whatsapp.net', SELF, '987654321098')); // LID form
+  assert.ok(!jidMatchesSelf('923007770001@s.whatsapp.net', SELF, '987654321098'), 'someone else');
+  assert.ok(!jidMatchesSelf('', SELF, null));
+});
+
+test('LID mention: mentioning SOMEONE ELSE never wakes the bot; trace records tails', async () => {
+  chatbot.__resetGuards();
+  const { WhatsAppEvent: WE } = models;
+  await WE.create({ msgId: 'LID-OTHER', from: GROUP_ID, chatType: 'group', msgType: 'chat' });
+  const payload = groupMsg('aaja milte hain', { tagged: false, id: 'LID-OTHER' });
+  payload.data.body = '@923007770001 aaja milte hain';
+  payload.data.mentionedJid = ['923007770001@s.whatsapp.net'];
+  const sentBefore = waSent.length;
+  assert.equal(await handleGroupMessage(payload), true); // consumed silently
+  assert.equal(waSent.length, sentBefore, 'no reply for a mention of someone else');
+  const row = await WE.findOne({ msgId: 'LID-OTHER' }).lean();
+  assert.equal(row.groupTrace?.why, 'untagged');
+  assert.deepEqual(row.groupTrace?.mentionTails, ['07770001']);
 });

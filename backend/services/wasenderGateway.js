@@ -148,6 +148,26 @@ export async function getSelfProfile() {
   return json?.data ?? json ?? {};
 }
 
+/** Bot's LID for its own phone (docs: GET /api/lid-from-phone/{contact}).
+ * Mentions can reference the bot by LID jid instead of phone jid — the tag
+ * matcher needs this to recognize picker-mentions. Cached 1h. */
+let lidCache = { lid: null, at: 0 };
+export async function getLidFromPhone(phone) {
+  if (!isConfigured()) throw new ApiError(503, 'WhatsApp gateway is not configured');
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (lidCache.lid && Date.now() - lidCache.at < 3_600_000) return lidCache.lid;
+  const { ok, status, json } = await postJson(`/lid-from-phone/${digits}`);
+  if (!ok || json?.success === false) {
+    throw new ApiError(502, `WhatsApp LID lookup failed: ${json?.message || `HTTP ${status}`}`);
+  }
+  const raw = String(json?.data?.lid ?? json?.data?.waLid ?? json?.data?.number
+    ?? json?.lid ?? json?.data ?? '');
+  const lid = raw.replace(/\D/g, '') || null;
+  lidCache = { lid, at: Date.now() };
+  return lid;
+}
+
 export async function listGroupMeta() {
   if (!isConfigured()) {
     throw new ApiError(503, 'WhatsApp gateway is not configured');
