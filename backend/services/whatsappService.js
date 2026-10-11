@@ -112,6 +112,14 @@ export async function sendTracked(phone, body, { kind = 'teacher', refKey = '', 
     const res = await sendText(digits, String(body ?? ''));
     ok = Boolean(res?.sent);
     if (!ok) error = 'gateway did not confirm send';
+    // OWNER SPEC 2026-10-11 §1: persist the PROVIDER's message id/jid so
+    // every outbound action is traceable to the gateway's own record.
+    if (ok && row) {
+      try { const { OutboxMessage } = await import('../models/index.js');
+        await OutboxMessage.updateOne({ _id: row._id }, { $set: {
+        providerMsgId: String(res?.msgId ?? '').slice(0, 220),
+        providerJid: String(res?.jid ?? '').slice(0, 220) } }); } catch { /* best-effort */ }
+    }
   } catch (err) {
     error = String(err?.message ?? err).slice(0, 300);
   }

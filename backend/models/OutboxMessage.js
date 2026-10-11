@@ -35,6 +35,10 @@ const outboxSchema = new Schema(
   url: { type: String, default: '' },
   mediaKind: { type: String, default: '' },
   filename: { type: String, default: '' },
+    // OWNER SPEC 2026-10-11 §1: the gateway's OWN message id/jid for every
+    // delivered send — persistent provider-message tracking, not just our row.
+    providerMsgId: { type: String, default: '', maxlength: 220 },
+    providerJid: { type: String, default: '', maxlength: 220 },
     sentAt: { type: Date, default: null },
     lastTriedAt: { type: Date, default: null },
   },

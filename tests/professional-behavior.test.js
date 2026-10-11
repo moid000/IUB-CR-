@@ -146,9 +146,9 @@ test('T7: the same FILE delivered twice by the webhook → ONE material row, ONE
   geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
   const dupId = `file-dup-${Math.random()}`;
   await webhook(fileMsg({ filename: 'T7_Lecture.pdf', id: dupId }));
-  const asksAfterFirst = sent.filter((s) => s.to === TEACHER && /upload kar doon/i.test(s.body));
+  const asksAfterFirst = sent.filter((s) => s.to === TEACHER && /share kar doon|upload kar deta hoon/i.test(s.body));
   await webhook(fileMsg({ filename: 'T7_Lecture.pdf', id: dupId })); // Wasender redelivery — same msgId
-  const asksAfterSecond = sent.filter((s) => s.to === TEACHER && /upload kar doon/i.test(s.body));
+  const asksAfterSecond = sent.filter((s) => s.to === TEACHER && /share kar doon|upload kar deta hoon/i.test(s.body));
   assert.equal(asksAfterFirst.length, 1, 'approval question asked once');
   assert.equal(asksAfterSecond.length, 1, 'redelivery did NOT ask again');
   assert.equal(await TeacherMaterial.countDocuments({ waMsgId: dupId }), 1, 'exactly one material row');
@@ -218,7 +218,7 @@ test('T4: a separate NEW file after the duplicates → processed normally', asyn
   geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
   await webhook(fileMsg({ filename: 'T4_Fresh_Notes.pdf' }));
   assert.equal(await TeacherMaterial.countDocuments({ filename: 'T4_Fresh_Notes.pdf' }), 1, 'new material row');
-  const asks = sent.filter((s) => s.to === TEACHER && /T4_Fresh_Notes\.pdf/.test(s.body) && /upload kar doon/i.test(s.body));
+  const asks = sent.filter((s) => s.to === TEACHER && /T4_Fresh_Notes\.pdf/.test(s.body) && /share kar doon|upload kar deta hoon/i.test(s.body));
   assert.equal(asks.length, 1, 'its own approval question asked once');
   geminiApproval = { answer: 'approve', subject: '', section: '' };
   await webhook(incoming('YES', `${TEACHER}@c.us`, `yes-t4-${Math.random()}`));
@@ -260,7 +260,7 @@ test('T6: concise style — no signatures, no essays, English mirror for an Engl
   await Teacher.updateOne({ whatsapp: TEACHER }, { $set: { 'chatProfile.detectedLanguage': 'english' } });
   await webhook(fileMsg({ filename: 'T6_English_Notes.pdf' }));
   const ask = sent.filter((s) => s.to === TEACHER && /T6_English_Notes\.pdf/.test(s.body)).pop();
-  assert.match(ask.body, /Upload it to the portal/i, 'English teacher → English question');
+  assert.match(ask.body, /Share it with the students/i, 'English teacher → English question');
   assert.doesNotMatch(ask.body, /Tri3M Class Agent/i, 'no signature footer');
   geminiApproval = { answer: 'approve', subject: '', section: '' };
   await webhook(incoming('yes', `${TEACHER}@c.us`, `yes-t6-${Math.random()}`));
@@ -272,7 +272,7 @@ test('T6: concise style — no signatures, no essays, English mirror for an Engl
   await Teacher.updateOne({ whatsapp: TEACHER }, { $set: { 'chatProfile.detectedLanguage': '' } });
   await webhook(fileMsg({ filename: 'T6_Urdu_Notes.pdf' }));
   const askUr = sent.filter((s) => s.to === TEACHER && /T6_Urdu_Notes\.pdf/.test(s.body)).pop();
-  assert.match(askUr.body, /upload kar doon/i, 'Roman Urdu question');
+  assert.match(askUr.body, /share kar doon|upload kar deta hoon/i, 'Roman Urdu question');
   geminiApproval = null; geminiClassify = null;
 });
 

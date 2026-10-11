@@ -205,7 +205,7 @@ test('MASTER UPGRADE TEST D: teacher sends a study-material PDF → examined, ap
     const body = sent[sent.length - 1].body;
     assert.match(body, /Data_Structures_Lecture_03\.pdf/, 'question names the exact file');
     assert.match(body, /Data Structures/i, 'question names the resolved subject');
-    assert.match(body, /upload kar doon\?/i, 'asks permission — never publishes by itself');
+    assert.match(body, /share kar doon|upload kar deta hoon/i, 'asks permission — never publishes by itself');
     const mat = await TeacherMaterial.findOne({}).lean();
     assert.equal(mat.status, 'awaiting_approval');
     assert.equal(String(mat.proposedSubject), String(subject));
@@ -223,7 +223,7 @@ test('NIGHT-9: stale sibling Teacher record (no subject/section, sorts FIRST) mu
     const r = await webhook(fileMsg({ filename: 'DS_Recursion_Notes.pdf', id: 'night9-file-1' }));
     assert.equal(r.json.data.updated, true, 'consumed — never silently dropped like the production incident');
     assert.equal(sent.length, before + 2, 'approval question + CR ping both fire');
-    assert.match(sent[sent.length - 1].body, /upload kar doon\?/i);
+    assert.match(sent[sent.length - 1].body, /share kar doon|upload kar deta hoon/i);
     const mat = await TeacherMaterial.findOne({ waMsgId: 'night9-file-1' }).lean();
     assert.equal(mat.status, 'awaiting_approval');
     assert.equal(String(mat.proposedSubject), String(subject), 'subject from the USABLE record, not the stale one');
@@ -421,7 +421,7 @@ test('MASTER UPGRADE §4: clearly NON-educational content → honest ack + OPEN 
     const r = await webhook(fileMsg({ filename: 'IMG_2043.jpg', mime: 'image/jpeg', type: 'image' }));
     assert.equal(r.json.data.updated, true);
     assert.equal(sent.length, before + 1);
-    assert.doesNotMatch(sent[sent.length - 1].body, /upload kar doon\?/i, 'no upload approval question for a non-material file');
+    assert.doesNotMatch(sent[sent.length - 1].body, /share kar doon|upload kar deta hoon/i, 'no upload approval question for a non-material file');
     const mat = await TeacherMaterial.findOne({}).lean();
     assert.equal(mat.status, 'offered', 'the offer stays an OPEN question (owner reliability 2026-10-09)');
     assert.equal(mat.classification.verdict, 'not_material');

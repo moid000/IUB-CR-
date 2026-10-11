@@ -191,10 +191,12 @@ function askApprovalMessage({ filename, subjectName, sectionName, teacherName, l
   const short = cleanFilename(filename, 70);
   // OWNER STYLE SPEC (2026-10-11): natural human coordinator — ONE short
   // message, no footer, no essay.
+  // OWNER SPEC 2026-10-11 §2: ask ONCE, wording invites extra instructions —
+  // they are preserved into the Notes description when the approval carries them.
   if (language === 'english') {
-    return `Sir, "${short}" looks like ${subjectName} study material for Section ${sectionName}. Upload it to the portal's Notes section for the students? (YES / NO)`;
+    return `Sir, "${short}" looks like ${subjectName} study material for Section ${sectionName}. Share it with the students in the portal's Notes section? If there are any instructions for it, let me know — otherwise I'll upload it as it is.`;
   }
-  return `Sir, "${short}" ${subjectName} ki study material lag rahi hai (Section ${sectionName}). Portal ke Notes mein upload kar doon? (YES / NO)`;
+  return `Sir, "${short}" ${subjectName} ki study material lag rahi hai (Section ${sectionName}). Kya main students ke saath share kar doon? Agar koi instruction hai to bata dein — warna main Notes mein upload kar deta hoon.`;
 }
 
 function askSubjectMessage({ filename, teacherName, subjectNames }) {
@@ -234,6 +236,25 @@ function publishedMessage({ subjectName, sectionName, filename, language, crDeli
 
 function declinedMessage() {
   return 'Theek hai Sir, koi upload nahi hui.';
+}
+
+/* OWNER SPEC 2026-10-11 §2: the approval reply may carry extra instructions
+ * beyond the yes ("haan kar do, ye chapter 3 ki tayari ke liye hai"). A
+ * whole-string approval (bare yes / "kr do") has NO instructions; anything
+ * else keeps the teacher's remaining words VERBATIM — never invented, never
+ * summarized, and they go to the Notes DESCRIPTION, never the title. */
+function extraInstructionsFromBody(body) {
+  const t = String(body ?? '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  const bareYes = /^(yes|haan|han|yeah|yep|sure|ji haan|haan ji|ji|g|ok|okay|theek hai|acha|achha)(\s*[.!,\s]*)$/i.test(t);
+  const karDoOnly = /^(?:haan\s+|ji\s+|yes\s+|g\s+)?(?:upload|share|post|publish|bhej)?\s*(?:kr|kar|kro|kardo|krdo|kardi)\s+(?:do|doon|doon ga|de|dein|dena|dijiye|d)\s*(?:sab\s+k\s+logon\s+ke\s+liye)?\s*[.!,\s]*$/i.test(t);
+  if (bareYes || karDoOnly) return '';
+  // strip only a LEADING approval cluster; the rest is preserved verbatim
+  return t
+    .replace(/^\s*(?:yes|haan|han|ji|g|yeah|yep|sure|ok|okay)[\s,.!]+/i, '')
+    .replace(/^[\s,.!]*(?:upload|share|post|publish|bhej)?[\s]*(?:kr|kar|kro|kardo|krdo)[\s]+(?:do|doon|de|dein|dena|dijiye|d)[\s,.!]+/i, '')
+    .trim()
+    .slice(0, 600);
 }
 
 function failedMessage({ filename }) {
@@ -712,9 +733,21 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     return 'declined';
   }
 
+  // OWNER SPEC 2026-10-11 §2: extra instructions riding the approval reply
+  // are preserved VERBATIM on the record → the Notes description. A bare
+  // yes stores nothing. This runs BEFORE publishMaterial so the published
+  // Note carries them.
+  const instructions = extraInstructionsFromBody(body);
+  if (instructions) {
+    await TeacherMaterial.updateOne({ _id: material._id },
+      { $set: { teacherInstructions: instructions } });
+    auditPush(material._id, 'instructions', `approval carried: ${instructions.slice(0, 120)}`);
+  }
+  const materialForPublish = instructions ? await TeacherMaterial.findById(material._id).lean() : material;
+
   // APPROVE → publish now (spec §7: verified result, honest reply, never a
   // success claim before the Note actually exists)
-  const outcome = await publishMaterial(material);
+  const outcome = await publishMaterial(materialForPublish);
   if (outcome.ok) {
     // OWNER SPEC §2: the final confirmation is DEDUPE-KEYED per material —
     // even if a redelivery slips past the claim, the outbox sends this
@@ -794,10 +827,25 @@ async function publishMaterial(material, { resume = false } = {}) {
     });
 
     const title = String(material.filename).replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim().slice(0, TITLE_MAX) || material.filename;
+    // OWNER SPEC 2026-10-11 §2: description = the teacher's OWN words only —
+    // caption (sent with the file) + extra instructions (sent in the
+    // approval reply). No teacher words → the file's VERIFIED Gemini content
+    // summary; only when that is absent too, the honest generic line. NEVER
+    // invented academic details, NEVER instructions in the title.
+    const descParts = [];
+    if (material.caption && String(material.caption).trim()) descParts.push(String(material.caption).trim());
+    if (material.teacherInstructions && String(material.teacherInstructions).trim()) descParts.push(String(material.teacherInstructions).trim());
+    let content = descParts.join('\n\n').trim();
+    if (!content) {
+      const verifiedSummary = String(material.classification?.extractedSummary ?? '').trim().slice(0, 400);
+      content = verifiedSummary
+        ? `${verifiedSummary}\n\nOriginal file: "${material.filename}"` // summary + factual attribution (broadcast caption names the file)
+        : `Uploaded by the teacher from WhatsApp — original file "${material.filename}".`;
+    }
     const note = await Note.create({
       title,
       subject: material.proposedSubject,
-      content: material.caption || `Uploaded by the teacher from WhatsApp — original file "${material.filename}".`,
+      content,
       attachments: [meta],
       section: material.section,
       author: author._id,
@@ -850,11 +898,15 @@ async function publishMaterial(material, { resume = false } = {}) {
       status: 'failed', uploadError: String(err?.message ?? err).slice(0, 600) } });
     auditPush(material._id, 'failed', String(err?.message ?? err));
     chatLog('PUBLISH-FAILED', { phone: material.phone, msg: String(err?.message ?? err) });
+    // teacherDoc is scoped to the try block — resolve the name HERE for the CR message
+    const failedTeacher = await Teacher.findById(material.teacher).select('name').lean().catch(() => null);
     await notifyCrPersisted(material, {
       event: 'failed',
       title: 'Teacher material upload FAILED',
-      message: `"${material.filename}" could not be uploaded after the teacher approved it (${String(err?.message ?? err).slice(0, 160)}). The teacher was told honestly — you may upload it manually.`,
-      lines: `Teacher ki "${cleanFilename(material.filename, 60)}" ka upload FAIL ho gaya (${String(err?.message ?? err).slice(0, 140)}). Teacher ko saaf bata diya gaya hai. Aap chahen to wo file teacher se le kar khud Notes mein upload kar dein.` });
+      // OWNER SPEC 2026-10-11 §3: the CR sees a SHORT professional message —
+      // the raw internal error stays in the DB record + audit (admin only).
+      message: `"${material.filename}" could not be uploaded after the teacher approved it. The teacher was told honestly — you may upload it manually. (Technical detail: Administration → materials audit)`,
+      lines: `Assalam-o-Alaikum. Sir ${failedTeacher?.name ?? 'teacher'} ki file "${cleanFilename(material.filename, 60)}" upload nahi ho saki — technical issue tha. Teacher ko saaf bata diya gaya hai. Aap chahen to wo file teacher se le kar khud Notes mein upload kar dein.` });
     return { ok: false, error: String(err?.message ?? err) };
   }
 }

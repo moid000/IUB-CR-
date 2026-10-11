@@ -42,6 +42,10 @@ const materialSchema = new Schema(
     size: { type: Number, default: 0 }, // bytes as reported at classification time
     sha256: { type: String, default: '', index: true }, // content hash — duplicate detection
     caption: { type: String, default: '', maxlength: 600 }, // the teacher's text with the file
+    // OWNER SPEC 2026-10-11 §2: extra instructions the teacher added in the
+    // APPROVAL reply ("haan kar do, ye chapter 3 ke liye hai") — preserved
+    // verbatim into the Notes description, never the title.
+    teacherInstructions: { type: String, default: '', maxlength: 600 },
     classification: {
       verdict: { type: String, enum: ['study_material', 'not_material', 'unclear', null], default: null },
       engine: { type: String, default: '' }, // 'gemini' | 'filename-heuristic'

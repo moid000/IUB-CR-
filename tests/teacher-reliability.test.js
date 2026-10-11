@@ -391,7 +391,7 @@ test('TEST H: the same file webhook redelivered → one material, one question; 
   await webhook(payload); // redelivery
   geminiClassify = null;
   assert.equal(await TeacherMaterial.countDocuments({}), 1, 'exactly one task row');
-  const asks = sent.filter((s) => s.to === '923001112233' && /Dup_Webhook\.pdf/.test(s.body) && /upload kar doon/i.test(s.body));
+  const asks = sent.filter((s) => s.to === '923001112233' && /Dup_Webhook\.pdf/.test(s.body) && /share kar doon|upload kar deta hoon/i.test(s.body));
   assert.equal(asks.length, 1, 'approval question asked ONCE');
   geminiApproval = { answer: 'approve' };
   const yes = incoming('YES');
@@ -491,7 +491,7 @@ test('TEST K: unclear file → offer → teacher says "ok kr do" → approval qu
   assert.equal(r.json.data.updated, true, 'offer acceptance consumed by the file flow');
   const mat2 = await TeacherMaterial.findOne({}).lean();
   assert.equal(mat2.status, 'awaiting_approval', 'offer → real approval question');
-  assert.ok(sent.slice(before).some((m) => /Scan_Docs\.pdf/.test(m.body) && /upload kar doon\?/i.test(m.body)),
+  assert.ok(sent.slice(before).some((m) => /Scan_Docs\.pdf/.test(m.body) && /share kar doon|upload kar deta hoon/i.test(m.body)),
     'the REAL approval question was asked for THIS file');
   // teacher approves → publishes
   geminiApproval = { answer: 'approve' };
