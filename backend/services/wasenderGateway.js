@@ -135,6 +135,18 @@ export function sendVideo(to, url, caption) {
  * participants on the meta objects is how the service detects the
  * single-call UltraMsg roster shape.
  */
+/** The bot's OWN WhatsApp identity (Wasender GET /me) — used by ops
+ * diagnostics to prove whether ULTRAMSG_GATEWAY_PHONE (the chatbot's tag
+ * matcher) matches the number the bot ACTUALLY runs on. */
+export async function getSelfProfile() {
+  if (!isConfigured()) throw new ApiError(503, 'WhatsApp gateway is not configured');
+  const { ok, status, json } = await postJson('/me');
+  if (!ok || json?.success === false) {
+    throw new ApiError(502, `WhatsApp self-profile fetch failed: ${json?.message || `HTTP ${status}`}`);
+  }
+  return json?.data ?? {};
+}
+
 export async function listGroupMeta() {
   if (!isConfigured()) {
     throw new ApiError(503, 'WhatsApp gateway is not configured');

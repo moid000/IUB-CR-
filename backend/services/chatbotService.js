@@ -1001,6 +1001,21 @@ async function claimGroupEvent(msgId) {
   } catch { return true; /* dedupe must never block a reply */ }
 }
 
+/* GROUP SILENCE TRACE (2026-10-11 owner incident): every silent exit of
+ * handleGroupMessage stamps a REASON on the WhatsAppEvent row so ops can see
+ * exactly which gate ate a message — no bodies, only lengths and redacted
+ * mention tails. Best-effort: tracing NEVER breaks the reply path. */
+async function traceGroup(msgId, why, extra = {}) {
+  const id = String(msgId ?? '').trim();
+  if (!id) return;
+  try {
+    const { WhatsAppEvent } = await import('../models/index.js');
+    await WhatsAppEvent.updateMany(
+      { msgId: id },
+      { $set: { groupTrace: { why, at: new Date(), ...extra } } });
+  } catch { /* diagnostics only */ }
+}
+
 export async function handleGroupMessage(payload) {
   const setting = await resolveRuntimeSetting();
   if (!setting.enabled) return false;
@@ -1008,16 +1023,22 @@ export async function handleGroupMessage(payload) {
   const groupId = groupIdOf(payload);
   const data = payload?.data ?? {};
   try {
+    const rawBody = String(data.body ?? '');
+    const mentionTails = (payload?.data?.mentionedJid ?? payload?.data?.mentions ?? [])
+      .slice(0, 3).map((m) => String(m).replace(/\D/g, '').slice(-8));
     // consume ANY group message so the teacher DM flow never sees it
     const author = digitsOf(data.author || data.from);
     const selfPhone = digitsOf(env.whatsapp.gatewayPhone);
     if (selfPhone && author === selfPhone) return true;
-    if (!isConfigured()) return true;
+    if (!isConfigured()) { await traceGroup(data.id, 'unconfigured'); return true; }
 
     // replay/freshness guard (webhook time is epoch seconds)
     const rawTime = Number(data.time ?? data.timestamp);
     const epoch = rawTime > 1e11 ? rawTime / 1000 : rawTime;
-    if (Number.isFinite(epoch) && epoch > 1.5e9 && Date.now() - epoch * 1000 > MESSAGE_MAX_AGE_MS) return true;
+    if (Number.isFinite(epoch) && epoch > 1.5e9 && Date.now() - epoch * 1000 > MESSAGE_MAX_AGE_MS) {
+      await traceGroup(data.id, 'stale', { ageSec: Math.round((Date.now() - epoch * 1000) / 1000) });
+      return true;
+    }
 
     // OWNER RULE (2026-10-05): respond ONLY to an explicit @Tri3M tag.
     // Keywords, question marks and plain "tri3m/bot" text no longer wake the
@@ -1031,22 +1052,32 @@ export async function handleGroupMessage(payload) {
       const gdiag = { channel: 'group', phone: digitsOf(data.author || data.from), msgType: String(data.type ?? '') };
       const transcript = await transcribeVoice(data, undefined, gdiag);
       recordVoiceDiag(gdiag); // diagnostics write, never breaks the reply path
-      if (!transcript || !isVoiceAddressedToBot(transcript)) return true; // silent
+      if (!transcript || !isVoiceAddressedToBot(transcript)) {
+        await traceGroup(data.id, transcript ? 'voice-not-addressed' : 'voice-transcribe-failed');
+        return true; // silent
+      }
       question = transcript.slice(0, 400);
     } else {
       question = stripMentions(data.body);
-      if (!isTri3mTag(data.body, selfPhone)) return true;
+      if (!isTri3mTag(data.body, selfPhone)) {
+        // THE 2026-10-11 mystery exit: a tagged-looking message that the
+        // gate did not recognize. bodyLen + mentionTails say whether the
+        // mention digits mismatched the gateway number or the body is empty.
+        await traceGroup(data.id, 'untagged',
+          { bodyLen: rawBody.length, hasAt: rawBody.includes('@'), mentionTails });
+        return true;
+      }
     }
-    if (String(question).length > 400) return true;
+    if (String(question).length > 400) { await traceGroup(data.id, 'too-long'); return true; }
     // OWNER SPEC §E: one event = at most one group reply — a redelivered
     // webhook id (same question, even much later than the cooldown) never
     // gets a second answer. A NEW distinct message id is always processed.
-    if (!withinBudget(groupId)) return true;
+    if (!withinBudget(groupId)) { await traceGroup(data.id, 'budget'); return true; }
     // OWNER SPEC §E: one event = at most one group reply — a redelivered
     // webhook id (same question, even much later than the cooldown) never
     // gets a second answer. A NEW distinct message id is always processed.
     // Claimed AFTER the budget gate so a throttled message is never burned.
-    if (!await claimGroupEvent(data.id)) return true;
+    if (!await claimGroupEvent(data.id)) { await traceGroup(data.id, 'redelivery-skip'); return true; }
 
     // resolve the section this group belongs to (general or subject group)
     const started = Date.now();
@@ -1055,7 +1086,7 @@ export async function handleGroupMessage(payload) {
       const subject = await Subject.findOne({ 'whatsappGroup.id': groupId }).select('section').lean();
       if (subject?._id) section = { _id: subject.section ?? subject._id };
     }
-    if (!section?._id) return true; // not a linked class group → silence
+    if (!section?._id) { await traceGroup(data.id, 'no-section', { groupId: String(groupId).slice(-18) }); return true; } // not a linked class group → silence
 
     // OWNER RULE (2026-10-03): the class's CR/GR gets FULL RESPECT — no roast,
     // no badtamezi. They ask, they get a respectful complete answer. Roast

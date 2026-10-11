@@ -27,6 +27,8 @@ const RATE_LIMIT_RE = /free trial|rate.?limit|retry.?after|too many requests|acc
 export const isRateLimitError = (text) => RATE_LIMIT_RE.test(String(text ?? ''));
 
 export const isConfigured = () => impl().isConfigured();
+// Wasender-only (undefined on ultramsg): the bot's own WhatsApp profile.
+export const getSelfProfile = () => impl().getSelfProfile?.();
 
 /* WASENDER ACCOUNT-PROTECTION PACING (2026-10-11): the paid Basic plan's
  * anti-ban guard rejects sends faster than 1 per 5 seconds ACCOUNT-WIDE

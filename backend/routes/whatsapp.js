@@ -19,6 +19,7 @@ import { runTeacherQuestionSweep } from '../services/teacherQuestionService.js';
 import { handleGroupMessage } from '../services/chatbotService.js';
 // OWNER RELIABILITY SPEC §9 (2026-10-10): outbox delivery tracking + retry
 import { retryOutbox } from '../services/whatsappService.js';
+import * as whatsappService from '../services/whatsappService.js';
 // OWNER 2026-10-10: Wasender webhook payloads are converted into the UltraMsg
 // shape BEFORE any handler runs — UltraMsg payloads pass through untouched.
 import { normalizeIncomingPayload } from '../services/wasenderPayload.js';
@@ -143,7 +144,18 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       ChatbotSetting.findOne({ key: 'global' }).select('enabled updatedAt').lean(),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
       OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
-    ]);
+    ]);    // LIVE bot identity: what number does the Wasender session ACTUALLY run
+    // on? The chatbot's tag matcher uses env gatewayPhone — if these tails
+    // differ, every digit-mention tag misses and the bot stays silent.
+    let gatewaySelfTail = null;
+    try {
+      const me = await whatsappService.getSelfProfile?.() ?? {};
+      const digits = String(me.waNumber ?? me.wa_number ?? me.phone ?? me.number
+        ?? me.jid ?? me.userJid ?? me.userId ?? '').replace(/\D/g, '');
+      gatewaySelfTail = digits ? digits.slice(-8)
+        : 'shape:' + Object.keys(me).join(',').slice(0, 80);
+    } catch (err) { gatewaySelfTail = 'unavailable:' + String(err?.message ?? err).slice(0, 60); }
+
     res.json({ success: true, data: {
       heartbeat: {
         deadlineSweepLastRun: sweepBeat?.lastSentAt ?? null,
@@ -161,6 +173,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       outboxFailed: outboxFailed.map((o) => ({ kind: o.kind, refKey: o.refKey, phone: mask(o.phone),
         attempts: o.attempts, lastError: (o.lastError ?? '').slice(0, 120), ageMinutes: Math.round((now - new Date(o.updatedAt).getTime()) / 60000) })),
       classesAwaitingTeacher: awaitingClasses,
+      gatewaySelf: gatewaySelfTail, // live Wasender /me tail, see below
       chatbot: {
         // OWNER 2026-10-11: 'msgs off/on' panel toggle state — if this is
         // false the group bot consumes everything SILENTLY, no matter what
@@ -169,6 +182,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         dbRowPresent: Boolean(chatbotDoc),
         dbUpdatedAt: chatbotDoc?.updatedAt ?? null,
         geminiKeyConfigured: Boolean(env.chatbot?.googleApiKey),
+        tagMatcherSelfTail: String(env.whatsapp?.gatewayPhone ?? '').replace(/\D/g, '').slice(-8) || null,
       },
       webhook: {
         lastInboundAt: lastEvent[0]?.at ?? null,
@@ -178,7 +192,8 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         linkedGroups: linkedGroups.map((sec) => ({ section: sec.name, groupId: sec.whatsappGroup?.id?.slice(-14), groupName: sec.whatsappGroup?.name })),
         recentEvents: recentEvents.map((e) => ({ at: e.at, chatType: e.chatType, msgType: e.msgType,
           redelivery: Boolean(e.redelivery), from: String(e.from ?? '').slice(-22), author: String(e.author ?? '').slice(-14),
-          shape: String(e.rawShape ?? '').slice(0, 500), botHandled: e.botHandled === true })),
+          shape: String(e.rawShape ?? '').slice(0, 500), botHandled: e.botHandled === true,
+          groupTrace: e.groupTrace ?? null })),
       },
       outbound: {
         lastSentAt: lastSentRow[0]?.sentAt ?? null,

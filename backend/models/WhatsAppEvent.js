@@ -21,6 +21,10 @@ const schema = new mongoose.Schema({
   // bot — the first invocation to mark an event botHandled owns the reply;
   // Wasender redeliveries of the same id are skipped silently.
   botHandled: { type: Boolean, default: false },
+  // GROUP SILENCE TRACE (2026-10-11): WHY handleGroupMessage consumed a
+  // message without replying — 'untagged' (tag mismatch), 'stale', 'budget',
+  // 'no-section', etc. Redacted: reason + body length + mention tails only.
+  groupTrace: { type: Object, default: null },
 }, { timestamps: true });
 
 export default mongoose.models.WhatsAppEvent || mongoose.model('WhatsAppEvent', schema);

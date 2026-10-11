@@ -1262,3 +1262,34 @@ test('LIVE E2E: real Wasender tagged group payload -> normalized -> bot answers 
   assert.ok(chat, 'group bot replied');
   assert.ok(String(chat.params.body).startsWith('@' + STUDENT), 'reply mentions the asker');
 });
+
+/* GROUP SILENCE TRACE (2026-10-11): every silent exit must stamp WHY on the
+ * WhatsAppEvent row, so ops can see which gate ate a tagged message. */
+test('gate traces: untagged + no-section + stale exits are recorded on the event row', async () => {
+  const { WhatsAppEvent } = await import('../backend/models/index.js');
+  const mkPayload = (id, body, groupJid, ageSec) => ({
+    event_type: 'message_received', data: {
+      id, from: groupJid, author: STUDENT + '@c.us', fromMe: false,
+      type: 'chat', body, time: Math.floor(Date.now() / 1000) - (ageSec ?? 0),
+    },
+  });
+  chatbot.__resetGuards();
+  const { Section } = await import('../backend/models/index.js');
+  await Section.deleteMany({});
+  await WhatsAppEvent.create({ msgId: 'TRACE-1', from: GROUP_ID, chatType: 'group', msgType: 'chat' });
+  await handleGroupMessage(mkPayload('TRACE-1', 'salam bhai', GROUP_ID, 0)); // LINKED group? none after deleteMany → no-section? No — untagged comes FIRST.
+  const t1 = await WhatsAppEvent.findOne({ msgId: 'TRACE-1' }).lean();
+  assert.equal(t1.groupTrace?.why, 'untagged');
+  assert.equal(t1.groupTrace?.bodyLen, 'salam bhai'.length);
+  assert.equal(t1.groupTrace?.hasAt, false);
+
+  await WhatsAppEvent.create({ msgId: 'TRACE-2', from: GROUP_ID, chatType: 'group', msgType: 'chat' });
+  await handleGroupMessage(mkPayload('TRACE-2', '@tri3m notes bhej do', GROUP_ID, 0));
+  const t2 = await WhatsAppEvent.findOne({ msgId: 'TRACE-2' }).lean();
+  assert.equal(t2.groupTrace?.why, 'no-section', 'tagged but group not linked to any section');
+
+  await WhatsAppEvent.create({ msgId: 'TRACE-3', from: GROUP_ID, chatType: 'group', msgType: 'chat' });
+  await handleGroupMessage(mkPayload('TRACE-3', '@tri3m purani baat', GROUP_ID, 600));
+  const t3 = await WhatsAppEvent.findOne({ msgId: 'TRACE-3' }).lean();
+  assert.equal(t3.groupTrace?.why, 'stale');
+});
