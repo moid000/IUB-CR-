@@ -97,7 +97,7 @@ router.post('/deadline-sweep', handle);
 router.get('/ops-diagnostics', async (req, res, next) => {
   try {
     assertSweepSecret(req);
-    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent } = await import('../models/index.js');
+    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section } = await import('../models/index.js');
     const mask = (p) => (p ? `…${String(p).slice(-4)}` : null);
     const [sweepBeat, dogBeat, dogRenew, dogErr] = await Promise.all([
       WatchdogState.findOne({ key: 'deadline-sweep:last-run' }).lean(),
