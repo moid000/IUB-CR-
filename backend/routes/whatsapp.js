@@ -172,7 +172,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
     // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
-    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, botRecent, recentDirect] = await Promise.all([
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, recentDirect, botRecent] = await Promise.all([
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
       WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
