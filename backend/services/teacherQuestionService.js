@@ -287,7 +287,11 @@ export async function runTeacherQuestionSweep() {
     //    deployments or duplicate events can never resend), then let the
     //    outbox safely retry a failed delivery. No second reminder, no
     //    automatic GR escalation — the task simply stays pending.
-    const openTasks = await TeacherQuestion.find({ status: 'pending_cr', crNotifiedAt: { $ne: null }, reminderSent: { $ne: true } })
+    // LEGACY SAFE-GUARD: questions that already received nudges under the
+    // OLD 30m+2h policy (crReminders > 0) are considered reminded — the new
+    // policy never fires an EXTRA reminder on top of them.
+    const openTasks = await TeacherQuestion.find({ status: 'pending_cr', crNotifiedAt: { $ne: null },
+      reminderSent: { $ne: true }, crReminders: 0 })
       .sort({ askedAt: 1 }).limit(40).lean();
     for (const t of openTasks) {
       const ageMs = now - new Date(t.askedAt).getTime();
@@ -296,7 +300,7 @@ export async function runTeacherQuestionSweep() {
       // atomic claim — the FIRST sweep pass to flip reminderSent owns the
       // reminder; every later pass/redelivery skips silently
       const claimed = await TeacherQuestion.findOneAndUpdate(
-        { _id: t._id, status: 'pending_cr', reminderSent: { $ne: true } },
+        { _id: t._id, status: 'pending_cr', reminderSent: { $ne: true }, crReminders: 0 },
         { $set: { reminderSent: true, lastFollowUpAt: new Date() }, $inc: { crReminders: 1 } },
         { new: true }).lean();
       if (!claimed) continue;

@@ -729,3 +729,21 @@ test('TEST Q (spec §9): ops-diagnostics — the administrator sees worker heart
   assert.equal(typeof diag.classesAwaitingTeacher, 'number', 'class queue visible');
   assert.equal(diag.outboxFailed.length, 0, 'failed outbox rows visible (none now)');
 });
+
+test('SPEC §A LEGACY: a question already nudged under the OLD policy (crReminders 2) gets NO extra reminder under the new policy', async () => {
+  geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main confirm kar ke bata dun ga.', escalate: true };
+  await webhook(incoming('Sir, purana policy wala sawal?'));
+  geminiAnswer = null; geminiChatReply = null;
+  const task = await TeacherQuestion.findOne({ question: /purana policy wala sawal/ }).lean();
+  await TeacherQuestion.updateOne({ _id: task._id }, { $set: {
+    askedAt: new Date(Date.now() - 40 * 3600 * 1000),
+    crNotifiedAt: new Date(Date.now() - 40 * 3600 * 1000),
+    crReminders: 2, lastFollowUpAt: new Date(Date.now() - 35 * 3600 * 1000) } });
+  const before = sent.length;
+  await runTeacherQuestionSweep();
+  await runTeacherQuestionSweep();
+  assert.equal(sent.length, before, 'NO new reminder on top of the old policy nudges');
+  const t2 = await TeacherQuestion.findOne({ question: /purana policy wala sawal/ }).lean();
+  assert.equal(t2.crReminders, 2, 'counter untouched');
+  assert.equal(t2.reminderSent, undefined ?? false, 'no claim made');
+});
