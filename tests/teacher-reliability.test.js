@@ -538,12 +538,12 @@ test('TEST M (spec B/C): MEMORY AFTER RESTART — a later follow-up retrieves th
   assert.ok(/awaiting the CR/.test(lastGeminiBody), 'the REAL pending status was loaded — memory, not invention');
 });
 
-test('TEST N (spec D): TEN-HOUR CR silence → the persisted follow-up policy runs: 30-min + 2-h nudges, 6-h GR escalation, task survives', async () => {
+test('TEST N (owner spec A 2026-10-11): TEN-HOUR CR silence → EXACTLY ONE reminder, then silence forever — no second nudge, no automatic GR escalation', async () => {
   geminiAnswer = 'QUESTION'; geminiChatReply = { reply: 'Sir, main CR se pooch kar bata dun ga.', escalate: true };
   await webhook(incoming('Sir, last week kitni classes hui hain?'));
   geminiAnswer = null; geminiChatReply = null;
   const task = await TeacherQuestion.findOne({}).lean();
-  // a GR for the section exists (escalation target), distinct from the CR
+  // a GR for the section exists (decoy — must receive NOTHING under spec A)
   const hash = await bcrypt.hash('GrPass123!', 10);
   const grUser = await User.create({ name: 'Gr Backup', email: 'gr@reliability.test', phone: '+923007778889', role: 'gr',
     registrationStatus: 'active', emailVerified: true, password: hash });
@@ -551,22 +551,24 @@ test('TEST N (spec D): TEN-HOUR CR silence → the persisted follow-up policy ru
   // the question is now 11 hours old (CR never answered)
   await TeacherQuestion.updateOne({ _id: task._id }, { $set: {
     askedAt: new Date(Date.now() - 11 * 3600 * 1000), crNotifiedAt: new Date(Date.now() - 11 * 3600 * 1000) } });
-  await runTeacherQuestionSweep(); // pass 1 → first nudge (30-min policy)
-  await runTeacherQuestionSweep(); // pass 2 → second nudge (2-h policy)
-  await runTeacherQuestionSweep(); // pass 3 → 6-h escalation to the GR
-  const crNudges = sent.filter((s) => s.to === '923009876543' && /abhi tak nahi mila|intezar kar rahay hain/i.test(s.body));
-  assert.equal(crNudges.length, 2, 'exactly TWO bounded nudges (30 min + 2 h), no endless reminders');
-  const grAlert = sent.filter((s) => s.to === '923007778889');
-  assert.equal(grAlert.length, 1, 'ONE escalation reached the GR');
-  assert.ok(/last week kitni classes/i.test(grAlert[0].body), 'escalation carries the original question');
-  assert.ok(grAlert[0].body.includes(task.refCode), 'escalation carries the ref code');
+  await runTeacherQuestionSweep(); // pass 1 → the ONE reminder
+  await runTeacherQuestionSweep(); // pass 2 — must NOT remind again
+  await runTeacherQuestionSweep(); // pass 3 — must NOT remind again
+  const crReminders = sent.filter((s) => s.to === '923009876543' && /abhi tak nahi mila/i.test(s.body));
+  assert.equal(crReminders.length, 1, 'exactly ONE follow-up reminder, never two');
+  assert.equal(sent.filter((s) => s.to === '923007778889').length, 0, 'NO automatic GR escalation under spec A');
   const after = await TeacherQuestion.findOne({}).lean();
-  assert.equal(after.status, 'pending_cr', 'task STILL pending — monitored, never silently dropped');
-  assert.ok(after.escalatedAt, 'escalation recorded');
-  assert.equal(after.escalatedToName, 'Gr Backup', 'who received the escalation is recorded');
-  // another sweep must NOT re-escalate (bounded)
+  assert.equal(after.status, 'pending_cr', 'task STILL pending — never silently dropped');
+  assert.equal(after.reminderSent, true, 'reminderSent durably stored');
+  assert.equal(after.crReminders, 1, 'counter recorded exactly one reminder');
+  // a fourth sweep hours later — still silence
   await runTeacherQuestionSweep();
-  assert.equal(sent.filter((s) => s.to === '923007778889').length, 1, 'no repeat escalation');
+  assert.equal(sent.filter((s) => s.to === '923009876543' && /abhi tak nahi mila/i.test(s.body)).length, 1, 'indefinitely silent after the one reminder');
+  // the CR answers → the original asker (teacher) receives the answer
+  await webhook(incoming('Sir, pichle hafte 5 classes hui thin.', '923009876543@c.us'));
+  const done = await TeacherQuestion.findOne({}).lean();
+  assert.equal(done.status, 'closed', 'CR answer closes the task and delivers to the asker');
+  assert.ok(sent.some((s) => s.to === '923001112233' && /5 classes hui thin/.test(s.body)), 'teacher got the answer');
 });
 
 test('TEST O (spec H): the answer send FAILS → tracked, retried by the sweep, delivered; closed only after real delivery', async () => {

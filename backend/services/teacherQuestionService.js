@@ -29,14 +29,21 @@ const CR_RETRY_MAX = 6; // bounded WhatsApp dispatch retries (sweep)
 const CR_RETRY_EVERY_MS = 5 * 60 * 1000;
 const CR_SLOW_RETRY_MS = 60 * 60 * 1000; // backoff tier (owner spec item 8): after cap, hourly
 const CR_SLOW_RETRY_MAX = 24; // absolute ceiling for the slow tier
-/* OWNER RELIABILITY SPEC §4 (2026-10-10): configurable, BOUNDED follow-up
- * policy — a CR question never silently dies. Defaults: gentle nudge after
- * 30 min, a firmer nudge after 2 h, ESCALATION to the section's GR (or the
- * admin) after 6 h. All intervals configurable via env, all attempts
- * persisted; after that the task stays pending and monitored forever. */
-const FOLLOWUP_MINUTES = String(process.env.QUESTION_FOLLOWUP_MINUTES ?? '30,120')
-  .split(',').map((n) => Number(n.trim())).filter((n) => Number.isFinite(n) && n > 0);
-const ESCALATE_AFTER_MINUTES = Number(process.env.QUESTION_ESCALATE_MINUTES ?? 360) || 360;
+/* OWNER GROUP-INTELLIGENCE SPEC §A (2026-10-11) — ONE REMINDER ONLY:
+ * after the configured waiting period with no CR answer, send exactly ONE
+ * follow-up reminder, then stay silent forever — no second nudge, no
+ * automatic GR escalation, no per-scheduler-run repeats. The task stays
+ * pending until the CR answers, it is manually reopened, or an authorized
+ * user explicitly asks for another reminder. The reminder is claimed
+ * atomically (reminderSent=true BEFORE dispatch) so repeated sweep runs,
+ * deployments or duplicate webhook events can never resend it; a failed
+ * gateway dispatch is retried by the OUTBOX (same dedupe key), not by a
+ * new reminder. Waiting period stays the configured 30 min default. */
+const FOLLOWUP_WAIT_MINUTES = (() => {
+  const first = String(process.env.QUESTION_FOLLOWUP_MINUTES ?? '30')
+    .split(',').map((n) => Number(n.trim())).filter((n) => Number.isFinite(n) && n > 0);
+  return first[0] ?? 30;
+})();
 const PLEASANTRY_RE = /^(ji|g|ok|okay|acha|achha|theek|theek hai|haan|han|yes|no|nahi|nahin|hmm+k|salam|assalam[^ ]*|hello|hi|thanks|shukriya|jazakallah|good|great|nice|sorry|ok ji|ji ok)[\s.!,.]*$/i;
 
 /** A CR reply that carries no actual answer content ("ok ji", "haan") must
@@ -275,50 +282,31 @@ export async function runTeacherQuestionSweep() {
       const r = await dispatchToCr(t); out.redispatched++;
       if (r?.rateLimited) break; // throttled plan — further sends this pass would 429
     }
-    // 2) SPEC §4 follow-up policy: gentle nudge at FOLLOWUP_MINUTES[0],
-    //    firmer nudge at [1], then ESCALATION to the section's GR (fallback:
-    //    the admin) after ESCALATE_AFTER_MINUTES. All bounded + persisted.
-    const openTasks = await TeacherQuestion.find({ status: 'pending_cr', crNotifiedAt: { $ne: null } })
+    // 2) OWNER SPEC §A (2026-10-11) — ONE REMINDER ONLY: after the wait,
+    //    atomically claim reminderSent BEFORE dispatch (repeated jobs,
+    //    deployments or duplicate events can never resend), then let the
+    //    outbox safely retry a failed delivery. No second reminder, no
+    //    automatic GR escalation — the task simply stays pending.
+    const openTasks = await TeacherQuestion.find({ status: 'pending_cr', crNotifiedAt: { $ne: null }, reminderSent: { $ne: true } })
       .sort({ askedAt: 1 }).limit(40).lean();
     for (const t of openTasks) {
       const ageMs = now - new Date(t.askedAt).getTime();
+      if (ageMs < FOLLOWUP_WAIT_MINUTES * 60 * 1000) continue;
       const crPhone = t.crUser ? (await User.findById(t.crUser).select('phone').lean())?.phone : null;
-      if (t.crReminders < FOLLOWUP_MINUTES.length && ageMs >= FOLLOWUP_MINUTES[t.crReminders] * 60 * 1000) {
-        const first = t.crReminders === 0;
-        if (crPhone) {
-          await sendTracked(normalizePhone(crPhone),
-            first
-              ? `Assalam-o-Alaikum! Teacher ke sawal (*${t.refCode}*) ka jawab abhi tak nahi mila — "${String(t.question).slice(0, 100)}". Jab foran ho jaye to bata dein, teacher intezar kar rahay hain. Shukriya!\n\n— Tri3M Class Agent`
-              : `Teacher ab bhi jawab ka intezar kar rahay hain (*${t.refCode}*) — "${String(t.question).slice(0, 100)}". Aaj hi jawab de dein, main teacher tak pohancha dunga.\n\n— Tri3M Class Agent`,
-            { kind: 'cr_nudge', refKey: `question:${t._id}:nudge${t.crReminders}`, once: true, dedupeKey: `q-nudge:${t._id}:${t.crReminders}` });
-        }
-        await TeacherQuestion.updateOne({ _id: t._id }, { $inc: { crReminders: 1 }, $set: { lastFollowUpAt: new Date() } }).catch(() => {});
-        out.reminders++;
-      } else if (t.crReminders >= FOLLOWUP_MINUTES.length && !t.escalatedAt && ageMs >= ESCALATE_AFTER_MINUTES * 60 * 1000) {
-        // escalate: the section's GR first, then the platform admin
-        const sec = t.section ? await Section.findById(t.section).select('cr gr name').lean() : null;
-        const target = (sec?.gr && (!t.crUser || String(sec.gr) !== String(t.crUser)))
-          ? await User.findById(sec.gr).select('name role phone').lean()
-          : await User.findOne({ role: 'admin' }).sort({ createdAt: 1 }).select('name role phone').lean();
-        if (target?.phone) {
-          await sendTracked(normalizePhone(target.phone),
-            `Assalam-o-Alaikum! Section ke teacher ka ek sawal CR se ${Math.round(ageMs / 3600000)} ghante se pending hai (code *${t.refCode}*). GR hone ke nate aap isay CR se confirm karwa dein:\n\nSawal: "${String(t.question).slice(0, 200)}"\n\nJawab milte hi main teacher tak pohancha dunga.\n\n— Tri3M Class Agent`,
-            { kind: 'escalation', refKey: `question:${t._id}:escalation`, once: true, dedupeKey: `q-escalate:${t._id}` });
-        }
-        if (target?._id) {
-          await createNotification({
-            recipient: target._id, type: 'system',
-            title: `Teacher question ${t.refCode} needs escalation`,
-            message: `The CR has not answered: "${String(t.question).slice(0, 200)}". Please get it answered — the teacher is waiting.`,
-            refType: 'section', refId: t.section,
-            dedupeKey: `teacher-question-escalation:${String(t._id).slice(-12)}`,
-          }).catch(() => {});
-        }
-        await TeacherQuestion.updateOne({ _id: t._id }, { $set: {
-          escalatedToUser: target?._id ?? null, escalatedToName: target?.name ?? '',
-          escalatedAt: new Date(), escalationNote: 'CR unresponsive after nudges; escalated per spec §4' } }).catch(() => {});
-        out.escalated = (out.escalated ?? 0) + 1;
+      // atomic claim — the FIRST sweep pass to flip reminderSent owns the
+      // reminder; every later pass/redelivery skips silently
+      const claimed = await TeacherQuestion.findOneAndUpdate(
+        { _id: t._id, status: 'pending_cr', reminderSent: { $ne: true } },
+        { $set: { reminderSent: true, lastFollowUpAt: new Date() }, $inc: { crReminders: 1 } },
+        { new: true }).lean();
+      if (!claimed) continue;
+      if (crPhone) {
+        await sendTracked(normalizePhone(crPhone),
+          `Assalam-o-Alaikum! Teacher ke sawal (*${t.refCode}*) ka jawab abhi tak nahi mila — "${String(t.question).slice(0, 100)}". Jab foran ho jaye to bata dein, teacher intezar kar rahay hain. Shukriya!`,
+          { kind: 'cr_nudge', refKey: `question:${t._id}:reminder`, once: true, dedupeKey: `q-reminder:${t._id}` });
       }
+      out.reminders++;
+      continue;
     }
     // 3) a stored CR answer that never reached the teacher — the OUTBOX row
     //    is the retry vehicle: close only when delivery really succeeded.

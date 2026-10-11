@@ -47,7 +47,7 @@ const {
   isVoiceAddressedToBot, transcribeVoice, resolveOpenAiKey,
 } = chatbot;
 
-const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement } = models;
+const { Section, Subject, Note, Assignment, Timetable, ChatbotLog, ChatbotSetting, Department, AcademicSession, User, Teacher, Announcement, WhatsAppEvent } = models;
 await mongoose.connect(process.env.MONGODB_URI);
 await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
@@ -125,16 +125,21 @@ const today = new Intl.DateTimeFormat('en-CA', {
 }).format(new Date());
 const nowSec = () => Math.floor(Date.now() / 1000);
 
+let msgCounter = 0;
+const nextMsgId = () => `gid-${++msgCounter}`;
+
 /** UltraMsg-shaped inbound group message payload. */
-function groupMsg(body, { author = STUDENT, time = null, chatId = GROUP_ID, tagged = true } = {}) {
+function groupMsg(body, { author = STUDENT, time = null, chatId = GROUP_ID, tagged = true, id = null } = {}) {
   // OWNER RULE (2026-10-05): the bot speaks only when tagged, so by default
   // test payloads arrive tagged (like a real "@Tri3M" WhatsApp mention).
+  // OWNER SPEC §E (2026-10-11): every message carries a UNIQUE provider
+  // event id (like real WhatsApp/Wasender) — replies are deduped by it.
   const text = tagged ? `@${process.env.ULTRAMSG_GATEWAY_PHONE} ${body}`.trim() : body;
   return {
     event_type: 'message_received',
     instanceId: 'instance123',
     data: {
-      id: 'TESTID123', type: 'chat', fromMe: false,
+      id: id ?? nextMsgId(), type: 'chat', fromMe: false,
       chatId, from: chatId, author: `${author}@c.us`,
       body: text, time: time ?? nowSec(),
     },
@@ -142,12 +147,12 @@ function groupMsg(body, { author = STUDENT, time = null, chatId = GROUP_ID, tagg
 }
 
 /** UltraMsg-shaped inbound VOICE note in a group. */
-function voiceMsg({ author = STUDENT, link = 'https://voice.test.local/voice.ogg' } = {}) {
+function voiceMsg({ author = STUDENT, link = 'https://voice.test.local/voice.ogg', id = null } = {}) {
   return {
     event_type: 'message_received',
     instanceId: 'instance123',
     data: {
-      id: 'VOICEID123', type: 'audio', fromMe: false,
+      id: id ?? nextMsgId(), type: 'audio', fromMe: false,
       chatId: GROUP_ID, from: GROUP_ID, author: `${author}@c.us`,
       body: '', link, time: nowSec(),
     },
@@ -526,7 +531,7 @@ test('OWNER INCIDENT 2026-10-08 (night-2 fix): voice with NO link in payload →
   ] };
   geminiVoiceTranscript = '@Tri3M kis subject ke notes available hain?';
   try {
-    const msg = voiceMsg();
+    const msg = voiceMsg({ id: 'VOICEID123' });
     delete msg.data.link;
     assert.equal(await handleGroupMessage(msg), true);
     const chat = waSent.find((st) => st.kind === 'chat');
@@ -544,11 +549,8 @@ test('OWNER NIGHT-2: id-format drift → newest MEDIA record in the chat still r
   ] };
   geminiVoiceTranscript = '@Tri3M notes send karo';
   try {
-    const msg = voiceMsg();
+    const msg = voiceMsg({ id: 'DRIFTED_VOICE_2' });
     delete msg.data.link;
-    assert.equal(await handleGroupMessage(msg), true);
-    const chat = waSent.find((st) => st.kind === 'chat');
-    assert.ok(chat, 'media record won over the chat record');
   } finally {
     geminiVoiceTranscript = null; chatsMessagesResponse = null;
   }
@@ -1179,4 +1181,65 @@ test('voice key (owner fix 2026-10-08): invalid key values and empty updates rej
     });
     assert.equal(put.status, 400, label);
   }
+});
+
+/* ------- OWNER GROUP-INTELLIGENCE SPEC (2026-10-11) §C + §E tests ------- */
+
+test('SPEC §E: the SAME webhook event delivered twice → exactly ONE group reply; a NEW distinct question is still answered', async () => {
+  chatbot.__resetGuards();
+  const dupId = 'dup-event-001';
+  const msg = groupMsg('aj ka timetable batao?', { id: dupId });
+  assert.equal(await handleGroupMessage(msg), true, 'first delivery consumed');
+  assert.equal(waSent.length, 1, 'first delivery answered once');
+  // Wasender redelivery of the SAME event id (past the cooldown)
+  assert.equal(await handleGroupMessage(groupMsg('aj ka timetable batao?', { id: dupId })), true, 'redelivery consumed');
+  assert.equal(waSent.length, 1, 'redelivery NEVER produces a second reply');
+  const seen1 = await WhatsAppEvent.findOne({ msgId: dupId }).lean();
+  assert.equal(seen1.botHandled, true, 'event durably marked handled');
+  // a NEW distinct message id — even with SIMILAR wording — must be answered
+  chatbot.__resetGuards();
+  assert.equal(await handleGroupMessage(groupMsg('aj ka timetable batao?')), true, 'new event consumed');
+  assert.equal(waSent.length, 2, 'a new distinct question still gets its own reply');
+});
+
+test('SPEC §C (fallback, Gemini down): vague notes ask lists ONLY the subjects that ACTUALLY have notes — never the whole roster', async () => {
+  chatbot.__resetGuards();
+  geminiResponse = null; // every model in the chain fails → honest fallback
+  assert.equal(await handleGroupMessage(groupMsg('notes bhej do')), true);
+  const chat = waSent.find((st) => st.kind === 'chat');
+  assert.ok(chat, 'fallback asked');
+  assert.match(chat.params.body, /Kis subject ke notes chahiye\?/i);
+  assert.match(chat.params.body, /In ke notes available hain: ICT/i, 'categories come from ACTUAL available notes');
+  assert.doesNotMatch(chat.params.body, /Class ke subjects:/i, 'never dumps the whole subject roster as if all had notes');
+  const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });
+  assert.equal(log.source, 'fallback');
+});
+
+test('SPEC §C (fallback): no notes exist at all → honest not-available answer, no subject dump, no fake claim', async () => {
+  chatbot.__resetGuards();
+  await Note.deleteMany({ section: section._id });
+  geminiResponse = null;
+  try {
+    assert.equal(await handleGroupMessage(groupMsg('notes bhej do')), true);
+    const chat = waSent.find((st) => st.kind === 'chat');
+    assert.ok(chat, 'fallback replied');
+    assert.match(chat.params.body, /kisi subject ke (published )?notes available nahi hain/i, 'clearly says nothing is available');
+    assert.doesNotMatch(chat.params.body, /In ke notes available hain:/i, 'never lists categories that do not exist');
+  } finally {
+    // restore the shared fixtures
+    noteWithFile = await Note.create({ createdBy: section._id, author: section._id,
+      title: 'Lecture 1 - Introduction', subject: subject._id, section: section._id,
+      attachments: [{ publicId: 'p1', url: 'https://res.cloudinary.com/demo/n1.pdf', mimeType: 'application/pdf', originalName: 'intro.pdf' }] });
+    noteNoFile = await Note.create({ createdBy: section._id, author: section._id,
+      title: 'Lecture 2 - Logic Gates', subject: subject._id, section: section._id });
+  }
+});
+
+test('SPEC §C (fallback): vague assignment ask lists only subjects with PENDING assignments', async () => {
+  chatbot.__resetGuards();
+  geminiResponse = null;
+  assert.equal(await handleGroupMessage(groupMsg('assignment bhej do')), true);
+  const chat = waSent.find((st) => st.kind === 'chat');
+  assert.ok(chat, 'fallback asked');
+  assert.match(chat.params.body, /In ki assignments pending hain: ICT/i, 'only subjects with real pending assignments');
 });

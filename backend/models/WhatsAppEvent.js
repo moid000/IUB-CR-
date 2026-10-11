@@ -17,6 +17,10 @@ const schema = new mongoose.Schema({
   // INVESTIGATION 2026-10-11: raw payload STRUCTURE (keys only, values
   // redacted) — proves what the provider actually sends vs what we expect.
   rawShape: { type: String, default: '' },
+  // OWNER SPEC §E (2026-10-11): durable event-id idempotency for the GROUP
+  // bot — the first invocation to mark an event botHandled owns the reply;
+  // Wasender redeliveries of the same id are skipped silently.
+  botHandled: { type: Boolean, default: false },
 }, { timestamps: true });
 
 export default mongoose.models.WhatsAppEvent || mongoose.model('WhatsAppEvent', schema);

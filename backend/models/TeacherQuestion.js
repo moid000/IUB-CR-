@@ -42,7 +42,8 @@ const questionSchema = new Schema(
     askedAt: { type: Date, default: Date.now },
     crNotifiedAt: { type: Date, default: null }, // WhatsApp dispatch to the CR SUCCEEDED at
     crNotifyAttempts: { type: Number, default: 0 },
-    crReminders: { type: Number, default: 0 }, // justified reminder policy (sweep, max 2)
+    crReminders: { type: Number, default: 0 },
+    reminderSent: { type: Boolean, default: false }, // OWNER SPEC §A 2026-10-11: ONE follow-up reminder max, atomically claimed
     lastCrNotifyAt: { type: Date, default: null },
     crReply: { type: String, default: '', maxlength: 1200 }, // the CR's answer, verbatim
     crReplyMsgId: { type: String, default: '', maxlength: 220 }, // duplicate-reply idempotency
