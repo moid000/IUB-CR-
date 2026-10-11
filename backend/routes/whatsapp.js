@@ -116,7 +116,7 @@ router.post('/ops-chatbot', async (req, res, next) => {
 router.get('/ops-diagnostics', async (req, res, next) => {
   try {
     assertSweepSecret(req);
-    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section, ChatbotSetting } = await import('../models/index.js');
+    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section, ChatbotSetting, ChatbotLog } = await import('../models/index.js');
     const mask = (p) => (p ? `…${String(p).slice(-4)}` : null);
     const [sweepBeat, dogBeat, dogRenew, dogErr] = await Promise.all([
       WatchdogState.findOne({ key: 'deadline-sweep:last-run' }).lean(),
@@ -134,7 +134,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
     // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
-    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc] = await Promise.all([
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, botRecent] = await Promise.all([
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
       WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
@@ -142,8 +142,16 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(15).lean(),
       Section.find({ 'whatsappGroup.id': { $ne: null } }).select('name whatsappGroup.id whatsappGroup.name').lean(),
       ChatbotSetting.findOne({ key: 'global' }).select('enabled updatedAt').lean(),
-      WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
-      OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
+      // OWNER MANDATE 2026-10-11 (repair evidence): 24h inbound mix by chat
+      // type + message type — proves whether DIRECT (teacher 1:1) and MEDIA
+      // events reach the webhook at all.
+      WhatsAppEvent.aggregate([{ $match: { at: { $gte: dayAgo } } },
+        { $group: { _id: { t: '$chatType', m: '$msgType' }, n: { $sum: 1 } } },
+        { $sort: { n: -1 } }, { $limit: 25 }]),
+      WhatsAppEvent.findOne({ chatType: 'direct' }).sort({ at: -1 }).lean(),
+      // last 5 bot answers — live proof a group reply really went out
+      ChatbotLog.find({}).sort({ createdAt: -1 }).limit(5)
+        .select('createdAt question reply source error sentFiles').lean(),
     ]);    // LIVE bot identity: what number does the Wasender session ACTUALLY run
     // on? The chatbot's tag matcher uses env gatewayPhone — if these tails
     // differ, every digit-mention tag misses and the bot stays silent.
@@ -170,7 +178,11 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       },
       questions: questions.map((q) => ({ ref: q.refCode, phone: mask(q.phone), status: q.status,
         ageHours: Math.round((now - new Date(q.askedAt).getTime()) / 3600000), nudges: q.crReminders,
-        escalatedTo: q.escalatedToName || null, dispatchAttempts: q.crNotifyAttempts })),
+        escalatedTo: q.escalatedToName || null, dispatchAttempts: q.crNotifyAttempts,
+        // 2026-10-11 repair evidence: what ACTUALLY happened on dispatch
+        crNotifiedAt: q.crNotifiedAt ?? null,
+        crNotifyError: (q.crNotifyError ?? '') || null,
+        crTargetTail: (q.crNotifyTarget ?? '') || null })),
       answersAwaitingDelivery: questions.filter((q) => q.status === 'cr_responded').length,
       materials: materials.map((m) => ({ id: String(m._id).slice(-8), filename: (m.filename ?? '').slice(0, 60),
         status: m.status, ageHours: Math.round((now - new Date(m.updatedAt).getTime()) / 3600000) })),
@@ -202,6 +214,11 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         lastInboundFrom: mask(lastEvent[0]?.author || lastEvent[0]?.from),
         lastInboundType: lastEvent[0]?.chatType ?? null,
         inbound24h, redeliveries24h,
+        lastDirectAt: lastDirect?.at ?? null,
+        lastDirectType: lastDirect?.msgType ?? null,
+        byType24h: byType24h.map((r) => ({ kind: `${r._id.t}/${r._id.m}`, count: r.n })),
+        botRecent: botRecent.map((b) => ({ at: b.createdAt, q: (b.question ?? '').slice(0, 120),
+          a: (b.reply ?? '').slice(0, 160), source: b.source, error: b.error ?? null, sentFiles: b.sentFiles ?? 0 })),
         linkedGroups: linkedGroups.map((sec) => ({ section: sec.name, groupId: sec.whatsappGroup?.id?.slice(-14), groupName: sec.whatsappGroup?.name })),
         recentEvents: recentEvents.map((e) => ({ at: e.at, chatType: e.chatType, msgType: e.msgType,
           redelivery: Boolean(e.redelivery), from: String(e.from ?? '').slice(-22), author: String(e.author ?? '').slice(-14),

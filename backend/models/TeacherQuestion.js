@@ -42,6 +42,9 @@ const questionSchema = new Schema(
     askedAt: { type: Date, default: Date.now },
     crNotifiedAt: { type: Date, default: null }, // WhatsApp dispatch to the CR SUCCEEDED at
     crNotifyAttempts: { type: Number, default: 0 },
+    // 2026-10-11 repair evidence: last dispatch's sanitized error + masked target
+    crNotifyError: { type: String, default: '' },
+    crNotifyTarget: { type: String, default: '' },
     crReminders: { type: Number, default: 0 },
     reminderSent: { type: Boolean, default: false }, // OWNER SPEC §A 2026-10-11: ONE follow-up reminder max, atomically claimed
     lastCrNotifyAt: { type: Date, default: null },

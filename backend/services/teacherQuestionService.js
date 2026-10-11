@@ -160,6 +160,14 @@ async function dispatchToCr(task, crUserIn) {
     $set: {
       crUser: crUser?._id ?? task.crUser ?? null,
       lastCrNotifyAt: new Date(),
+      // OWNER MANDATE 2026-10-11 (repair evidence): the dispatch's REAL
+      // failure reason and the resolved recipient (masked tail-4 only) are
+      // PERSISTED — a silently climbing attempt counter is never again the
+      // only symptom the admin can see.
+      crNotifyError: delivered ? '' : String(sendErr || (crPhone
+        ? 'gateway did not confirm send'
+        : 'no CR phone on file')).slice(0, 200),
+      crNotifyTarget: crPhone ? String(crPhone).slice(-4) : null,
       ...(delivered ? { crNotifiedAt: new Date() } : {}),
     },
     // throttled by the provider plan (Wasender trial 1 send/min) is NOT a
