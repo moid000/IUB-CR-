@@ -148,8 +148,10 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     // on? The chatbot's tag matcher uses env gatewayPhone — if these tails
     // differ, every digit-mention tag misses and the bot stays silent.
     let gatewaySelfTail = null;
+    let selfProfile = null;
     try {
       const me = await whatsappService.getSelfProfile?.() ?? {};
+      selfProfile = me;
       // JIDs carry a device suffix ("923019670950:9@s.whatsapp.net") — strip
       // it BEFORE digit-extraction or the tail shifts and fakes a mismatch.
       const rawSelf = String(me.wid ?? me.waNumber ?? me.wa_number ?? me.phone
@@ -177,6 +179,10 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         attempts: o.attempts, lastError: (o.lastError ?? '').slice(0, 120), ageMinutes: Math.round((now - new Date(o.updatedAt).getTime()) / 60000) })),
       classesAwaitingTeacher: awaitingClasses,
       gatewaySelf: gatewaySelfTail, // live Wasender /me tail, see below
+      // TEMP 2026-10-11: masked FULL self-profile — key discovery for the
+      // bot's LID (digit runs masked to last-4; removed after LID fix lands).
+      gatewaySelfDebug: JSON.parse(JSON.stringify(selfProfile ?? {}, (k, v) =>
+        typeof v === 'string' ? v.replace(/\d{5,}/g, (m) => `…${m.slice(-4)}`) : v)),
       chatbot: {
         // OWNER 2026-10-11: 'msgs off/on' panel toggle state — if this is
         // false the group bot consumes everything SILENTLY, no matter what
@@ -189,7 +195,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         // BOT LID TAIL (2026-10-11): group picker-mentions reference the bot
         // by LID, not phone — compare this tail against the mentionTails
         // recorded in group traces (Wasender lid-from-phone, 1h-cached).
-        selfLidTail: String((await whatsappService.getLidFromPhone?.(env.whatsapp?.gatewayPhone ?? '')) ?? '').replace(/\D/g, '').slice(-8) || null,
+        selfLidTail: String((await whatsappService.getLidFromPhone?.(env.whatsapp?.gatewayPhone ?? '').catch?.(() => null)) ?? '').replace(/\D/g, '').slice(-8) || null,
       },
       webhook: {
         lastInboundAt: lastEvent[0]?.at ?? null,
