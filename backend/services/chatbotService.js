@@ -1174,7 +1174,8 @@ export async function handleGroupMessage(payload) {
           ?? buildFallbackReply(question, dataJson, { leader: askerIsLeader });
       }
     }
-    if (!answer || !String(answer).trim()) return true;
+    // 2026-10-11 evidence: a silent empty-answer exit is never invisible again
+    if (!answer || !String(answer).trim()) { await traceGroup(data.id, 'empty-answer', { source }); return true; }
 
     // reply @mentions the student who asked (owner rule: group chats are
     // busy — the mention makes it obvious WHO the answer is for)
@@ -1198,10 +1199,14 @@ export async function handleGroupMessage(payload) {
         offeredTitles: extractOfferedTitles(answer, dataJson, sendTitles),
         sentFiles, source, latencyMs: Date.now() - started,
       });
-    } catch { /* logging is never fatal */ }
+      // 2026-10-11 evidence: the reply REALLY went through the full pipeline
+      await traceGroup(data.id, 'answered', { source, sentFiles });
+    } catch (err2) { await traceGroup(data.id, 'log-failed', { msg: String(err2?.message ?? '').slice(0, 120) }); /* logging is never fatal */ }
     return true;
   } catch (err) {
     console.error('[chatbot] group handler failed:', err.message);
+    // 2026-10-11 evidence: the pipeline THREW — ops shows the exact reason
+    try { await traceGroup(data.id, 'exception', { msg: String(err?.message ?? '').slice(0, 160) }); } catch { /* never fatal */ }
     return true; // still consumed — a group message is never a teacher reply
   }
 }
