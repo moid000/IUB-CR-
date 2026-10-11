@@ -163,7 +163,30 @@ router.post('/ops-replay', async (req, res, next) => {
           time: Math.floor(Date.now() / 1000), fromMe: false } };
       const handled = await handleTeacherReply(payload);
       res.json({ success: true, data: { handled } });
-    } else throw new ApiError(400, '"mode" must be group or teacher');
+    } else if (mode === 'teacher-file') {
+      // LIVE E2E (owner spec 2026-10-11 §5): replay a real teacher FILE through
+      // the full pipeline — classification, approval/caption logic, Cloudinary
+      // upload, CR notifications. Requires a real public media URL.
+      const from = digits(req.body?.fromDigits);
+      const mediaUrl = String(req.body?.mediaUrl ?? '');
+      const filename = String(req.body?.filename ?? '').slice(0, 200);
+      if (!from) throw new ApiError(400, '"fromDigits" required');
+      if (!/^https?:\/\//.test(mediaUrl)) throw new ApiError(400, '"mediaUrl" must be a public http(s) URL');
+      if (!filename) throw new ApiError(400, '"filename" required');
+      const payload = { event_type: 'message_received',
+        data: { id: `opsreplay_${Date.now()}`, from: `${from}@c.us`, type: 'document',
+          filename, mimetype: req.body?.mimetype ?? 'application/pdf',
+          caption: String(req.body?.caption ?? '').slice(0, 600), media: mediaUrl,
+          time: Math.floor(Date.now() / 1000), fromMe: false } };
+      const handled = await handleTeacherReply(payload);
+      const { TeacherMaterial } = await import('../models/index.js');
+      const mat = await TeacherMaterial.findOne({ waMsgId: payload.data.id }).lean();
+      res.json({ success: true, data: { handled,
+        materialId: mat ? String(mat._id).slice(-8) : null,
+        materialStatus: mat?.status ?? null,
+        publishedNote: mat?.publishedNote ? String(mat.publishedNote).slice(-8) : null,
+        crNotify: mat?.crNotify ?? null } });
+    } else throw new ApiError(400, '"mode" must be group, teacher or teacher-file');
   } catch (err) { next(err); }
 });
 
@@ -311,6 +334,13 @@ router.get('/invdiag', async (req, res, next) => {
     const crIds = [...new Set([...questions.map((q) => q.crUser), ...sections.map((s) => s.cr), ...sections.map((s) => s.gr)].filter(Boolean))];
     const crs = crIds.length ? await User.find({ _id: { $in: crIds } }).select('name role phone').lean() : [];
     res.json({ success: true, data: {
+      // LIVE EVIDENCE (owner spec 2026-10-11 §5): the exact outbound rows the
+      // gateway confirmed — masked recipient, status, provider msg id, body.
+      recentOutbox: (await OutboxMessage.find({}).sort({ updatedAt: -1 }).limit(14).lean())
+        .map((r) => ({ toTail: String(r.phone ?? '').slice(-4), kind: r.kind,
+          refKey: (r.refKey ?? '').slice(0, 60), status: r.status,
+          providerMsgId: r.providerMsgId || null, attempts: r.attempts ?? 0,
+          body: String(r.body ?? '').slice(0, 400) })),
       events: events.map((e) => ({ at: e.at, msgId: String(e.msgId).slice(-14), from: e.from,
         chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery, rawShape: e.rawShape || null })),
       questions: questions.map((q) => ({ ref: q.refCode, at: q.askedAt, teacherName: q.teacherName,
