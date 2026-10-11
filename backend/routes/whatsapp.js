@@ -324,12 +324,13 @@ router.get('/invdiag', async (req, res, next) => {
   try {
     assertSweepSecret(req);
     const { WhatsAppEvent, TeacherQuestion, TeacherMaterial, Teacher, User, Section, OutboxMessage } = await import('../models/index.js');
-    const threeHAgo = new Date(Date.now() - 3 * 3600 * 1000);
+    const winH = Math.min(Math.max(Number(req.query.windowHours) || 3, 1), 72);
+    const threeHAgo = new Date(Date.now() - winH * 3600 * 1000);
     const [events, questions, materials, outbox, teachers, sections] = await Promise.all([
-      WhatsAppEvent.find({ at: { $gte: threeHAgo } }).sort({ at: -1 }).limit(60).lean(),
-      TeacherQuestion.find({ askedAt: { $gte: new Date(Date.now() - 26 * 3600 * 1000) } }).sort({ askedAt: -1 }).limit(25).lean(),
-      TeacherMaterial.find({ createdAt: { $gte: threeHAgo } }).sort({ createdAt: -1 }).limit(20).lean(),
-      OutboxMessage.find({ updatedAt: { $gte: threeHAgo } }).sort({ updatedAt: -1 }).limit(40).lean(),
+      WhatsAppEvent.find({ at: { $gte: threeHAgo } }).sort({ at: -1 }).limit(200).lean(),
+      TeacherQuestion.find({ askedAt: { $gte: new Date(Date.now() - Math.max(winH, 26) * 3600 * 1000) } }).sort({ askedAt: -1 }).limit(60).lean(),
+      TeacherMaterial.find({ createdAt: { $gte: threeHAgo } }).sort({ createdAt: -1 }).limit(100).lean(),
+      OutboxMessage.find({ updatedAt: { $gte: threeHAgo } }).sort({ updatedAt: -1 }).limit(150).lean(),
       Teacher.find({}).select('name whatsapp subject section').populate('subject', 'name').populate('section', 'name semester').limit(30).lean(),
       Section.find({}).populate('department', 'name').select('name semester department cr gr whatsappGroup').limit(15).lean(),
     ]);
