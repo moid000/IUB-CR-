@@ -17,6 +17,10 @@ const schema = new mongoose.Schema({
   // INVESTIGATION 2026-10-11: raw payload STRUCTURE (keys only, values
   // redacted) — proves what the provider actually sends vs what we expect.
   rawShape: { type: String, default: '' },
+  // OWNER AUDIT 2026-10-11 (flaky file flow): the rawShape schema recorder
+  // hid what the teacher ACTUALLY typed, making wrong-approval/decline
+  // verdicts undiagnosable. Store the real text (truncated, media names too).
+  bodyText: { type: String, default: '', maxlength: 300 },
   // OWNER SPEC §E (2026-10-11): durable event-id idempotency for the GROUP
   // bot — the first invocation to mark an event botHandled owns the reply;
   // Wasender redeliveries of the same id are skipped silently.

@@ -345,7 +345,8 @@ router.get('/invdiag', async (req, res, next) => {
           providerMsgId: r.providerMsgId || null, attempts: r.attempts ?? 0,
           body: String(r.body ?? '').slice(0, 400) })),
       events: events.map((e) => ({ at: e.at, msgId: String(e.msgId).slice(-14), from: e.from,
-        chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery, rawShape: e.rawShape || null })),
+        chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery, rawShape: e.rawShape || null,
+        bodyText: (e.bodyText ?? '').slice(0, 160) })),
       questions: questions.map((q) => ({ ref: q.refCode, at: q.askedAt, teacherName: q.teacherName,
         phone: q.phone, section: q.section, crUser: q.crUser, status: q.status,
         attempts: q.crNotifyAttempts, notifiedAt: q.crNotifiedAt ?? null, lastCrAt: q.lastCrNotifyAt ?? null,
@@ -448,10 +449,20 @@ router.post('/teacher-reply', async (req, res, next) => {
         + (rawKey?.cleanedParticipantPn ? ` |part:${String(rawKey.cleanedParticipantPn).slice(0, 18)}` : '');
       if (rawId) {
         const seen = await WhatsAppEvent.findOne({ msgId: rawId }).lean();
+        // what the sender actually typed/sent — the single most important
+        // diagnostic for approval-interpretation bugs (owner audit 2026-10-11)
+        const typed = String(rawMessage?.conversation
+          ?? rawMessage?.extendedTextMessage?.text
+          ?? rawMessage?.imageMessage?.caption
+          ?? rawMessage?.videoMessage?.caption
+          ?? rawMessage?.documentMessage?.caption
+          ?? rawMessage?.documentMessage?.fileName
+          ?? rawMessage?.audioMessage?.caption
+          ?? '').slice(0, 300);
         await WhatsAppEvent.create({ msgId: rawId, from: rawFrom, author: '',
           chatType: String(rawKey?.remoteJid ?? '').endsWith('@g.us') ? 'group' : 'direct',
           msgType: String(rawKind), redelivery: Boolean(seen),
-          rawShape: JSON.stringify(shapeOf(req.body)).slice(0, 1500) }).catch(() => {});
+          rawShape: JSON.stringify(shapeOf(req.body)).slice(0, 1500), bodyText: typed }).catch(() => {});
       }
     } catch { /* audit must never block the flow */ }
     const payload = await normalizeIncomingPayload(req.body);

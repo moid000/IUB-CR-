@@ -786,7 +786,8 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   /* --- approval question answered --- */
   if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
   if (verdict.answer === 'decline') {
-    await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'declined', lastReplyMsgId: msgId } });
+    await TeacherMaterial.updateOne({ _id: material._id },
+      { $set: { status: 'declined', lastReplyMsgId: msgId, lastReply: String(payload?.data?.body ?? payload?.data?.text ?? '').slice(0, 120) } });
     auditPush(material._id, 'declined', 'teacher declined the upload');
     const fresh = await TeacherMaterial.findById(material._id).lean();
     await notifyCrPersisted(fresh, {
