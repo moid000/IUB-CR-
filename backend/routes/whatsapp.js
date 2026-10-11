@@ -150,8 +150,11 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     let gatewaySelfTail = null;
     try {
       const me = await whatsappService.getSelfProfile?.() ?? {};
-      const digits = String(me.wid ?? me.waNumber ?? me.wa_number ?? me.phone
-        ?? me.number ?? me.jid ?? me.userJid ?? me.userId ?? me.id ?? '').replace(/\D/g, '');
+      // JIDs carry a device suffix ("923019670950:9@s.whatsapp.net") — strip
+      // it BEFORE digit-extraction or the tail shifts and fakes a mismatch.
+      const rawSelf = String(me.wid ?? me.waNumber ?? me.wa_number ?? me.phone
+        ?? me.number ?? me.jid ?? me.userJid ?? me.userId ?? me.id ?? '').split(':')[0];
+      const digits = rawSelf.replace(/\D/g, '');
       gatewaySelfTail = digits ? digits.slice(-8)
         : 'shape:' + Object.keys(me).join(',').slice(0, 80);
     } catch (err) { gatewaySelfTail = 'unavailable:' + String(err?.message ?? err).slice(0, 60); }
