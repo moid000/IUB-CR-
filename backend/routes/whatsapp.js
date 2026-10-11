@@ -137,8 +137,24 @@ router.post('/ops-replay', async (req, res, next) => {
         data: { id: `opsreplay_${Date.now()}`, from: sec.whatsappGroup.id, author: `${digits(req.body?.authorDigits)}@c.us`,
           type: 'chat', body, time: Math.floor(Date.now() / 1000), fromMe: false,
           mentionedJid: selfLid ? [selfLid] : [] } };
+      // create the audit row FIRST (the real webhook does this) so every
+      // traceGroup() exit reason PERSISTS and ops shows exactly where the
+      // pipeline stopped — without this, synthetic traces vanish.
+      const { WhatsAppEvent, ChatbotLog } = await import('../models/index.js');
+      await WhatsAppEvent.create({ msgId: payload.data.id, from: sec.whatsappGroup.id,
+        author: payload.data.author, chatType: 'group', msgType: 'chat' }).catch(() => {});
       const handled = await handleGroupMessage(payload);
-      res.json({ success: true, data: { handled, groupId: sec.whatsappGroup.id.slice(-12), selfLidTail: String(selfLid ?? '').replace(/\D/g, '').slice(-8) || null } });
+      // evidence read-back: the trace this run left + the newest bot answer
+      const ev = await WhatsAppEvent.findOne({ msgId: payload.data.id }).lean();
+      const lastLog = await ChatbotLog.findOne({}).sort({ createdAt: -1 }).lean();
+      res.json({ success: true, data: { handled,
+        groupId: sec.whatsappGroup.id.slice(-12),
+        selfLidTail: String(selfLid ?? '').replace(/\D/g, '').slice(-8) || null,
+        botHandled: ev?.botHandled === true,
+        trace: ev?.groupTrace ?? null,
+        lastAnswerAt: lastLog?.createdAt ?? null,
+        lastAnswerQ: (lastLog?.question ?? '').slice(0, 120),
+        lastAnswerSource: lastLog?.source ?? null } });
     } else if (mode === 'teacher') {
       const from = digits(req.body?.fromDigits);
       if (!from) throw new ApiError(400, '"fromDigits" required');
