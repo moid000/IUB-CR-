@@ -39,10 +39,28 @@ export const getLidFromPhone = (phone) => impl().getLidFromPhone?.(phone) ?? nul
  * never trip it. UltraMsg paces itself (sendDelayMax) — untouched. */
 let lastSendAt = 0;
 let sendChain = Promise.resolve();
+/* OWNER LIVE FIX (2026-10-11 night, "CR ko notify karne mein issue aa raha
+ * hai"): Vercel serverless starts a FRESH module per invocation, so the
+ * in-memory lastSendAt resets to 0 — a CR ping in a new invocation fired
+ * <5s after a broadcast finished and Wasender's ACCOUNT PROTECTION rejected
+ * it ("1 message every 5 seconds"). Durable floor: the newest successfully
+ * sent OutboxMessage.sentAt also counts, so spacing survives cold starts. */
+let durableFloorCache = { at: 0, val: 0 };
+async function durableFloor() {
+  try {
+    if (Date.now() - durableFloorCache.at < 3000) return durableFloorCache.val;
+    const { OutboxMessage } = await import('../models/index.js');
+    const last = await OutboxMessage.findOne({ status: 'sent' }).sort({ sentAt: -1 }).select('sentAt').lean();
+    const val = last?.sentAt ? new Date(last.sentAt).getTime() : 0;
+    durableFloorCache = { at: Date.now(), val };
+    return val;
+  } catch { return 0; }
+}
 function paced(fn) {
   if (impl() !== wasender || !env.whatsapp.sendSpacingMs) return fn();
   const run = sendChain.then(async () => {
-    const wait = lastSendAt + env.whatsapp.sendSpacingMs - Date.now();
+    const floor = Math.max(lastSendAt, await durableFloor());
+    const wait = floor + env.whatsapp.sendSpacingMs - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     try { return await fn(); } finally { lastSendAt = Date.now(); }
   });
@@ -196,11 +214,15 @@ export async function sendTracked(phone, body, { kind = 'teacher', refKey = '', 
 /** Dispatch an outbox row's actual send — text or media (2026-10-11). */
 async function dispatchRow(r) {
   if (r.url && r.mediaKind) {
-    const i = impl();
-    if (r.mediaKind === 'image') return Boolean((await i.sendImage(r.phone, r.url, r.body || undefined))?.sent);
-    if (r.mediaKind === 'audio') return Boolean((await i.sendAudio(r.phone, r.url))?.sent);
-    if (r.mediaKind === 'video') return Boolean((await i.sendVideo(r.phone, r.url, r.body || undefined))?.sent);
-    return Boolean((await i.sendDocument(r.phone, r.url, r.filename, r.body || undefined))?.sent);
+    // OWNER LIVE FIX (2026-10-11 night): media sends used the RAW gateway,
+    // bypassing the paced chain — a broadcast upload + a CR text send raced
+    // and Wasender's account protection rejected the second one. All sends
+    // now share ONE paced chain, so a media upload and the CR ping after it
+    // are always >= spacing apart.
+    if (r.mediaKind === 'image') return Boolean((await sendImage(r.phone, r.url, r.body || undefined))?.sent);
+    if (r.mediaKind === 'audio') return Boolean((await sendAudio(r.phone, r.url))?.sent);
+    if (r.mediaKind === 'video') return Boolean((await sendVideo(r.phone, r.url, r.body || undefined))?.sent);
+    return Boolean((await sendDocument(r.phone, r.url, r.filename, r.body || undefined))?.sent);
   }
   return Boolean((await sendText(r.phone, r.body))?.sent);
 }
