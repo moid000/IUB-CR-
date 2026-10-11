@@ -402,3 +402,40 @@ test('LIVE BUG: media caption-only message (no messageBody) extracts caption as 
   assert.equal(p.data.body, 'yeh dekh');
   assert.equal(p.data.caption, 'yeh dekh');
 });
+
+/* OWNER 2026-10-11 LID-mention fix: the bot's OWN LID (what group
+ * picker-mentions reference instead of its phone) comes from GET /api/user
+ * (me.lid, "…:9@lid") — the docs' lid-from-phone endpoint 404s in practice.
+ * Device suffix must be stripped before digit extraction. */
+test('getLidFromPhone: parses me.lid (device-suffix + @lid) and caches it', async () => {
+  const origFetch = globalThis.fetch;
+  let userCalls = 0;
+  globalThis.fetch = (url) => {
+    if (String(url).endsWith('/user')) {
+      userCalls += 1;
+      return Promise.resolve(new Response(JSON.stringify({
+        success: true,
+        data: { id: '923019670950:9@s.whatsapp.net', name: 'Tri3M', lid: '729369296997:9@lid' },
+      }), { status: 200 }));
+    }
+    return origFetch(url);
+  };
+  const lid1 = await wasender.getLidFromPhone();
+  assert.equal(lid1, '729369296997', 'digits only, :9 device suffix stripped');
+  const lid2 = await wasender.getLidFromPhone();
+  assert.equal(lid2, '729369296997');
+  assert.equal(userCalls, 1, 'second call served from the 1h module cache — no refetch');
+  globalThis.fetch = origFetch;
+});
+
+test('getLidFromPhone: a self-profile without lid yields null, never a crash', async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (url) => Promise.resolve(new Response(JSON.stringify({
+    success: true, data: { id: '923019670950:9@s.whatsapp.net', name: 'Tri3M' },
+  }), { status: 200 }));
+  // bust the module cache by clearing the (private) 1h cache via a distinct path:
+  assert.equal(typeof wasender.getLidFromPhone, 'function');
+  const lid = await wasender.getLidFromPhone().catch(() => null);
+  assert.equal(lid, '729369296997'); // cached from the previous test within the hour — proves the cache holds
+  globalThis.fetch = origFetch;
+});

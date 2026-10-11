@@ -195,7 +195,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
         // BOT LID TAIL (2026-10-11): group picker-mentions reference the bot
         // by LID, not phone — compare this tail against the mentionTails
         // recorded in group traces (Wasender lid-from-phone, 1h-cached).
-        selfLidTail: String((await whatsappService.getLidFromPhone?.(env.whatsapp?.gatewayPhone ?? '').catch?.(() => null)) ?? '').replace(/\D/g, '').slice(-8) || null,
+        selfLidTail: String((await whatsappService.getLidFromPhone?.(env.whatsapp?.gatewayPhone ?? '')?.catch?.(() => null)) ?? '').replace(/\D/g, '').slice(-8) || null,
       },
       webhook: {
         lastInboundAt: lastEvent[0]?.at ?? null,
