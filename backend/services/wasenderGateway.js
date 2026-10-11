@@ -140,11 +140,12 @@ export function sendVideo(to, url, caption) {
  * matcher) matches the number the bot ACTUALLY runs on. */
 export async function getSelfProfile() {
   if (!isConfigured()) throw new ApiError(503, 'WhatsApp gateway is not configured');
-  const { ok, status, json } = await postJson('/me');
+  // docs: GET /api/user — the WhatsApp user behind this API key session
+  const { ok, status, json } = await postJson('/user');
   if (!ok || json?.success === false) {
     throw new ApiError(502, `WhatsApp self-profile fetch failed: ${json?.message || `HTTP ${status}`}`);
   }
-  return json?.data ?? {};
+  return json?.data ?? json ?? {};
 }
 
 export async function listGroupMeta() {
