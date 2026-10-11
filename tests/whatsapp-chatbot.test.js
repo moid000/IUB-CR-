@@ -1243,3 +1243,22 @@ test('SPEC §C (fallback): vague assignment ask lists only subjects with PENDING
   assert.ok(chat, 'fallback asked');
   assert.match(chat.params.body, /In ki assignments pending hain: ICT/i, 'only subjects with real pending assignments');
 });
+
+/* LIVE E2E (owner 2026-10-11 tag-silent bug): the REAL Wasender tagged group
+ * payload (text ONLY in extendedTextMessage.text, no messageBody) goes through
+ * the production normalizer and then handleGroupMessage — the bot must reply. */
+test('LIVE E2E: real Wasender tagged group payload -> normalized -> bot answers with @asker mention', async () => {
+  const { normalizeIncomingPayload } = await import('../backend/services/wasenderPayload.js');
+  const raw = { event: 'messages.received', timestamp: Math.floor(Date.now() / 1000),
+    data: { messages: {
+      key: { id: 'TAG-E2E-' + Date.now(), fromMe: false, remoteJid: GROUP_ID, cleanedParticipantPn: STUDENT },
+      message: { extendedTextMessage: { text: `@923019670950 ${'@Tri3M'} aj ka timetable?`,
+        contextInfo: { mentionedJid: ['923019670950@s.whatsapp.net'] } } } } } };
+  const payload = await normalizeIncomingPayload(raw);
+  assert.ok(payload.data.body.includes('@923019670950'), 'tag text survived normalization');
+  chatbot.__resetGuards();
+  assert.equal(await handleGroupMessage(payload), true);
+  const chat = waSent.find((st) => st.kind === 'chat');
+  assert.ok(chat, 'group bot replied');
+  assert.ok(String(chat.params.body).startsWith('@' + STUDENT), 'reply mentions the asker');
+});

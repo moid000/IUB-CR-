@@ -268,7 +268,8 @@ router.post('/teacher-reply', async (req, res, next) => {
       };
       const MEDIA_KEYS = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
       const rawKind = MEDIA_KEYS.find((k) => rawMessage?.[k])?.replace('Message', '')
-        ?? (rawMessage?.conversation !== undefined || rawMessageBodyHas(req.body) ? 'chat'
+        ?? (rawMessage?.conversation !== undefined || rawMessage?.extendedTextMessage?.text !== undefined
+          || rawMessageBodyHas(req.body) ? 'chat'
           : Object.keys(rawMessage)[0] ?? 'unknown');
       const rawId = String(rawKey?.id ?? req.body?.data?.id ?? '').slice(0, 220);
       const rawFrom = String(rawKey?.remoteJid ?? req.body?.data?.from ?? '').slice(0, 120)

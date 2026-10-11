@@ -41,7 +41,11 @@ export function isWasenderPayload(payload) {
   return p?.event === 'messages.received'
     || p?.event === 'messages-group.received'
     || (p?.event === 'messages.upsert' && p?.data?.messages)
-    || Boolean(p?.data?.messages?.key && p?.data?.messages?.messageBody !== undefined);
+    // LIVE 2026-10-11 (owner tag-silent bug): real tagged group messages
+    // carry NO top-level messageBody — only the Baileys message object
+    // (extendedTextMessage.text). A key+message pair IS a Wasender payload.
+    || Boolean(p?.data?.messages?.key && (p?.data?.messages?.messageBody !== undefined
+      || p?.data?.messages?.message));
 }
 
 const MEDIA_KINDS = [
@@ -51,6 +55,26 @@ const MEDIA_KINDS = [
   ['audioMessage', 'audio'],
   ['stickerMessage', 'sticker'],
 ];
+
+/** Text extraction that mirrors what WhatsApp actually sends. Plain chats
+ * ride in `conversation` or the top-level messageBody; MENTIONS, links and
+ * replies ride in `extendedTextMessage.text`; media captions in the media
+ * object. The first REAL tagged group message (2026-10-11) had ONLY
+ * extendedTextMessage.text — every earlier test fixture wrongly carried
+ * messageBody too. */
+export function extractBody(m, message) {
+  const direct = m?.messageBody;
+  if (direct !== undefined && direct !== null && String(direct).length) return String(direct);
+  const msg = message ?? {};
+  const fromExtended = msg?.extendedTextMessage?.text;
+  if (fromExtended !== undefined && fromExtended !== null && String(fromExtended).length) return String(fromExtended);
+  for (const k of ['conversation', 'imageMessage', 'videoMessage', 'documentMessage', 'audioMessage']) {
+    const v = msg?.[k];
+    const text = k === 'conversation' ? v : v?.caption;
+    if (text !== undefined && text !== null && String(text).length) return String(text);
+  }
+  return String(direct ?? '');
+}
 
 function pickMedia(message) {
   for (const [k, kind] of MEDIA_KINDS) {
@@ -134,7 +158,11 @@ export async function normalizeWasenderPayload(raw) {
       from,
       fromMe: Boolean(key?.fromMe),
       type,
-      body: String(m?.messageBody ?? ''),
+      // LIVE 2026-10-11 (owner tag-silent bug): real payloads put the text in
+      // the Baileys message object (extendedTextMessage.text for mentions/
+      // links/replies) with NO top-level messageBody — extract from every
+      // known location so @Tri3M tags survive normalization.
+      body: extractBody(m, message),
       time: Number(raw?.timestamp ?? Math.floor(Date.now() / 1000)),
       timestamp: Number(raw?.timestamp ?? Math.floor(Date.now() / 1000)),
     },

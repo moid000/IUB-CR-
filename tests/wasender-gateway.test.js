@@ -363,3 +363,42 @@ test('normalizer: DOC-EXACT group event (messages-group.received) normalizes cor
   assert.equal(p.data.body, 'Hey everyone, just checking in!');
   assert.equal(p.data.type, 'chat');
 });
+
+/* LIVE 2026-10-11 owner tag-silent bug: a REAL tagged group message carries
+ * NO top-level messageBody — text lives ONLY in message.extendedTextMessage.text
+ * (mention/links). The normalizer must extract it, or isTri3mTag sees an empty
+ * body and the group bot stays silent forever. */
+
+test('LIVE BUG: tagged group message with NO messageBody (extendedTextMessage only) -> body still extracted, event detected', async () => {
+  const g = { event: 'messages.received', timestamp: 1,
+    data: { messages: {
+      key: { id: 'TAG-LIVE-1', fromMe: false, remoteJid: '120363REAL@g.us', cleanedParticipantPn: '923078896956' },
+      message: { extendedTextMessage: { text: '@923019670950 bhai notes bhej do',
+        contextInfo: { mentionedJid: ['923019670950@s.whatsapp.net'] } } } } } };
+  assert.equal(isWasenderPayload(g), true, 'key+message pair is a Wasender payload even without messageBody');
+  const p = await normalizeIncomingPayload(g);
+  assert.equal(p.data.body, '@923019670950 bhai notes bhej do', 'mention text survives normalization');
+  assert.equal(p.data.type, 'chat');
+  assert.equal(p.data.from, '120363REAL@g.us');
+  assert.equal(p.data.author, '923078896956@c.us');
+});
+
+test('LIVE BUG: conversation-only chat (no messageBody) still extracts body', async () => {
+  const g = { event: 'messages.received', timestamp: 1,
+    data: { messages: {
+      key: { id: 'CONV-1', fromMe: false, remoteJid: '923001112233@s.whatsapp.net', cleanedSenderPn: '923001112233' },
+      message: { conversation: 'YES' } } } };
+  const p = await normalizeIncomingPayload(g);
+  assert.equal(p.data.body, 'YES');
+});
+
+test('LIVE BUG: media caption-only message (no messageBody) extracts caption as body', async () => {
+  const g = { event: 'messages.received', timestamp: 1,
+    data: { messages: {
+      key: { id: 'IMG-CAP-1', fromMe: false, remoteJid: '923001112233@s.whatsapp.net', cleanedSenderPn: '923001112233' },
+      message: { imageMessage: { url: 'https://mmg/enc.bin', mimetype: 'image/jpeg', caption: 'yeh dekh' } } } } };
+  const p = await normalizeIncomingPayload(g);
+  assert.equal(p.data.type, 'image');
+  assert.equal(p.data.body, 'yeh dekh');
+  assert.equal(p.data.caption, 'yeh dekh');
+});
