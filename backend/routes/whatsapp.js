@@ -94,10 +94,28 @@ router.post('/deadline-sweep', handle);
  * the administrator the REAL live state — what is pending, what failed, what
  * the background workers last did. Read-only, same secret guard, sanitized
  * (phones masked to last 4, no message bodies). */
+/** OPS CHATBOT SWITCH (2026-10-11 owner lockout): the admin-panel
+ * Administration page is the normal path; when the panel itself is
+ * unreachable this secret-guarded toggle (same guard as the sweeps)
+ * flips the DB master switch so the group bot is never stuck OFF. */
+router.post('/ops-chatbot', async (req, res, next) => {
+  try {
+    assertSweepSecret(req);
+    const enabled = req.body?.enabled;
+    if (typeof enabled !== 'boolean') throw new ApiError(400, '"enabled" must be true or false');
+    const { ChatbotSetting } = await import('../models/index.js');
+    const doc = await ChatbotSetting.findOneAndUpdate(
+      { key: 'global' }, { $set: { key: 'global', enabled } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }).lean();
+    console.log(`[ops] chatbot master switch set to ${enabled} via ops-chatbot (secret-guarded)`);
+    res.json({ success: true, data: { enabled: doc.enabled === true, updatedAt: doc.updatedAt } });
+  } catch (err) { next(err); }
+});
+
 router.get('/ops-diagnostics', async (req, res, next) => {
   try {
     assertSweepSecret(req);
-    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section } = await import('../models/index.js');
+    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section, ChatbotSetting } = await import('../models/index.js');
     const mask = (p) => (p ? `…${String(p).slice(-4)}` : null);
     const [sweepBeat, dogBeat, dogRenew, dogErr] = await Promise.all([
       WatchdogState.findOne({ key: 'deadline-sweep:last-run' }).lean(),
@@ -115,13 +133,14 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
     // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
-    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups] = await Promise.all([
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc] = await Promise.all([
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
       WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
       OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(15).lean(),
       Section.find({ 'whatsappGroup.id': { $ne: null } }).select('name whatsappGroup.id whatsappGroup.name').lean(),
+      ChatbotSetting.findOne({ key: 'global' }).select('enabled updatedAt').lean(),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
       OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
     ]);
@@ -142,6 +161,15 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       outboxFailed: outboxFailed.map((o) => ({ kind: o.kind, refKey: o.refKey, phone: mask(o.phone),
         attempts: o.attempts, lastError: (o.lastError ?? '').slice(0, 120), ageMinutes: Math.round((now - new Date(o.updatedAt).getTime()) / 60000) })),
       classesAwaitingTeacher: awaitingClasses,
+      chatbot: {
+        // OWNER 2026-10-11: 'msgs off/on' panel toggle state — if this is
+        // false the group bot consumes everything SILENTLY, no matter what
+        // else is fixed. env var is only the boot default.
+        enabled: chatbotDoc ? chatbotDoc.enabled === true : env.chatbot?.enabled === true,
+        dbRowPresent: Boolean(chatbotDoc),
+        dbUpdatedAt: chatbotDoc?.updatedAt ?? null,
+        geminiKeyConfigured: Boolean(env.chatbot?.googleApiKey),
+      },
       webhook: {
         lastInboundAt: lastEvent[0]?.at ?? null,
         lastInboundFrom: mask(lastEvent[0]?.author || lastEvent[0]?.from),

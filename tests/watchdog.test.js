@@ -268,3 +268,38 @@ test('route /api/whatsapp/watchdog with secret returns the report', async () => 
   assert.equal(post.status, 200);
   assert.equal(post.body.data.configured, true);
 });
+
+/* OWNER 2026-10-11 lockout: admin panel unreachable → ops must be able to
+ * (a) SEE the chatbot master switch in diagnostics and (b) flip it with the
+ * sweep secret. Wrong secret = 401, right secret = DB row updated. */
+test('ops-chatbot: secret-guarded master switch toggle + diagnostics exposure', async () => {
+  const { ChatbotSetting } = await import('../backend/models/index.js');
+  const SECRET = process.env.DEADLINE_SWEEP_SECRET;
+
+  const server = app.listen(0);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    // secret rides the x-sweep-secret header like every other ops route
+    const post = (secret, enabled) => realFetch(`${base}/api/whatsapp/ops-chatbot`, { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-sweep-secret': secret }, body: JSON.stringify({ enabled }) });
+    const diag = () => realFetch(`${base}/api/whatsapp/ops-diagnostics?secret=${SECRET}`).then((r) => r.json());
+
+    const d1 = await diag();
+    assert.equal(typeof d1.data.chatbot.enabled, 'boolean');
+    assert.equal(typeof d1.data.chatbot.geminiKeyConfigured, 'boolean');
+
+    assert.equal((await post('wrong', true)).status, 401);
+
+    const good = await post(SECRET, true);
+    assert.equal(good.status, 200);
+    assert.equal((await good.json()).data.enabled, true);
+    const doc = await ChatbotSetting.findOne({ key: 'global' }).lean();
+    assert.equal(doc.enabled, true);
+
+    const d2 = await diag();
+    assert.equal(d2.data.chatbot.enabled, true);
+    assert.equal(d2.data.chatbot.dbRowPresent, true);
+  } finally {
+    server.closeAllConnections?.(); server.close();
+  }
+});
