@@ -357,7 +357,7 @@ router.get('/invdiag', async (req, res, next) => {
         publishedNote: m.publishedNote ? String(m.publishedNote).slice(-8) : null,
         askedAt: m.askedAt ?? null, lastReplyMsgId: (m.lastReplyMsgId ?? '').slice(-12),
         lastReply: (m.lastReply ?? '').slice(0, 120),
-        audit: (m.audit ?? []).slice(-8).map((a) => ({ at: a.at, action: (a.action ?? '').slice(0, 40), note: (a.note ?? '').slice(0, 120) })) })),
+        audit: (m.audit ?? []).slice(-10).map((a) => ({ at: a.at, event: a.event, detail: (a.detail ?? '').slice(0, 160) })) })),
       outbox: outbox.map((o) => ({ at: o.updatedAt, kind: o.kind, refKey: o.refKey, phone: o.phone,
         status: o.status, attempts: o.attempts, error: String(o.lastError ?? '').slice(0, 150), hasUrl: Boolean(o.url),
         body: String(o.body ?? '').slice(0, 250) })),
