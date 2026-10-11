@@ -126,7 +126,7 @@ router.post('/ops-replay', async (req, res, next) => {
     const mode = String(req.body?.mode ?? '');
     const body = String(req.body?.body ?? '').slice(0, 400);
     const digits = (v) => String(v ?? '').replace(/\D/g, '');
-    if (!body) throw new ApiError(400, '"body" required');
+    if (!body && mode !== 'teacher-file') throw new ApiError(400, '"body" required');
     if (mode === 'group') {
       const { Section } = await import('../models/index.js');
       const sec = await Section.findOne({ 'whatsappGroup.id': { $ne: null } }).lean();
