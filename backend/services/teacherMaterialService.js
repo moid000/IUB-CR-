@@ -268,23 +268,28 @@ function notMaterialMessage({ teacherName }) {
  * true = shared, false = NOT shared (skipped or failed), null = legacy
  * default wording (both were authorized and the share is best-effort). */
 function publishedMessage({ subjectName, sectionName, filename, language, crDelivered, alreadyPublished, groupShared }) {
+  /* CONTRADICTION FIX (owner spec 2026-10-12 evening) §2/§3: every
+   * teacher-facing status NAMES the exact attachment it reports — a verified
+   * success for file B followed by an honest retrieval failure for file A
+   * must never read as one contradiction. The filename is the per-task
+   * binding; the outcome itself stays backend-verified only. */
   const short = cleanFilename(filename, 70);
   const cr = crDelivered ? ' aur CR ko bhi bata diya hai.' : '. CR ko notify karne mein issue aa raha hai — retry kar raha hoon.';
   if (language === 'english') {
     const crEn = crDelivered ? ' and the CR has been informed.' : '. The CR notification is going through — it will be retried.';
     if (groupShared === false) {
-      return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal. Not shared on the students' group${crEn}`;
+      return `Done Sir, "${short}" — ${subjectName} notes are uploaded to Section ${sectionName}'s portal. Not shared on the students' group${crEn}`;
     }
-    if (groupShared === true) return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal and shared with the students' group${crEn}`;
-    return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal${crEn}`;
+    if (groupShared === true) return `Done Sir, "${short}" — ${subjectName} notes are uploaded to Section ${sectionName}'s portal and shared with the students' group${crEn}`;
+    return `Done Sir, "${short}" — ${subjectName} notes are uploaded to Section ${sectionName}'s portal${crEn}`;
   }
   if (groupShared === false) {
-    return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. Students ke group mein share nahi kiya${cr}`;
+    return `Done Sir, "${short}" — ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. Students ke group mein share nahi kiya${cr}`;
   }
   if (groupShared === true) {
-    return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain aur students ke group mein bhi share kar diye hain${cr}`;
+    return `Done Sir, "${short}" — ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain aur students ke group mein bhi share kar diye hain${cr}`;
   }
-  return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain${cr}`;
+  return `Done Sir, "${short}" — ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain${cr}`;
 }
 
 /* group-ONLY share (no portal upload authorized): honest about both. */
@@ -298,11 +303,12 @@ function sharedOnlyMessage({ filename, language }) {
 
 /* portal succeeded, group share temporarily failed — honest partial
  * confirmation; the sweep retries ONLY the share and reports once. */
-function sharePendingMessage({ subjectName, sectionName, language }) {
+function sharePendingMessage({ subjectName, sectionName, filename, language }) {
+  const short = cleanFilename(filename, 70);
   if (language === 'english') {
-    return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal. The group share hit a temporary issue — I am retrying it.`;
+    return `Done Sir, "${short}" — ${subjectName} notes are uploaded to Section ${sectionName}'s portal. The group share hit a temporary issue — I am retrying it.`;
   }
-  return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. Group share mein thori dikkat aayi hai — main retry kar raha hoon.`;
+  return `Done Sir, "${short}" — ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. Group share mein thori dikkat aayi hai — main retry kar raha hoon.`;
 }
 
 function declinedMessage() {
@@ -481,7 +487,8 @@ async function publishAndConfirm(material, teacherRecords) {
     const groupShared = skipped ? false
       : outcome.groupSent === undefined ? null : outcome.groupSent;
     const msg = (material.authGroup !== false && outcome.groupSent === false)
-      ? sharePendingMessage({ subjectName: outcome.subjectName, sectionName: outcome.sectionName, language })
+      ? sharePendingMessage({ subjectName: outcome.subjectName, sectionName: outcome.sectionName,
+        filename: material.filename, language })
       : publishedMessage({
         filename: material.filename, subjectName: outcome.subjectName,
         sectionName: outcome.sectionName, language,
@@ -836,7 +843,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
  * backoff, the teacher already approved so NO re-ask is needed) and
  * PERMANENT (bad destination, missing author, content changed — never
  * retried, one honest final message instead). */
-const PERMANENT_ERROR_RE = /destination subject\/section missing|does not belong to the teacher|no CR\/admin account|content changed|no usable teacher record|file larger than|unsupported/i;
+const PERMANENT_ERROR_RE = /destination subject\/section missing|does not belong to the teacher|no CR\/admin account|content changed|no usable teacher record|file larger than|unsupported|media retrieval failed|attachment could not be fetched|no retrievable file/i;
 function isTransientUploadError(msg) { return !PERMANENT_ERROR_RE.test(String(msg ?? '')); }
 
 /** Best-effort destroy of the stashed receipt-time attachment — a file the
@@ -1421,12 +1428,19 @@ if (!material.pendingCondition && (aiIntent?.intent === 'conditional_approval' |
 
 /* ------------------------------ publication ----------------------------- */
 
-async function publishMaterial(material, { resume = false } = {}) {
+export async function publishMaterial(material, { resume = false } = {}) {
   // RETRY-SAFE (owner spec §1/G/H): an already-published material is NEVER
   // uploaded again — verify the recorded Note and report success.
   if (material.publishedNote) {
     const noteStill = await Note.findById(material.publishedNote).select('_id').lean();
     if (noteStill) return { ok: true, subjectName: '', sectionName: '', crDelivered: true, alreadyPublished: true };
+  }
+  // CONTRADICTION FIX §2/§3 (owner spec 2026-10-12 evening): a task whose
+  // attachment was never retrieved (nothing stashed, no usable media URL)
+  // can NEVER be published — no claim, no attempt, no success text. This
+  // guard sits BEFORE the claim so a zombie row never even flips state.
+  if (!material.attachment?.publicId && !/^https?:\/\//.test(String(material.mediaUrl ?? ''))) {
+    return { ok: false, error: 'no retrievable file reference', permanent: true };
   }
   try {
     // ATOMIC CLAIM (owner spec §1/H): awaiting_approval → uploading. A webhook
@@ -1812,7 +1826,14 @@ export async function runTeacherMaterialSweep() {
             language: undefined, crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
           }), { kind: 'material', refKey: `material:${m._id}:published-ack`,
             dedupeKey: `material:${m._id}:published-ack`, once: true }).catch(() => {});
-        } else { out.failed++; auditPush(m._id, 'failed', `sweep publish resume: ${outcome.error}`); }
+        } else {
+          out.failed++;
+          auditPush(m._id, 'failed', `sweep publish resume: ${outcome.error}`);
+          if (outcome.permanent) { /* nothing retrievable — close it, never loop */
+            await TeacherMaterial.updateOne({ _id: m._id },
+              { $set: { status: 'failed', uploadError: String(outcome.error).slice(0, 300) } }).catch(() => {});
+          }
+        }
       } catch (err) { auditPush(m._id, 'failed', `sweep resume: ${String(err?.message ?? err).slice(0, 200)}`); out.failed++; }
     }
 
@@ -1828,6 +1849,13 @@ export async function runTeacherMaterialSweep() {
       updatedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }).limit(10).lean();
     for (const m of failedRows) {
       try {
+        // CONTRADICTION FIX §2 (owner spec 2026-10-12 evening): a failed row
+        // with NOTHING retrievable (no stashed asset, no media URL) is a
+        // retrieval failure, not an upload failure — the publish retry loop
+        // must never touch it (live evidence: a retrieval-terminal row was
+        // re-published 4x with 'Failed to parse URL from' after its terminal
+        // state, flapping status and overwriting the real uploadError).
+        if (!m.mediaUrl && !m.attachment?.publicId) continue;
         if (!isTransientUploadError(m.uploadError)) continue; // permanent — no retry
         const outcome = await publishMaterial(m, { resume: true });
         if (outcome.ok) {
