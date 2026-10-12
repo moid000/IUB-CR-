@@ -80,7 +80,18 @@ const materialSchema = new Schema(
     askedAt: { type: Date, default: null }, // when the agent last asked about THIS file (approval recency binding)
     lastReplyMsgId: { type: String, default: '', maxlength: 220 }, // teacher's answer message id — duplicate-reply idempotency
     publishedNote: { type: ObjectId, ref: 'Note', default: null },
-    attachment: FileMetaSchema, // the VERIFIED Cloudinary FileMeta, set ONLY after a confirmed upload
+    attachment: FileMetaSchema, // the VERIFIED Cloudinary FileMeta — stashed at RECEIPT (2026-10-12) so publish never depends on the expiring gateway URL
+    attachmentError: { type: String, default: '', maxlength: 600 }, // receipt-time stash failure (transient) — publish falls back to re-download
+    aiIntent: { // OWNER PERMANENT-REPAIR SPEC §3 (2026-10-12): the VALIDATED structured intent proposal from the reply interpreter
+      intent: { type: String, default: '' },
+      subject: { type: String, default: '' },
+      section: { type: String, default: '' },
+      studentMessage: { type: String, default: '' },
+      additionalInstructions: { type: String, default: '' },
+      confidence: { type: String, default: '' },
+      missingInformation: { type: String, default: '' },
+      at: { type: Date },
+    },
     uploadError: { type: String, default: '', maxlength: 600 },
     audit: [{
       at: { type: Date, default: Date.now },

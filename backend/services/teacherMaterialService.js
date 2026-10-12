@@ -19,7 +19,7 @@ import { Note, Section, Subject, Teacher, TeacherMaterial, Timetable, User } fro
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
 import { isConfigured, sendText, sendTracked, sendCrTracked, sanitizeWhatsAppText, cleanWhatsAppField } from './whatsappService.js';
-import { allowedTypeForExt, uploadAttachmentFromServer } from './fileService.js';
+import { allowedTypeForExt, uploadAttachmentFromServer, destroyAttachmentMetas } from './fileService.js';
 import { findMediaUrl } from './chatbotService.js';
 import { normalizePhone } from './phoneUtils.js';
 import { createNotification } from './notificationService.js';
@@ -409,7 +409,7 @@ export async function handleTeacherFile(payload) {
     return true; // consumed, honestly answered — never silently dropped
   }
   auditPush(material._id, 'received', `${filename} (${size || '?'} bytes, ${effectiveMime || 'unknown mime'})`);
-  chatLog('FILE', { phone: sender, msg: `${filename} from teacher` });
+  chatLog('FILE', { phone: sender, id: material._id, msg: `${filename} from teacher` });
 
   return await classifyAndAsk(material, { sender, filename, effectiveMime, caption, teacherRecords, usableRecords, primary });
 }
@@ -439,6 +439,32 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
     return true;
   }
   material.sha256 = sha256;
+
+  /* OWNER PERMANENT-REPAIR SPEC §5 (2026-10-12, root cause of "kabhi upload
+   * hota hai kabhi nahi"): gateway media URLs EXPIRE — a teacher who answers
+   * the approval minutes/hours later hit a dead URL at publish time, so the
+   * same flow worked for fast repliers and failed for slow ones. The buffer
+   * is ALREADY downloaded here for classification, so the file is stashed to
+   * the verified Cloudinary namespace ONCE at receipt. Publish then creates
+   * the Note from the stored asset and never needs the gateway URL again.
+   * A stash failure is NOT fatal — publish falls back to the re-download
+   * path (URL may still be fresh for fast repliers) and the sweep retries. */
+  if (!material.attachment) {
+    try {
+      const stashed = await uploadAttachmentFromServer({
+        buffer: dl.buf, originalName: filename, mimeType: effectiveMime,
+        parentType: 'note', parentId: String(material._id) });
+      material.attachment = stashed;
+      await material.save();
+      auditPush(material._id, 'file_retrieved',
+        `stashed to storage ${String(stashed?.publicId ?? '').slice(0, 120)} (${dl.buf.length} bytes)`);
+    } catch (err) {
+      material.attachmentError = String(err?.message ?? err).slice(0, 600);
+      await material.save();
+      auditPush(material._id, 'attachment-stash-failed',
+        `transient: ${material.attachmentError} — publish falls back to re-download`);
+    }
+  }
 
   // classify — real content first, filename only as fallback
   const subjectNames = teacherRecords.map((t) => t.subject?.name).filter(Boolean);
@@ -544,6 +570,25 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
     lines: `${primary.name} (teacher) ne WhatsApp par "${cleanFilename(filename, 60)}" bheji hai — study material lagti hai, lekin subject clear nahi. Maine un se pooch liya hai ke kis subject ki hai.` });
   await sendTeacherText(sender, askSubjectMessage({ filename, teacherName: primary.name, subjectNames }));
   return true;
+}
+
+/* OWNER PERMANENT-REPAIR SPEC (2026-10-12): publish failures split into
+ * TRANSIENT (download/network/storage hiccup — the sweep retries with
+ * backoff, the teacher already approved so NO re-ask is needed) and
+ * PERMANENT (bad destination, missing author, content changed — never
+ * retried, one honest final message instead). */
+const PERMANENT_ERROR_RE = /destination subject\/section missing|does not belong to the teacher|no CR\/admin account|content changed|no usable teacher record|file larger than|unsupported/i;
+function isTransientUploadError(msg) { return !PERMANENT_ERROR_RE.test(String(msg ?? '')); }
+
+/** Best-effort destroy of the stashed receipt-time attachment — a file the
+ * teacher declined (or that expired) must not linger in storage. NEVER throws. */
+async function destroyStashedAttachment(material) {
+  const metas = material?.attachment ? [material.attachment] : [];
+  if (!metas.length || !metas[0]?.publicId) return;
+  try {
+    await destroyAttachmentMetas(metas);
+    await auditPush(material._id, 'attachment-destroyed', 'declined/expired file removed from storage');
+  } catch { /* best-effort */ }
 }
 
 /* --------------------- PENDING-FILE QUEUE (owner spec §1) -----------------
@@ -695,14 +740,67 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
 
   const key = env.chatbot?.googleApiKey;
   let verdict = null;
+  /* OWNER PERMANENT-REPAIR SPEC §3 (2026-10-12): STRUCTURED intent analysis —
+   * one validated schema instead of a bare yes/no verdict. The model gets
+   * the pending task context (the exact question asked, which names the
+   * file/subject/section) and returns a proposal the code VALIDATES and
+   * maps onto the existing workflow actions. Model output is a PROPOSAL:
+   * the subject/section hints only resolve when they match one of the
+   * teacher's OWN authorized records, and teacher instructions stored on
+   * the Note are the teacher's VERBATIM words — the AI's message fields
+   * are a fallback ONLY when the reply clearly carried instructions the
+   * regex could not lift, and they are capped + sanitized. An invalid or
+   * absent answer falls to the deterministic offline rules below. */
+  let aiIntent = null;
   if (key && !(process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1')) {
     const parsed = await geminiJson({
-      systemInstruction: { parts: [{ text: `A teacher was asked on WhatsApp: "${asked}". They replied: read the MEANING (English/Urdu/Roman Urdu/mixed). "answer" = the reply clearly approves the upload (yes upload it, share kar do, haan kar dein, ji sir) OR clearly declines it (no, nahi, mat karo, skip, rehne dein) OR names the subject being asked about. "other" = a question or anything unrelated (in that case the assistant answers it separately and the upload question stays pending). Return ONLY JSON {"answer":"approve"|"decline"|"other","subject":"<subject name if they answered which subject, else ''>"}.` }] },
-      contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 300) }] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 80, responseMimeType: 'application/json',
-        responseSchema: { type: 'OBJECT', properties: { answer: { type: 'STRING', enum: ['approve', 'decline', 'other'] }, subject: { type: 'STRING' } } } },
-    }, Math.min(APPROVAL_TIMEOUT_MS, 5_000), CLASSIFIER_MODELS);
-    if (parsed) verdict = parsed;
+      systemInstruction: { parts: [{ text: `A teacher is coordinating with a class assistant on WhatsApp about ONE pending file task.
+The assistant asked: "${asked}".
+The teacher replied: read the MEANING (English/Urdu/Roman Urdu/mixed) and classify the INTENT of that reply:
+- "approve" = clear authorization for THIS file's upload (yes, haan, upload kar do, share kar dein, theek hai kar do).
+- "provide_instructions" = approval PLUS extra instructions for the students or the upload (e.g. "upload kar do aur students ko bata do kal test hai") — put the teacher's own instruction words in "additional_instructions" and any student-facing message in "student_message".
+- "reject" = clearly declines or cancels the upload (no, nahi, mat karo, skip, rehne dein).
+- "unrelated_question" = the reply asks something else (class time, subject, section, anything) — the upload question stays pending and is answered separately.
+- "clarify" or "unknown" = you cannot tell what they mean — put what is missing in "missing_information".
+When the pending question was WHICH SUBJECT or WHICH SECTION, a reply naming it is "approve" with "subject"/"section" filled.
+Never invent instructions or messages the teacher did not write. Return ONLY JSON.` }] },
+      contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 400) }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 200, responseMimeType: 'application/json',
+        responseSchema: { type: 'OBJECT', properties: {
+          intent: { type: 'STRING', enum: ['approve', 'reject', 'clarify', 'provide_instructions', 'unrelated_question', 'unknown'] },
+          subject: { type: 'STRING' }, section: { type: 'STRING' },
+          student_message: { type: 'STRING' }, additional_instructions: { type: 'STRING' },
+          confidence: { type: 'STRING', enum: ['high', 'medium', 'low'] },
+          missing_information: { type: 'STRING' } },
+          required: ['intent'] } },
+    }, Math.min(APPROVAL_TIMEOUT_MS, 6_000), CLASSIFIER_MODELS);
+    // validate against the strict schema — an invalid shape is a NULL
+    // verdict (offline rules decide), never a guess. The legacy
+    // {answer: approve|decline|other} shape is accepted for old mocks.
+    const rawIntent = String(parsed?.intent ?? parsed?.answer ?? '');
+    const validIntents = ['approve', 'reject', 'clarify', 'provide_instructions', 'unrelated_question', 'unknown', 'decline', 'other'];
+    if (parsed && validIntents.includes(rawIntent)) {
+      aiIntent = {
+        intent: rawIntent,
+        subject: String(parsed.subject ?? '').slice(0, 120),
+        section: String(parsed.section ?? '').slice(0, 60),
+        studentMessage: String(parsed.student_message ?? '').slice(0, 600),
+        additionalInstructions: String(parsed.additional_instructions ?? '').slice(0, 600),
+        confidence: String(parsed.confidence ?? ''),
+        missingInformation: String(parsed.missing_information ?? '').slice(0, 300),
+        at: new Date(),
+      };
+      const approveIntents = ['approve', 'provide_instructions'];
+      const declineIntents = ['reject', 'decline'];
+      verdict = {
+        answer: approveIntents.includes(rawIntent) ? 'approve'
+          : declineIntents.includes(rawIntent) ? 'decline' : 'other',
+        subject: aiIntent.subject, section: aiIntent.section,
+      };
+      // traceable: the validated proposal lives on the task record
+      await TeacherMaterial.updateOne({ _id: material._id }, { $set: { aiIntent } }).catch(() => {});
+      auditPush(material._id, 'intent', `${aiIntent.intent} (${aiIntent.confidence || 'confidence n/a'}) — model proposal validated`);
+    }
   }
   // Offline safety net (owner reliability spec §2, 2026-10-09): a CLEAR
   // approval = an explicit upload verb OR a bare yes-word (yes/haan) — because
@@ -736,6 +834,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
     if (verdict.answer === 'decline') {
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'ignored', lastReplyMsgId: msgId } });
+      await destroyStashedAttachment(material); // declined file must not linger in storage
       auditPush(material._id, 'ignored', 'teacher declined the upload offer');
       await sendTeacherText(sender, declinedMessage());
       await askNextPendingMaterial(sender, material._id, teacherRecords).catch(() => {});
@@ -824,6 +923,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
     if (verdict.answer === 'decline') {
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'declined', lastReplyMsgId: msgId } });
+      await destroyStashedAttachment(material);
       auditPush(material._id, 'declined', 'at subject question');
       await notifyCrPersisted(await TeacherMaterial.findById(material._id).lean(), {
         event: 'declined',
@@ -864,6 +964,7 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   if (verdict.answer === 'decline') {
     await TeacherMaterial.updateOne({ _id: material._id },
       { $set: { status: 'declined', lastReplyMsgId: msgId, lastReply: String(payload?.data?.body ?? payload?.data?.text ?? '').slice(0, 120) } });
+    await destroyStashedAttachment(material); // declined file must not linger in storage
     auditPush(material._id, 'declined', 'teacher declined the upload');
     const fresh = await TeacherMaterial.findById(material._id).lean();
     await notifyCrPersisted(fresh, {
@@ -884,7 +985,19 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   // are preserved VERBATIM on the record → the Notes description. A bare
   // yes stores nothing. This runs BEFORE publishMaterial so the published
   // Note carries them.
-  const instructions = extraInstructionsFromBody(body);
+  let instructions = extraInstructionsFromBody(body);
+  if (!instructions && aiIntent?.intent === 'provide_instructions' && ['high', 'medium'].includes(aiIntent.confidence)) {
+    // OWNER PERMANENT-REPAIR SPEC §3: the model flagged instructions the
+    // regex could not lift (long/complex phrasing). PROPOSAL, not proof: use
+    // it only with medium/high confidence, capped + sanitized, and record
+    // its source so the audit shows it came from the model's reading of the
+    // teacher's own words — never a free-form invention.
+    const aiText = sanitizeWhatsAppText(aiIntent.additionalInstructions || aiIntent.studentMessage || '');
+    if (aiText && aiText.length >= 4) {
+      instructions = aiText.slice(0, 600);
+      auditPush(material._id, 'instructions', `model-extracted (confidence ${aiIntent.confidence}): ${instructions.slice(0, 120)}`);
+    }
+  }
   if (instructions) {
     await TeacherMaterial.updateOne({ _id: material._id },
       { $set: { teacherInstructions: instructions } });
@@ -914,7 +1027,7 @@ async function publishMaterial(material, { resume = false } = {}) {
     // publish ('uploading') — only the SWEEP's stale resume may. Prevents
     // two racing publishes from double-uploading / double-confirming.
     const claimFilter = resume
-      ? { _id: material._id, status: { $in: ['awaiting_approval', 'uploading'] } }
+      ? { _id: material._id, status: { $in: ['awaiting_approval', 'uploading', 'failed'] } } // 'failed': the sweep's bounded transient retry — the teacher already approved
       : { _id: material._id, status: 'awaiting_approval' };
     const claim = await TeacherMaterial.findOneAndUpdate(
       claimFilter,
@@ -925,12 +1038,29 @@ async function publishMaterial(material, { resume = false } = {}) {
       if (now?.status === 'published') return { ok: true, subjectName: '', sectionName: '', crDelivered: true, alreadyPublished: true };
       return { ok: false, error: `state changed (${now?.status})` };
     }
-    // re-download at upload time (UltraMsg media links expire)
-    const dl = await downloadWithLimit(material.mediaUrl);
-    if (dl.error) throw new ApiError(502, dl.error);
-    const sha256 = createHash('sha256').update(dl.buf).digest('hex');
-    if (material.sha256 && sha256 !== material.sha256) {
-      throw new ApiError(502, 'file content changed after approval — aborting');
+    // OWNER PERMANENT-REPAIR SPEC §5 (2026-10-12, root cause of the
+    // intermittent publish failures): the receipt-time Cloudinary stash is
+    // the PRIMARY file source — gateway media URLs EXPIRE, and a teacher
+    // answering the approval later used to hit a dead URL here. Re-download
+    // is only the fallback (stash failed at receipt); its fresh buffer is
+    // stashed back immediately so replays and the sweep never need the
+    // gateway URL again. sha256 is only re-verified on the fallback path —
+    // the stashed asset was created from the SAME verified buffer.
+    let meta = material.attachment ?? null;
+    if (!meta || !meta.publicId) {
+      const dl = await downloadWithLimit(material.mediaUrl);
+      if (dl.error) throw new ApiError(502, dl.error);
+      const sha256 = createHash('sha256').update(dl.buf).digest('hex');
+      if (material.sha256 && sha256 !== material.sha256) {
+        throw new ApiError(502, 'file content changed after approval — aborting');
+      }
+      meta = await uploadAttachmentFromServer({
+        buffer: dl.buf, originalName: material.filename, mimeType: material.mime,
+        parentType: 'note', parentId: String(material._id) });
+      try {
+        await TeacherMaterial.updateOne({ _id: material._id },
+          { $set: { attachment: meta }, $unset: { attachmentError: '' } });
+      } catch { /* best-effort — meta is used in-memory below anyway */ }
     }
 
     const [subjectDoc, sectionDoc] = await Promise.all([
@@ -951,11 +1081,7 @@ async function publishMaterial(material, { resume = false } = {}) {
     if (!author) author = await User.findOne({ role: 'admin' }).sort({ createdAt: 1 }).select('_id').lean();
     if (!author) throw new ApiError(404, 'no CR/admin account to author the note');
 
-    // upload through the SAME allowlist + namespace rules as portal uploads
-    const meta = await uploadAttachmentFromServer({
-      buffer: dl.buf, originalName: material.filename, mimeType: material.mime,
-      parentType: 'note', parentId: String(material._id),
-    });
+
 
     const title = String(material.filename).replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim().slice(0, TITLE_MAX) || material.filename;
     // OWNER SPEC 2026-10-11 §2: description = the teacher's OWN words only —
@@ -998,7 +1124,7 @@ async function publishMaterial(material, { resume = false } = {}) {
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
       status: 'published', publishedNote: note._id, attachment: meta } });
     auditPush(material._id, 'published', `note ${note._id} → subject ${subjectDoc.name}, section ${sectionDoc.name}`);
-    chatLog('PUBLISHED', { phone: material.phone, msg: `${material.filename} → ${subjectDoc.name}/${sectionDoc.name}` });
+    chatLog('PUBLISHED', { phone: material.phone, id: material._id, msg: `${material.filename} → ${subjectDoc.name}/${sectionDoc.name}` });
 
     // OWNER (2026-10-08 night): "portal par upload hote hi WhatsApp class
     // group mein bhi automatic chali jaye — CR uploads wala hi logic" — the
@@ -1039,7 +1165,7 @@ async function publishMaterial(material, { resume = false } = {}) {
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
       status: 'failed', uploadError: String(err?.message ?? err).slice(0, 600) } });
     auditPush(material._id, 'failed', String(err?.message ?? err));
-    chatLog('PUBLISH-FAILED', { phone: material.phone, msg: String(err?.message ?? err) });
+    chatLog('PUBLISH-FAILED', { phone: material.phone, id: material._id, msg: String(err?.message ?? err) });
     // teacherDoc is scoped to the try block — resolve the name HERE for the CR message
     const failedTeacher = await Teacher.findById(material.teacher).select('name').lean().catch(() => null);
     await notifyCrPersisted(material, {
@@ -1112,9 +1238,10 @@ async function notifyCrPersisted(material, { event, title, lines, message, refId
   return out;
 }
 /* small event log, same shape as the teacher-chat diagnostics */
-function chatLog(event, { phone, msg } = {}) {
+function chatLog(event, { phone, msg, id } = {}) {
   const masked = phone ? `…${String(phone).slice(-4)}` : '—';
-  console.log(`[teacher-material ${new Date().toISOString()}]`, event, `phone=${masked}`, msg ? `msg=${JSON.stringify(String(msg).slice(0, 120))}` : '');
+  const idTail = id ? ` id=…${String(id).slice(-6)}` : '';
+  console.log(`[teacher-material ${new Date().toISOString()}]`, event, `phone=${masked}${idTail}`, msg ? `msg=${JSON.stringify(String(msg).slice(0, 120))}` : '');
 }
 
 /* ============================ RELIABILITY SWEEP ==========================
@@ -1131,7 +1258,7 @@ function chatLog(event, { phone, msg } = {}) {
  *   4. awaiting_* silent >24h    → expire + tell the CR, no infinite re-ask
  * Returns a compact summary for the sweep endpoint's log. NEVER throws. */
 export async function runTeacherMaterialSweep() {
-  const out = { resumedReceived: 0, resumedUploading: 0, crNotifyRetried: 0, crNotifyDelivered: 0, expired: 0, failed: 0 };
+  const out = { resumedReceived: 0, resumedUploading: 0, uploadRetried: 0, uploadRecovered: 0, uploadTerminal: 0, crNotifyRetried: 0, crNotifyDelivered: 0, expired: 0, failed: 0 };
   try {
     // 1) crash recovery — classification never finished
     const stuckReceived = await TeacherMaterial.find({ status: 'received',
@@ -1152,7 +1279,33 @@ export async function runTeacherMaterialSweep() {
       } catch (err) { auditPush(m._id, 'failed', `sweep resume: ${String(err?.message ?? err).slice(0, 200)}`); out.failed++; }
     }
 
-    // 2) crash recovery — the publish claim was taken but never finished
+    // 2a) TERMINAL: a publish stuck past the retry cap must get a FINAL
+    // status and one honest message — never an endless 'uploading' row
+    // (owner permanent-repair spec §2: no task without a final status).
+    const deadUploading = await TeacherMaterial.find({ status: 'uploading',
+      uploadClaimedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) },
+      uploadAttempts: { $gt: 3 } }).limit(10).lean();
+    for (const m of deadUploading) {
+      try {
+        await TeacherMaterial.updateOne({ _id: m._id }, { $set: {
+          status: 'failed', uploadError: 'publish stuck beyond retry cap (sweep terminal)' } });
+        auditPush(m._id, 'failed', 'publish stuck beyond retry cap — task closed as failed');
+        await sendTracked(m.phone, failedMessage({ filename: m.filename }), {
+          kind: 'material', refKey: `material:${m._id}:failed-final`,
+          dedupeKey: `material:${m._id}:failed-final`, once: true }).catch(() => {});
+        await notifyCrPersisted(m, { event: 'failed',
+          title: 'Teacher material upload FAILED',
+          message: `"${m.filename}" could not be uploaded after several retries. The teacher was told honestly — you may upload it manually. (Technical detail: Administration → materials audit)`,
+          lines: [
+            `Sir, "${cleanFilename(m.filename, 60)}" kai dair se upload nahi ho saki.`,
+            '',
+            'Teacher ko bata diya hai. Aap portal par manually upload kar sakte hain.',
+          ].join('\n') }).catch(() => {});
+        out.uploadTerminal++; out.failed++;
+      } catch (err) { auditPush(m._id, 'failed', `sweep terminal: ${String(err?.message ?? err).slice(0, 200)}`); }
+    }
+
+    // 2b) crash recovery — the publish claim was taken but never finished
     const stuckUploading = await TeacherMaterial.find({ status: 'uploading',
       uploadClaimedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) },
       uploadAttempts: { $lte: 3 } }).limit(10).lean();
@@ -1175,6 +1328,44 @@ export async function runTeacherMaterialSweep() {
             dedupeKey: `material:${m._id}:published-ack`, once: true }).catch(() => {});
         } else { out.failed++; auditPush(m._id, 'failed', `sweep publish resume: ${outcome.error}`); }
       } catch (err) { auditPush(m._id, 'failed', `sweep resume: ${String(err?.message ?? err).slice(0, 200)}`); out.failed++; }
+    }
+
+    // 2c) OWNER PERMANENT-REPAIR SPEC §5 (2026-10-12): a publish that failed
+    // on a TRANSIENT error (download/network hiccup) is RECOVERABLE — the
+    // teacher already approved, so the sweep retries the publish itself
+    // with backoff (attempts < 4, 10-min spacing, 24h window) instead of
+    // demanding a resend + a new approval. PERMANENT errors (bad
+    // destination, no author, content changed) are never retried — they
+    // already told the teacher honestly at failure time.
+    const failedRows = await TeacherMaterial.find({ status: 'failed',
+      uploadAttempts: { $lt: 4 }, createdAt: { $gte: new Date(Date.now() - 24 * 3600 * 1000) },
+      updatedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }).limit(10).lean();
+    for (const m of failedRows) {
+      try {
+        if (!isTransientUploadError(m.uploadError)) continue; // permanent — no retry
+        const outcome = await publishMaterial(m, { resume: true });
+        if (outcome.ok) {
+          out.uploadRecovered++;
+          let { subjectName, sectionName } = outcome;
+          if (outcome.alreadyPublished || !subjectName) {
+            const note = await Note.findById(m.publishedNote).populate('subject', 'name').populate('section', 'name').lean();
+            subjectName = note?.subject?.name ?? ''; sectionName = note?.section?.name ?? '';
+          }
+          auditPush(m._id, 'recovered', 'sweep retry published the approved file after a transient failure');
+          await sendTracked(m.phone, publishedMessage({
+            filename: m.filename, subjectName: subjectName || 'your subject', sectionName: sectionName || '',
+            crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
+          }), { kind: 'material', refKey: `material:${m._id}:published-ack`,
+            dedupeKey: `material:${m._id}:published-ack`, once: true }).catch(() => {});
+        } else {
+          out.uploadRetried++;
+          if ((m.uploadAttempts ?? 0) >= 3) { // cap reached — ONE honest final message, never more
+            await sendTracked(m.phone, failedMessage({ filename: m.filename }), {
+              kind: 'material', refKey: `material:${m._id}:failed-final`,
+              dedupeKey: `material:${m._id}:failed-final`, once: true }).catch(() => {});
+          }
+        }
+      } catch (err) { auditPush(m._id, 'failed', `sweep retry: ${String(err?.message ?? err).slice(0, 200)}`); }
     }
 
     // 3) CR-notification retries — NEVER re-upload because a ping failed
@@ -1227,6 +1418,7 @@ export async function runTeacherMaterialSweep() {
     for (const m of stale) {
       try {
         await TeacherMaterial.updateOne({ _id: m._id }, { $set: { status: 'expired' } });
+        await destroyStashedAttachment(m); // expired file must not linger in storage
         auditPush(m._id, 'expired', 'no teacher answer within 24h (sweep)');
         await notifyCrPersisted(m, { event: 'expired',
           title: 'Teacher material question expired',

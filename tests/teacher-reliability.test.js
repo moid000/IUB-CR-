@@ -57,7 +57,7 @@ globalThis.fetch = (url, options) => {
     if (body.includes('"study_material"')) {
       return Promise.resolve(geminiClassify ? geminiText(geminiClassify) : new Response(JSON.stringify({}), { status: 400 }));
     }
-    if (body.includes('"upload"') || (body.includes('"answer"') && body.includes('approve'))) {
+    if (body.includes('"upload"') || ((body.includes('"answer"') || body.includes('"intent"')) && body.includes('approve'))) {
       return Promise.resolve(geminiApproval ? geminiText(geminiApproval) : new Response(JSON.stringify({}), { status: 400 }));
     }
     if (body.includes('"reply"')) { // general chat — may carry the escalate flag

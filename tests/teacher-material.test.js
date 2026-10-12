@@ -43,7 +43,7 @@ globalThis.fetch = (url, options) => {
     if (body.includes('"study_material"')) {
       return Promise.resolve(geminiClassify ? geminiText(geminiClassify) : new Response(JSON.stringify({}), { status: 400 }));
     }
-    if (body.includes('"upload"') || (body.includes('"answer"') && body.includes('approve'))) {
+    if (body.includes('"upload"') || ((body.includes('"answer"') || body.includes('"intent"')) && body.includes('approve'))) {
       return Promise.resolve(geminiApproval ? geminiText(geminiApproval) : new Response(JSON.stringify({}), { status: 400 }));
     }
     if (body.includes('"reply"')) {
@@ -358,9 +358,13 @@ test('MASTER UPGRADE TEST H: a bare "ok" after an unrelated question NEVER autho
 test('MASTER UPGRADE TEST I: Cloudinary fails → NO fake success, status failed, honest next-step reply', async () => {
   geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: 's' };
   try {
+    // 2026-10-12 permanent-repair: the file is stashed to Cloudinary at RECEIPT,
+    // so a publish-time storage failure can only happen when BOTH the receipt
+    // stash AND the publish-time fallback upload fail — exactly this setup.
+    failNextCloudinary = true; // receipt stash fails
     await webhook(fileMsg({ filename: 'lecture.pdf' }));
+    failNextCloudinary = true; // publish fallback upload fails too
     geminiApproval = { answer: 'approve' };
-    failNextCloudinary = true;
     const before = sent.length;
     await webhook(incoming('yes upload it'));
     assert.equal(await Note.countDocuments({}), 0, 'nothing created');
