@@ -349,13 +349,17 @@ router.get('/invdiag', async (req, res, next) => {
     const { WhatsAppEvent, TeacherQuestion, TeacherMaterial, Teacher, User, Section, OutboxMessage } = await import('../models/index.js');
     const winH = Math.min(Math.max(Number(req.query.windowHours) || 3, 1), 72);
     const threeHAgo = new Date(Date.now() - winH * 3600 * 1000);
-    const [events, questions, materials, outbox, teachers, sections] = await Promise.all([
+    const [events, questions, materials, outbox, teachers, sections, directEvents] = await Promise.all([
       WhatsAppEvent.find({ at: { $gte: threeHAgo } }).sort({ at: -1 }).limit(200).lean(),
       TeacherQuestion.find({ askedAt: { $gte: new Date(Date.now() - Math.max(winH, 26) * 3600 * 1000) } }).sort({ askedAt: -1 }).limit(60).lean(),
       TeacherMaterial.find({ createdAt: { $gte: threeHAgo } }).sort({ createdAt: -1 }).limit(100).lean(),
       OutboxMessage.find({ updatedAt: { $gte: threeHAgo } }).sort({ updatedAt: -1 }).limit(150).lean(),
       Teacher.find({}).select('name whatsapp subject section').populate('subject', 'name').populate('section', 'name semester').limit(30).lean(),
       Section.find({}).populate('department', 'name').select('name semester department cr gr whatsappGroup').limit(15).lean(),
+      // CR-DELIVERY BUG 2026-10-12: teacher/CR 1:1 traffic drowns under ~85
+      // group events/hour in the 200-row window — the exact inbound text of
+      // a teacher question was never visible. Direct-only feed, last 48h.
+      WhatsAppEvent.find({ chatType: 'direct' }).sort({ at: -1 }).limit(60).lean(),
     ]);
     const crIds = [...new Set([...questions.map((q) => q.crUser), ...sections.map((s) => s.cr), ...sections.map((s) => s.gr)].filter(Boolean))];
     const crs = crIds.length ? await User.find({ _id: { $in: crIds } }).select('name role phone').lean() : [];
@@ -367,6 +371,9 @@ router.get('/invdiag', async (req, res, next) => {
           refKey: (r.refKey ?? '').slice(0, 60), status: r.status,
           providerMsgId: r.providerMsgId || null, attempts: r.attempts ?? 0,
           body: String(r.body ?? '').slice(0, 400) })),
+      directEvents: directEvents.map((e) => ({ at: e.at, msgId: String(e.msgId).slice(-14), from: e.from,
+        chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery,
+        bodyText: (e.bodyText ?? '').slice(0, 300) })),
       events: events.map((e) => ({ at: e.at, msgId: String(e.msgId).slice(-14), from: e.from,
         chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery, rawShape: e.rawShape || null,
         bodyText: (e.bodyText ?? '').slice(0, 160) })),
