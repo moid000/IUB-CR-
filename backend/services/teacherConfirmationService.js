@@ -1004,8 +1004,9 @@ async function converseGeneralTeacher(sender, payload, mode) {
     const promiseReply = PROMISE_CR_RE.test(message) && !CR_INFO_RE.test(message);
     const crRequested = ASK_CR_RE.test(body) && !SELF_CONTACT_RE.test(body) && !CR_INFO_RE.test(body);
     if (reply?.escalate || (!reply && topicalQuestion) || promiseReply || crRequested) {
+      const salut = /\b(ma'?am|madam|miss|mrs|ms\.?)\b/i.test(primary?.name ?? '') ? "Ma'am" : 'Sir';
       const honestFail = async () => sendTracked(sender,
-        'Sir, aap ka sawal abhi CR tak bheja nahi ja saka — thori dair mein dobara koshish karta hoon.',
+        `${salut}, aap ka sawal abhi CR tak bheja nahi ja saka — thori dair mein dobara koshish karta hoon.`,
         { kind: 'ack', once: true,
           refKey: `q-fail:${msgId}`, dedupeKey: `q-fail:${msgId}` }).catch(() => {});
       try {
@@ -1020,7 +1021,7 @@ async function converseGeneralTeacher(sender, payload, mode) {
           await ackEscalatedTeacher({ sender, payload, task: esc.task, crName: esc.crName, delivered: esc.delivered });
         } else {
           await sendText(sender, [
-            'Sir, ye sawal aap ke CR ke paas pending hai — jawab milte hi main aap ko foran bata dunga.',
+            `${salut}, ye sawal aap ke CR ke paas pending hai — jawab milte hi main aap ko foran bata dunga.`,
           ].join('\n')).catch(() => {});
         }
         chatLog('ESCALATED-TO-CR', { phone: sender,
