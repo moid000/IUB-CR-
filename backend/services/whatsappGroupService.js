@@ -301,11 +301,15 @@ async function sendBroadcast(groupId, message, attachments) {
   const hasCaptionable = list.some((a) => classifyAttachment(a) !== 'audio');
   if (hasCaptionable) {
     const { sentCount } = await sendAttachmentsToGroup(groupId, list, message);
-    return { sent: true, mediaSent: sentCount };
+    // HONEST VERDICT (owner spec 2026-10-12): only a media message the
+    // gateway CONFIRMED counts as shared — a queued/failed burst is
+    // reported as NOT shared so the caller (and the teacher) hear the
+    // truth; the outbox rows retry and the material sweep reports once.
+    return { sent: sentCount > 0, mediaSent: sentCount, mediaTotal: list.length };
   }
-  await sendTracked(groupId, message, { kind: 'broadcast', refKey: 'broadcast-text' });
+  const textOut = await sendTracked(groupId, message, { kind: 'broadcast', refKey: 'broadcast-text' });
   const { sentCount } = await sendAttachmentsToGroup(groupId, list);
-  return { sent: true, mediaSent: sentCount };
+  return { sent: Boolean(textOut?.sent), mediaSent: sentCount, mediaTotal: list.length };
 }
 
 /**
@@ -375,9 +379,13 @@ async function sendAttachmentsToGroup(groupId, attachments, caption) {
       const useCaption = remainingCaption && kind !== 'audio' ? remainingCaption : undefined;
       // 2026-10-11: outbox-tracked — a throttled/partial burst is finished
       // by the sweep (no duplicate upload, no silently lost attachment).
+      // 2026-10-12: ONE dedupeKey per group+attachment — a retry sweep and
+      // the outbox sweep both reuse the SAME row, so the file is never
+      // delivered twice no matter how many components retry it.
+      const dedupeKey = `broadcast:${groupId}:${String(a.publicId ?? a.url).slice(-72)}`;
       const res = await sendTrackedMedia(groupId, kind,
         { url: a.url, caption: useCaption, filename: a.originalName },
-        { kind: 'broadcast', refKey: 'broadcast-media' });
+        { kind: 'broadcast', refKey: 'broadcast-media', dedupeKey, once: true });
       if (res.sent) {
         if (useCaption) { remainingCaption = undefined; captionUsed = true; }
         sentCount += 1;

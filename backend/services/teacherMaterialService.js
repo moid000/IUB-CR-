@@ -187,16 +187,58 @@ const clean = (v, max = 100) => String(v ?? '').replace(/[\r\n\t*_~]/g, ' ').rep
 /** Filename cleaner: only control chars/newlines go — underscores stay. */
 const cleanFilename = (v, max = 100) => String(v ?? '').replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 
-function askApprovalMessage({ filename, subjectName, sectionName, teacherName, language }) {
-  const short = cleanFilename(filename, 70);
+/* OWNER SMART-FILE-APPROVAL SPEC (2026-10-12): the approval question always
+ * names BOTH actions (portal upload AND the students' group share) so the
+ * teacher can approve, limit or reject either one. Wording rotates so it
+ * reads like a person, never the same template every time. */
+const APPROVAL_ASK_VARIANTS = [
+  (sub, sec) => `Sir, ye ${sub} ke study notes lag rahe hain (Section ${sec}). Kya main Notes portal par upload karke students ke WhatsApp group mein bhi share kar doon? Agar students ko koi message dena hai to woh bhi bata dein.`,
+  (sub, sec) => `Sir, ye ${sub} ke study notes lag rahe hain (Section ${sec}). Notes portal par upload kar doon aur students ke group mein bhi share kar doon? Agar upload ke saath students ko koi message dena hai to woh bhi bata dein.`,
+  (sub, sec) => `Sir, ye ${sub} ke study notes lag rahe hain — Section ${sec}. Notes portal par upload karke students ke WhatsApp group mein bhi share kar doon? Agar students ko koi message dena hai to saath bata dein.`,
+];
+const askVariant = (id) => Number.parseInt(String(id ?? '').slice(-4, -2) || '0', 16) || 0;
+function askApprovalMessage({ filename, subjectName, sectionName, teacherName, language, variant = 0 }) {
   // OWNER STYLE SPEC (2026-10-11): natural human coordinator — ONE short
   // message, no footer, no essay.
-  // OWNER SPEC 2026-10-11 (file-upload conversation): ONE natural question,
-  // subject named, upload approval + optional student message asked TOGETHER.
   if (language === 'english') {
-    return `Sir, this looks like ${subjectName} study material for Section ${sectionName}. Share it with the students on the portal? If the students should get a message with it, let me know that too.`;
+    return `Sir, this looks like ${subjectName} study material for Section ${sectionName}. May I upload it to the Notes portal and also share it with the students on their WhatsApp group? If the students should get a message with it, let me know that too.`;
   }
-  return `Sir, ye ${subjectName} ke study notes lag rahe hain (Section ${sectionName}). Kya main students ke saath share kar doon? Agar upload ke saath students ko koi message dena hai to woh bhi bata dein.`;
+  return APPROVAL_ASK_VARIANTS[variant % APPROVAL_ASK_VARIANTS.length](subjectName ?? 'your subject', sectionName ?? '');
+}
+
+/* An ambiguous acknowledgement ("Hmm", "acha", "okay") is NEVER an
+ * authorization — ONE short both-actions confirmation, owner's example
+ * wording, and no action happens until the teacher clearly answers. */
+function confirmBothActionsMessage({ language, attempt = 0 }) {
+  if (language === 'english') {
+    return attempt > 0
+      ? "Sir, just a clear yes or no — upload to the portal and share with the students' group?"
+      : 'Sir, just to confirm — do you authorize both actions: uploading to the portal and sharing with the students\' WhatsApp group?';
+  }
+  return attempt > 0
+    ? 'Sir, bas ek clear jawab dein — portal par upload aur students ke group mein share, dono kar doon ya nahi?'
+    : 'Sir, kya aap dono actions ki permission de rahe hain — portal par upload aur students ke group mein share? Bas confirm kar dein.';
+}
+
+/* Several files pending at once — the reply must say WHICH file it means. */
+function whichFileMessage(filenames) {
+  const list = filenames.map((f, i) => `${i + 1}. "${cleanFilename(f, 50)}"`).join('\n');
+  return `Sir, aap ki ${filenames.length} files pending hain — kis ke bare mein farmaya hai?\n${list}`;
+}
+
+/* Conditional approval acknowledged — the condition is honoured BEFORE any
+ * action; the file stays pending until the teacher completes it. */
+function titleConditionMessage({ language }) {
+  if (language === 'english') {
+    return "Sure Sir — what title should I use? Tell me and I will upload it to the portal and share it with the students' group.";
+  }
+  return 'Theek hai Sir — kis title se upload kar doon? Bata dein, phir main portal par upload karke students ke group mein bhi share kar doon ga.';
+}
+function genericConditionMessage(condition, { language }) {
+  if (language === 'english') {
+    return `Sure Sir — first: ${condition}. As soon as that is settled I will upload it to the portal and share it with the students\' group.`;
+  }
+  return `Theek hai Sir — pehle ye: ${condition}. Ye ho jaye to main file portal par upload karke students ke group mein share kar doon ga.`;
 }
 
 function askSubjectMessage({ filename, teacherName, subjectNames }) {
@@ -220,20 +262,47 @@ function notMaterialMessage({ teacherName }) {
   return 'Sir, agar ye students ke liye study material hai to bata dein — main portal ke Notes mein upload kar doon ga.';
 }
 
-function publishedMessage({ subjectName, sectionName, filename, language, crDelivered, alreadyPublished }) {
+/* OWNER SMART-FILE-APPROVAL SPEC §3/§5: the confirmation states what
+ * ACTUALLY happened for EACH authorized action — never claims a share that
+ * did not happen, never stays silent about a skipped one. groupShared:
+ * true = shared, false = NOT shared (skipped or failed), null = legacy
+ * default wording (both were authorized and the share is best-effort). */
+function publishedMessage({ subjectName, sectionName, filename, language, crDelivered, alreadyPublished, groupShared }) {
   const short = cleanFilename(filename, 70);
-  // OWNER STYLE SPEC (2026-10-11 §4): ONE concise final confirmation that
-  // states BOTH verified outcomes — never a separate CR-update message.
-  // OWNER SPEC 2026-10-11 (file-upload conversation) example wording —
-  // subject + section, no filename clutter; CR outcome stated in the SAME message.
+  const cr = crDelivered ? ' aur CR ko bhi bata diya hai.' : '. CR ko notify karne mein issue aa raha hai — retry kar raha hoon.';
   if (language === 'english') {
-    return crDelivered
-      ? `Done Sir, the ${subjectName} notes are uploaded to Section ${sectionName}'s portal and the CR has been informed.`
-      : `Done Sir, the ${subjectName} notes are uploaded to Section ${sectionName}'s portal. The CR notification is going through — it will be retried.`;
+    const crEn = crDelivered ? ' and the CR has been informed.' : '. The CR notification is going through — it will be retried.';
+    if (groupShared === false) {
+      return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal. Not shared on the students' group${crEn}`;
+    }
+    if (groupShared === true) return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal and shared with the students' group${crEn}`;
+    return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal${crEn}`;
   }
-  return crDelivered
-    ? `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain aur CR ko bhi bata diya hai.`
-    : `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. CR ko notify karne mein issue aa raha hai — retry kar raha hoon.`;
+  if (groupShared === false) {
+    return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. Students ke group mein share nahi kiya${cr}`;
+  }
+  if (groupShared === true) {
+    return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain aur students ke group mein bhi share kar diye hain${cr}`;
+  }
+  return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain${cr}`;
+}
+
+/* group-ONLY share (no portal upload authorized): honest about both. */
+function sharedOnlyMessage({ filename, language }) {
+  const short = cleanFilename(filename, 70);
+  if (language === 'english') {
+    return `Done Sir, "${short}" has been shared with the students' WhatsApp group. It was NOT uploaded to the portal — say the word and I will do that too.`;
+  }
+  return `Done Sir, "${short}" students ke WhatsApp group mein share kar di hai. Portal par upload nahi kiya — aap farmayein to woh bhi kar doon ga.`;
+}
+
+/* portal succeeded, group share temporarily failed — honest partial
+ * confirmation; the sweep retries ONLY the share and reports once. */
+function sharePendingMessage({ subjectName, sectionName, language }) {
+  if (language === 'english') {
+    return `Done Sir, ${subjectName} notes are uploaded to Section ${sectionName}'s portal. The group share hit a temporary issue — I am retrying it.`;
+  }
+  return `Done Sir, ${subjectName} notes Section ${sectionName} ke portal par upload ho gaye hain. Group share mein thori dikkat aayi hai — main retry kar raha hoon.`;
 }
 
 function declinedMessage() {
@@ -284,15 +353,141 @@ async function captureReplyInstructions(materialId, body, aiIntent) {
 /* Publish + ONE dedupe-keyed confirmation + advance the pending queue.
  * Shared by the approval path and the caption auto-approve path so both are
  * retry-safe and never double-confirm. */
+/* ======================= SMART FILE APPROVAL (2026-10-12) ===================
+ * OWNER SPEC: portal upload and WhatsApp group share are TWO distinct,
+ * separately authorized actions — approval of one NEVER implies the other.
+ * The reply's own words (or the validated AI intent) decide the scope. */
+function scopeFromBody(text) {
+  const t = String(text ?? '').toLowerCase();
+  const mPortal = /\bportal\b/.test(t);
+  const mGroup = /\b(group|whatsapp|grp)\b/.test(t);
+  if (!mPortal && !mGroup) return null; // no explicit limitation → both stay authorized
+  const only = /\b(sirf|only|bas|keval)\b/.test(t);
+  // CLAUSE-LOCAL negation: a "nahi" that belongs to the OTHER action's
+  // clause must never leak across ("portal par upload karo, group mein
+  // nahi" negates ONLY the group) — split on separators first.
+  const clauses = t.split(/[,;.!?]|\b(?:aur|or|lekin|but|and)\b/);
+  const negRe = /\b(nahi|nahin|nah|nhi|nai|mat|skip|band)\b/;
+  const negPortal = mPortal && clauses.filter((c) => c.includes('portal')).some((c) => negRe.test(c));
+  const negGroup = mGroup && clauses.filter((c) => /\b(group|whatsapp|grp)\b/.test(c)).some((c) => negRe.test(c));
+  if (mPortal && !mGroup) {
+    if (negPortal) return { portal: false, group: true }; // "portal nahi karna"
+    return only ? { portal: true, group: false } : null;
+  }
+  if (mGroup && !mPortal) {
+    if (negGroup) return { portal: true, group: false }; // "group nahi karna"
+    return only ? { portal: false, group: true } : null;
+  }
+  // both actions named: explicit per-action negation decides
+  if (negGroup && !negPortal) return { portal: true, group: false };
+  if (negPortal && !negGroup) return { portal: false, group: true };
+  return null;
+}
+
+/* caption pre-approval scope: "ye karo" → both; "sirf portal par karo" → portal only */
+function captionScope(text) {
+  return scopeFromBody(text) ?? { portal: true, group: true };
+}
+
+/* the teacher's title from a plain reply ("Lecture 5 rakh do" → "Lecture 5") */
+function cleanRequestedTitle(text) {
+  let x = sanitizeWhatsAppText(String(text ?? '')).slice(0, 140);
+  x = x.replace(/\b(pehle|phir|ab|bas|sirf|ye|isay|isay ye|is|ka|ki|ke|naam|name|title|tittle|change|badal|badlo|rakh|rakho|naam rakh|kar|karo|kar do|kardo|kr|krdo|dono|do|dein|dijiye|laga|laga do|upload|upload kar|share|share kar|bata|bata dein|batao)\b/gi, ' ');
+  x = x.replace(/\s+/g, ' ').replace(/^[\s\-:,.]+|[\s\-:,.]+$/g, '').trim();
+  return x.length >= 3 ? x.slice(0, TITLE_MAX) : '';
+}
+
+/* executes ONLY the authorized actions — the two claims are recorded
+ * separately BEFORE anything runs, so a crash/restart resumes cleanly. */
+async function executeAuthorized(material, teacherRecords, actionsIn) {
+  const actions = actionsIn ?? { portal: true, group: true };
+  await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
+    authPortal: Boolean(actions.portal), authGroup: Boolean(actions.group),
+    portalStatus: actions.portal ? 'pending' : 'skipped',
+    broadcastStatus: actions.group ? 'pending' : 'skipped' } });
+  const fresh = await TeacherMaterial.findById(material._id).lean();
+  if (!actions.portal) return await shareGroupOnly(fresh, teacherRecords);
+  return await publishAndConfirm(fresh, teacherRecords);
+}
+
+/* GROUP-ONLY share: the file reaches the students' group WITHOUT a portal
+ * Note — honest about the skipped action. Idempotent by status. */
+async function shareGroupOnly(material, teacherRecords) {
+  if (material.status === 'shared' && material.broadcastStatus === 'done') return 'shared';
+  try {
+    if (!material.attachment?.publicId) {
+      await TeacherMaterial.updateOne({ _id: material._id },
+        { $set: { broadcastStatus: 'failed' }, $inc: { broadcastAttempts: 1 } });
+      await sendTeacherText(material.phone, `Maazrat Sir, file tak main pohanch nahi paya — dobara is chat par bhej dein.`);
+      auditPush(material._id, 'failed', 'group-only share: stored attachment missing');
+      return 'failed';
+    }
+    const [subjectDoc, sectionDoc] = await Promise.all([
+      Subject.findById(material.proposedSubject).select('name section').lean(),
+      Section.findById(material.section).select('name cr gr').lean(),
+    ]);
+    if (!subjectDoc || !sectionDoc) throw new ApiError(404, 'destination subject/section missing');
+    const contentParts = [material.caption, material.teacherInstructions].filter(Boolean).join('\n\n');
+    const title = (material.requestedTitle || String(material.filename ?? '').replace(/\.[^.]+$/, '')).trim();
+    const text = await noteMessage({ title, subject: material.proposedSubject, content: contentParts });
+    const out = await broadcastToSubjectGroup(material.section, material.proposedSubject, text, [material.attachment]);
+    if (out?.sent) {
+      await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
+        status: 'shared', portalStatus: 'skipped', broadcastStatus: 'done' } });
+      auditPush(material._id, 'shared', 'group-only share delivered to the class group');
+      chatLog('SHARED', { phone: material.phone, id: material._id, msg: `${material.filename} → group only` });
+      const language = teacherRecords?.[0]?.chatProfile?.detectedLanguage;
+      await sendTracked(material.phone, sharedOnlyMessage({ filename: material.filename, language }),
+        { kind: 'material', refKey: `material:${material._id}:shared-ack`,
+          dedupeKey: `material:${material._id}:shared-ack`, once: true });
+      const freshDoc = await TeacherMaterial.findById(material._id).lean();
+      await notifyCrPersisted(freshDoc, {
+        event: 'shared',
+        title: 'Teacher file shared to the class group',
+        message: `"${material.filename}" from ${teacherRecords?.[0]?.name ?? 'the teacher'} was shared with the students' WhatsApp group on their approval. It was NOT uploaded to the portal.`,
+        lines: [
+          `Sir, ${cleanWhatsAppField(teacherRecords?.[0]?.name ?? 'Teacher')} ne ek file sirf students ke WhatsApp group mein share karwai hai.`,
+          '',
+          `File: "${cleanFilename(material.filename, 60)}"`,
+          'Portal par upload nahi hui (teacher ne farmaya tha).',
+        ].join('\n') });
+      return 'shared';
+    }
+    // honest failure — nothing claimed as done; the sweep retries the share
+    await TeacherMaterial.updateOne({ _id: material._id },
+      { $set: { broadcastStatus: 'failed' }, $inc: { broadcastAttempts: 1 } });
+    auditPush(material._id, 'failed', `group share failed: ${String(out?.reason ?? 'unknown').slice(0, 200)}`);
+    await sendTeacherText(material.phone, `Maazrat Sir, group mein share nahi ho saki — thori dair mein dobara koshish karta hoon.`);
+    return 'failed';
+  } catch (err) {
+    await TeacherMaterial.updateOne({ _id: material._id },
+      { $set: { broadcastStatus: 'failed' }, $inc: { broadcastAttempts: 1 } }).catch(() => {});
+    auditPush(material._id, 'failed', `group share error: ${String(err?.message ?? err).slice(0, 300)}`);
+    chatLog('SHARE-FAILED', { phone: material.phone, id: material._id, msg: String(err?.message ?? err) });
+    await sendTeacherText(material.phone, `Maazrat Sir, group mein share nahi ho saki — thori dair mein dobara koshish karta hoon.`);
+    return 'failed';
+  }
+}
+
 async function publishAndConfirm(material, teacherRecords) {
   const outcome = await publishMaterial(material);
   if (outcome.ok) {
-    await sendTracked(material.phone, publishedMessage({
-      filename: material.filename, subjectName: outcome.subjectName,
-      sectionName: outcome.sectionName,
-      language: teacherRecords?.[0]?.chatProfile?.detectedLanguage,
-      crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
-    }), { kind: 'material', refKey: `material:${material._id}:published-ack`,
+    const language = teacherRecords?.[0]?.chatProfile?.detectedLanguage;
+    /* SMART-FILE-APPROVAL §3/§5 (2026-10-12): the confirmation states what
+     * ACTUALLY happened for EACH authorized action — a skipped share is
+     * said to be skipped, a temporarily-failed share is promised as a
+     * retry (and the sweep delivers it + ONE deduped follow-up). */
+    const skipped = material.authGroup === false || outcome.groupSent === null;
+    const groupShared = skipped ? false
+      : outcome.groupSent === undefined ? null : outcome.groupSent;
+    const msg = (material.authGroup !== false && outcome.groupSent === false)
+      ? sharePendingMessage({ subjectName: outcome.subjectName, sectionName: outcome.sectionName, language })
+      : publishedMessage({
+        filename: material.filename, subjectName: outcome.subjectName,
+        sectionName: outcome.sectionName, language,
+        crDelivered: outcome.crDelivered, alreadyPublished: outcome.alreadyPublished,
+        groupShared });
+    await sendTracked(material.phone, msg, { kind: 'material', refKey: `material:${material._id}:published-ack`,
       dedupeKey: `material:${material._id}:published-ack`, once: true });
     await askNextPendingMaterial(material.phone, material._id, teacherRecords).catch(() => {});
     return 'published';
@@ -494,7 +689,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
 
   // duplicate content: the same file already pending/published for this teacher
   const dupe = await TeacherMaterial.findOne({ phone: sender, sha256, _id: { $ne: material._id },
-    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered', 'published'] } }).sort({ createdAt: -1 }).lean();
+    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered', 'published', 'shared'] } }).sort({ createdAt: -1 }).lean();
   if (dupe) {
       material.status = 'ignored'; await material.save();
     auditPush(material._id, 'duplicate', `same content as ${dupe.status} material ${dupe._id}`);
@@ -602,8 +797,8 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
       material.autoApproved = true;
       await material.save();
       auditPush(material._id, 'auto-approved', `caption carried a clear upload instruction (${resolved.subject?.name ?? ''})`);
-      chatLog('FILE-AUTO', { phone: sender, msg: `caption approved → publishing ${filename}` });
-      return await publishAndConfirm(material, teacherRecords);
+      chatLog('FILE-AUTO', { phone: sender, msg: `caption approved → executing ${captionScope(caption).portal ? 'portal' : ''}${captionScope(caption).group ? '+group' : ' only'}` });
+      return await executeAuthorized(material, teacherRecords, captionScope(caption));
     }
     await material.save();
     auditPush(material._id, 'asked', `approval for subject ${(resolved.subject?.name ?? '')} (Section ${(resolved.section?.name ?? '')})`);
@@ -618,6 +813,7 @@ async function classifyAndAsk(material, { sender, filename, effectiveMime, capti
     await sendTeacherText(sender, askApprovalMessage({
       filename, subjectName: resolved.subject?.name ?? 'your subject', sectionName: resolved.section?.name ?? '',
       teacherName: primary.name, language: primary.chatProfile?.detectedLanguage,
+      variant: askVariant(material._id),
     }));
     return true;
   }
@@ -687,6 +883,7 @@ async function askNextPendingMaterial(sender, excludeId, teacherRecordsIn) {
     await sendTeacherText(sender, `${prefix}\n\n${askApprovalMessage({
       filename: next.filename, subjectName: subj?.name ?? 'your subject', sectionName: sec?.name ?? '',
       teacherName: primary?.name, language: primary?.chatProfile?.detectedLanguage,
+      variant: askVariant(next._id),
     })}`);
   }
   await TeacherMaterial.updateOne({ _id: next._id }, { $set: { askedAt: new Date() } });
@@ -762,22 +959,38 @@ async function reopenDeclinedMaterial(sender, body, payload) {
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name code').populate('section', 'name').lean();
   const captured = await captureReplyInstructions(reopened._id, body, null); // Case C applies here too
-  await publishAndConfirm(captured ? await TeacherMaterial.findById(reopened._id).lean() : reopened, teacherRecords);
+  const reopenDoc = captured ? await TeacherMaterial.findById(reopened._id).lean() : reopened;
+  // SMART-FILE-APPROVAL: the re-open instruction carries its own scope
+  // ("karo, sirf portal par") — only the authorized actions execute.
+  await executeAuthorized(reopenDoc, teacherRecords, scopeFromBody(String(body ?? '')) ?? { portal: true, group: true });
   return true;
 }
 
 export async function handleMaterialApprovalIntent(sender, body, payload) {
   const msgId = String(payload?.data?.id ?? '').slice(0, 220);
-  const material = await TeacherMaterial.findOne({ phone: sender,
-    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered'] } }).sort({ askedAt: -1 }).lean();
-  if (!material) {
+
+  /* --- 1) every OPEN material question for this phone (bind window) --- */
+  /* OWNER SMART-FILE-APPROVAL SPEC §4 (2026-10-12): all pending files are
+   * loaded — a reply is bound to the file it ANSWERS (or names); when
+   * several files are open and a generic approval could mean any of them,
+   * the agent asks WHICH file instead of guessing. */
+  const open = (await TeacherMaterial.find({ phone: sender,
+    status: { $in: ['awaiting_approval', 'awaiting_subject', 'awaiting_section', 'offered'] } })
+    .sort({ askedAt: -1 }).lean())
+    .filter((m) => m.askedAt && Date.now() - new Date(m.askedAt).getTime() <= APPROVAL_BIND_WINDOW_MS);
+  if (!open.length) {
     if (await reopenDeclinedMaterial(sender, body, payload)) return 'reopened';
     return null;
   }
-  if (!material.askedAt || Date.now() - new Date(material.askedAt).getTime() > APPROVAL_BIND_WINDOW_MS) {
-    if (await reopenDeclinedMaterial(sender, body, payload)) return 'reopened';
-    return null;
+  let material = open[0];
+
+  // WHICH-FILE REDELIVERY GUARD: the which-file question consumes the reply
+  // id on EVERY open material — a redelivery of that same generic approval
+  // must exit SILENTLY (no repeated question, no general-chat answer).
+  if (msgId && open.length && open.every((m) => String(m.lastReplyMsgId ?? '') === msgId)) {
+    return 'which-file-dup';
   }
+
   // RECENCY BINDING (spec §5 + class-confirmation safety): when the class
   // confirmation question was asked MORE RECENTLY than the upload question,
   // a bare YES/NO belongs to the CLASS — this material stays pending.
@@ -785,20 +998,6 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
     'teacherConfirmation.phone': sender, 'teacherConfirmation.status': 'awaiting',
     'teacherConfirmation.sentAt': { $gt: new Date(material.askedAt) } }).select('_id').lean();
   if (newerClassAsk) return null;
-  // OWNER SPEC 2026-10-11 §2/§6 (root-cause duplicate fix): ONE event = ONE
-  // action. Wasender redelivers webhooks aggressively (same msgId up to 3x,
-  // often while the first invocation is still mid-publish). The old
-  // read-then-check let a concurrent duplicate pass, re-run classification,
-  // race the publish claim and send the teacher a SECOND confirmation.
-  // Atomic claim: the first invocation to write lastReplyMsgId owns the
-  // reply; every redelivery/concurrent copy loses the race at DB level and
-  // exits without any user-facing message.
-  if (msgId) {
-    const claimed = await TeacherMaterial.findOneAndUpdate(
-      { _id: material._id, lastReplyMsgId: { $ne: msgId } },
-      { $set: { lastReplyMsgId: msgId } }, { new: true }).lean();
-    if (!claimed) return 'pending'; // duplicate delivery — already claimed/answered
-  }
 
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name code').populate('section', 'name').lean();
@@ -806,44 +1005,52 @@ export async function handleMaterialApprovalIntent(sender, body, payload) {
   const sectionCandidates = material.status === 'awaiting_section'
     ? teacherRecords.filter((t) => t.subject?.name === material.sectionSubjectName) : [];
   const sectionNames = sectionCandidates.map((t) => t.section?.name).filter(Boolean);
+  const language = teacherRecords[0]?.chatProfile?.detectedLanguage;
+  const subjName = material.proposedSubject
+    ? (await Subject.findById(material.proposedSubject).select('name').lean())?.name ?? 'Notes' : 'Notes';
   const asked = material.status === 'awaiting_subject'
     ? `which subject the file belongs to (${subjectNames.join(' / ')})`
     : material.status === 'awaiting_section'
     ? `which section the ${material.sectionSubjectName} file belongs to (${sectionNames.join(' / ')})`
     : material.status === 'offered'
     ? `whether the file "${material.filename}" is study material they want uploaded (the agent offered: reply yes to upload)`
-    : `whether to upload "${material.filename}" to the ${(await Subject.findById(material.proposedSubject).select('name').lean())?.name ?? 'Notes'} section for students`;
+    : `whether to upload "${material.filename}" to the ${subjName} Notes portal AND share it with the students' WhatsApp group for the class`;
 
+  /* --- 2) GEMINI STRUCTURED INTENT v2 (smart-file-approval spec §2/§3) --- */
+  /* Two distinct actions (portal upload / students' group share) get
+   * SEPARATE authorization; a conditional approval holds execution; a bare
+   * acknowledgement is NEVER an approval. Model output is a VALIDATED
+   * proposal — offline rules remain the safety net. */
   const key = env.chatbot?.googleApiKey;
   let verdict = null;
-  /* OWNER PERMANENT-REPAIR SPEC §3 (2026-10-12): STRUCTURED intent analysis —
-   * one validated schema instead of a bare yes/no verdict. The model gets
-   * the pending task context (the exact question asked, which names the
-   * file/subject/section) and returns a proposal the code VALIDATES and
-   * maps onto the existing workflow actions. Model output is a PROPOSAL:
-   * the subject/section hints only resolve when they match one of the
-   * teacher's OWN authorized records, and teacher instructions stored on
-   * the Note are the teacher's VERBATIM words — the AI's message fields
-   * are a fallback ONLY when the reply clearly carried instructions the
-   * regex could not lift, and they are capped + sanitized. An invalid or
-   * absent answer falls to the deterministic offline rules below. */
   let aiIntent = null;
+  let actions = { portal: true, group: true }; // default: approval covers BOTH actions
   if (key && !(process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1')) {
+    const pendingListNote = open.length > 1
+      ? `\nThere are ${open.length} pending files: ${open.map((m) => `"${m.filename}"`).join(', ')}. If the reply clearly refers to ONE of them (by filename or subject), put that filename in "file_reference"; otherwise put "which file" in "missing_information".`
+      : '';
+    const conditionNote = material.pendingCondition
+      ? `\nIMPORTANT: the teacher earlier said they approve ONLY IF: "${material.pendingCondition}" — the assistant is waiting for that condition to be satisfied. If this reply satisfies it (e.g. provides the new title), classify the intent as "approve" and put the teacher's words for it in "additional_instructions".`
+      : '';
     const parsed = await geminiJson({
-      systemInstruction: { parts: [{ text: `A teacher is coordinating with a class assistant on WhatsApp about ONE pending file task.
-The assistant asked: "${asked}".
-The teacher replied: read the MEANING (English/Urdu/Roman Urdu/mixed) and classify the INTENT of that reply:
-- "approve" = clear authorization for THIS file's upload (yes, haan, upload kar do, share kar dein, theek hai kar do).
-- "provide_instructions" = approval PLUS extra instructions for the students or the upload (e.g. "upload kar do aur students ko bata do kal test hai") — put the teacher's own instruction words in "additional_instructions" and any student-facing message in "student_message".
-- "reject" = clearly declines or cancels the upload (no, nahi, mat karo, skip, rehne dein).
-- "unrelated_question" = the reply asks something else (class time, subject, section, anything) — the upload question stays pending and is answered separately.
-- "clarify" or "unknown" = you cannot tell what they mean — put what is missing in "missing_information".
+      systemInstruction: { parts: [{ text: `A teacher is coordinating with a class assistant on WhatsApp about a pending file task.
+The assistant asked: "${asked}".${pendingListNote}${conditionNote}
+The teacher replied: read the MEANING (English/Urdu/Roman Urdu/mixed, any spelling) and classify the INTENT of that reply:
+- "approve" = clear authorization for BOTH actions — portal upload AND the students' group share ("haan dono kar do", "yes, share it", "theek hai kar do").
+- "approve_portal_only" = authorizes ONLY the portal upload, NOT the group share ("sirf portal par upload karo", "portal yes, group nahi").
+- "approve_group_only" = authorizes ONLY the students' WhatsApp group share, NOT the portal upload ("group mein bhej do, portal nahi").
+- "conditional_approval" = approves ONLY IF something is fixed first ("pehle title change kar do", "subah kar dena") — put the condition in "additional_instructions".
+- "provide_instructions" = approval PLUS extra instructions for the students or the upload ("upload kar do, students ko batao kal test hai") — the teacher's own instruction words in "additional_instructions", any student-facing message in "student_message".
+- "reject" = clearly declines or cancels (no, nahi, mat karo, skip, rehne dein, abhi nahi karna).
+- "unrelated_question" = the reply asks something else — the file question stays pending and is answered separately.
+- "clarify" or "unknown" = you cannot tell what they mean ("hmm", "acha", "okay" alone are NEVER approvals) — put what is missing in "missing_information".
 When the pending question was WHICH SUBJECT or WHICH SECTION, a reply naming it is "approve" with "subject"/"section" filled.
 Never invent instructions or messages the teacher did not write. Return ONLY JSON.` }] },
       contents: [{ role: 'user', parts: [{ text: String(body).slice(0, 400) }] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 200, responseMimeType: 'application/json',
+      generationConfig: { temperature: 0, maxOutputTokens: 220, responseMimeType: 'application/json',
         responseSchema: { type: 'OBJECT', properties: {
-          intent: { type: 'STRING', enum: ['approve', 'reject', 'clarify', 'provide_instructions', 'unrelated_question', 'unknown'] },
+          intent: { type: 'STRING', enum: ['approve', 'approve_portal_only', 'approve_group_only', 'conditional_approval', 'provide_instructions', 'reject', 'clarify', 'unrelated_question', 'unknown'] },
+          file_reference: { type: 'STRING' },
           subject: { type: 'STRING' }, section: { type: 'STRING' },
           student_message: { type: 'STRING' }, additional_instructions: { type: 'STRING' },
           confidence: { type: 'STRING', enum: ['high', 'medium', 'low'] },
@@ -854,10 +1061,11 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
     // verdict (offline rules decide), never a guess. The legacy
     // {answer: approve|decline|other} shape is accepted for old mocks.
     const rawIntent = String(parsed?.intent ?? parsed?.answer ?? '');
-    const validIntents = ['approve', 'reject', 'clarify', 'provide_instructions', 'unrelated_question', 'unknown', 'decline', 'other'];
+    const validIntents = ['approve', 'approve_portal_only', 'approve_group_only', 'conditional_approval', 'provide_instructions', 'reject', 'clarify', 'unrelated_question', 'unknown', 'decline', 'other'];
     if (parsed && validIntents.includes(rawIntent)) {
       aiIntent = {
         intent: rawIntent,
+        fileReference: String(parsed.file_reference ?? '').slice(0, 200),
         subject: String(parsed.subject ?? '').slice(0, 120),
         section: String(parsed.section ?? '').slice(0, 60),
         studentMessage: String(parsed.student_message ?? '').slice(0, 600),
@@ -866,48 +1074,101 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
         missingInformation: String(parsed.missing_information ?? '').slice(0, 300),
         at: new Date(),
       };
-      const approveIntents = ['approve', 'provide_instructions'];
+      const approveIntents = ['approve', 'provide_instructions', 'approve_portal_only', 'approve_group_only'];
       const declineIntents = ['reject', 'decline'];
       verdict = {
         answer: approveIntents.includes(rawIntent) ? 'approve'
           : declineIntents.includes(rawIntent) ? 'decline' : 'other',
         subject: aiIntent.subject, section: aiIntent.section,
       };
+      if (rawIntent === 'approve_portal_only') actions = { portal: true, group: false };
+      else if (rawIntent === 'approve_group_only') actions = { portal: false, group: true };
       // traceable: the validated proposal lives on the task record
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: { aiIntent } }).catch(() => {});
       auditPush(material._id, 'intent', `${aiIntent.intent} (${aiIntent.confidence || 'confidence n/a'}) — model proposal validated`);
     }
   }
-  // Offline safety net (owner reliability spec §2, 2026-10-09): a CLEAR
-  // approval = an explicit upload verb OR a bare yes-word (yes/haan) — because
-  // this handler ONLY runs when THIS material's question is the freshest ask
-  // (no newer class ask, guarded above), a bare yes answers IT. A bare
-  // "ok"/"acha"/"thanks"/"got it" is still NEVER an authorization.
+
+  /* --- 3) OFFLINE safety net + scope/conditional/ack detection --- */
+  const t = String(body ?? '').toLowerCase().trim();
   if (!verdict) {
-    const t = String(body ?? '').toLowerCase().trim();
     const declines = /(^|\b)(no|nahi|nahin|nhi|nai|nah|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(t) && !/matlab/.test(t);
     const bareYes = /^(yes|haan|han|hn|hnn|yeah|yep|sure|ji haan|haan ji)(\s*[.!\s]\s*)*$/.test(t);
-    // upload-authorization verbs, including the Roman-Urdu short forms the
-    // owner's teacher actually types (live incident: "ok kr do"): kr/kro/
-    // kardo/krdo + a completion word (do/dein/d/...), optionally preceded
-    // by an English/Urdu upload verb.
-    // 2026-10-11 owner complaint: "karo/kro" (bare imperatives the teacher
-    // types) never matched the completion-form regex — offline they fell to
-    // 'other' and the publish NEVER happened. Same guards as clearUploadVerbIn.
     const karDo = /(?:^|\s)(?:upload\s+|share\s+|post\s+|publish\s+|bhej\s+)?(?:kar|kr|kro|kardo|kardi|krdo)(?:\s+|-)?(?:do|doon|doon ga|de|dein|dena|dijiye|d|o)(?:\s|$|[.!,])/.test(t)
       && !/\b(kaise|kya|kyu|kyun|kab|kahan|kaun|kon|kaam)\b/.test(t)
       && !/\b(?:karo|kro|kardo|krdo|kar|kr)\s*(?:ge|ga|gi|gy)\b/.test(t);
-    const approves = (/\b(upload|share|post|publish|bhej|dijiye)\b/.test(t) || karDo || bareYes)
-      && !declines && !/\?/.test(t);
-    verdict = declines ? { answer: 'decline' } : approves ? { answer: 'approve' } : { answer: 'other' };
+    const approveVerbs = (/\b(upload|share|post|publish|bhej|dijiye)\b/.test(t) || karDo || bareYes) && !/\?/.test(t);
+    const scope = scopeFromBody(t);
+    // a scope-limited approval ("sirf portal", "group nahi") IS an approval —
+    // the limiting word must not be misread as a global decline
+    if (approveVerbs && scope) { verdict = { answer: 'approve' }; actions = scope; }
+    else if (declines) verdict = { answer: 'decline' };
+    else if (approveVerbs) verdict = { answer: 'approve' };
+    else verdict = { answer: 'other' };
+  } else if (verdict.answer === 'approve') {
+    // the teacher's OWN words limit the actions even when the model returned
+    // a plain approve ("haan, sirf portal par karna")
+    const scope = scopeFromBody(t);
+    if (scope) actions = scope;
   }
+  const conditionalOffline = /\b(pehle|phle|pehlay|first)\b[\s\S]*\b(title|tittle|naam|name|badal|badlo|change)\b/.test(t)
+    || /\b(title|tittle|naam)\b[^.?!]*\b(badal|badlo|change|rakh|rakho|kar do|karo|kardo|krdo)\b/.test(t);
+  const bareAck = /^(?:(?:h+m+|hm+|ach+a+|theek hai|theek|thik|thk|okay|ok+|ji+|g|sahi|right|alright)+[\s.,!+]*)+$/i.test(String(body ?? '').trim());
 
   const markReplySeen = () => TeacherMaterial.updateOne({ _id: material._id },
     { $set: { lastReplyMsgId: msgId } }).catch(() => {});
 
+  /* --- 4) MULTI-FILE: a generic approval with several files open must say
+   * WHICH file — never guess. A reply naming/typing one file's name (or the
+   * model's file_reference) binds to exactly that one. */
+  if (open.length > 1 && verdict.answer === 'approve') {
+    const ref = String(aiIntent?.fileReference ?? '').toLowerCase();
+    // SCORE the reference instead of first-match: the full base name and
+    // tokens UNIQUE to one pending file disambiguate; words shared by
+    // several filenames ("file", "notes") never decide on their own.
+    const scored = open.map((m) => {
+      const base = String(m.filename ?? '').replace(/\.[^.]+$/, '').toLowerCase();
+      const tokens = base.split(/[^a-z0-9]+/).filter((x) => x.length >= 4);
+      let score = 0;
+      if (base && t.includes(base)) score += 2;
+      if (ref && base.includes(ref)) score += 3;
+      for (const tok of tokens) {
+        const shared = open.some((o) => String(o._id) !== String(m._id)
+          && String(o.filename ?? '').toLowerCase().includes(tok));
+        if (!shared && t.includes(tok)) score += 1;
+      }
+      if (m.sectionSubjectName && t.includes(String(m.sectionSubjectName).toLowerCase())) score += 1;
+      if (aiIntent?.subject && m.sectionSubjectName
+        && String(aiIntent.subject).toLowerCase() === String(m.sectionSubjectName).toLowerCase()) score += 1;
+      return { m, score };
+    }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
+    if (scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)) {
+      material = scored[0].m;
+    } else {
+      // all pendings consume the reply id — a webhook redelivery never
+      // repeats the which-file question
+      await TeacherMaterial.updateMany({ _id: { $in: open.map((m) => m._id) } },
+        { $set: { lastReplyMsgId: msgId } }).catch(() => {});
+      await sendTeacherText(sender, whichFileMessage(open.map((m) => m.filename)));
+      auditPush(material._id, 'which-file', `generic approval with ${open.length} files open — asked which file`);
+      chatLog('WHICH-FILE', { phone: sender, id: material._id, msg: `${open.length} pending` });
+      return 'which-file';
+    }
+  }
+
+  /* --- 5) ATOMIC CLAIM: the first invocation to write lastReplyMsgId owns
+   * the reply; every redelivery/concurrent copy exits silently. */
+  if (msgId) {
+    const claimed = await TeacherMaterial.findOneAndUpdate(
+      { _id: material._id, lastReplyMsgId: { $ne: msgId } },
+      { $set: { lastReplyMsgId: msgId } }, { new: true }).lean();
+    if (!claimed) return 'pending'; // duplicate delivery — already claimed/answered
+    material = claimed;
+  }
+
   /* --- OFFER answered (unclear/not-material file) --- */
   if (material.status === 'offered') {
-    if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
+  if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
     if (verdict.answer === 'decline') {
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: { status: 'ignored', lastReplyMsgId: msgId } });
       await destroyStashedAttachment(material); // declined file must not linger in storage
@@ -921,12 +1182,10 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
     const usable = teacherRecords.filter((t) => t.subject && t.section);
     if (usable.length === 1) {
       const resolved = usable[0];
-      // OWNER COMPLAINT FIX (2026-10-11 evening, "kabhi 10 baar confirm
-      // karta"): when the offer ACCEPTANCE itself already carries a clear
-      // upload verb ("ok kr do", "haan kar do") that IS the authorization —
-      // same rule as caption pre-approval — so publish directly instead of
-      // asking a redundant second confirmation. A bare yes still gets the
-      // real approval question.
+      // OWNER COMPLAINT FIX (2026-10-11 evening): an offer ACCEPTANCE that
+      // itself carries a clear upload verb ("ok kr do") IS the authorization
+      // — publish directly instead of a redundant second confirmation. A
+      // bare yes still gets the real approval question.
       const direct = clearUploadVerbIn(body);
       if (direct) await captureReplyInstructions(material._id, body, aiIntent); // Case C: instructions ride the acceptance
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
@@ -939,12 +1198,12 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
         : `approval after offer accepted: ${resolved.subject?.name}`);
       if (direct) {
         const fresh = await TeacherMaterial.findById(material._id).lean();
-        return await publishAndConfirm(fresh, teacherRecords);
+        return await executeAuthorized(fresh, teacherRecords, scopeFromBody(t) ?? { portal: true, group: true });
       }
       await sendTeacherText(sender, askApprovalMessage({
         filename: material.filename, subjectName: resolved.subject?.name ?? 'your subject',
         sectionName: resolved.section?.name ?? '', teacherName: teacherRecords[0]?.name,
-        language: teacherRecords[0]?.chatProfile?.detectedLanguage,
+        language: teacherRecords[0]?.chatProfile?.detectedLanguage, variant: askVariant(material._id),
       }));
       return 'reasked';
     }
@@ -991,6 +1250,7 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
     await sendTeacherText(sender, askApprovalMessage({
       filename: material.filename, subjectName: resolved.subject?.name, sectionName: resolved.section?.name,
       teacherName: teacherRecords[0]?.name, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
+      variant: askVariant(material._id),
     }));
     return 'reasked';
   }
@@ -1032,12 +1292,100 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
     await sendTeacherText(sender, askApprovalMessage({
       filename: material.filename, subjectName: resolved.subject?.name, sectionName: resolved.section?.name,
       teacherName: teacherRecords[0]?.name, language: teacherRecords[0]?.chatProfile?.detectedLanguage,
+      variant: askVariant(material._id),
     }));
     return 'reasked';
   }
 
   /* --- approval question answered --- */
-  if (verdict.answer === 'other') { await markReplySeen(); return 'pending'; }
+  /* PENDING CONDITION first (smart-file-approval §3): a reply that
+   * satisfies, cancels or supersedes the teacher's earlier condition decides
+   * HERE — the title text itself often reads as an 'other' reply, so this
+   * must run before the ambiguity branches. */
+  if (material.pendingCondition) {
+    const condLower = String(material.pendingCondition).toLowerCase();
+    const condIsTitle = /title|tittle|naam|name/.test(condLower);
+    const cancelled = /\b(nahi badal|nahi badlo|nahi change|nahi rakhna|jaisa hai|jaise hain|waise hi|as it is|as is|nahi badalna)\b/.test(t);
+    if (condIsTitle && !cancelled) {
+      const title = cleanRequestedTitle(body);
+      if (title) {
+        await TeacherMaterial.updateOne({ _id: material._id },
+          { $set: { requestedTitle: title, pendingCondition: '' } });
+        auditPush(material._id, 'condition-satisfied', `teacher's title: "${title.slice(0, 80)}"`);
+        chatLog('CONDITIONAL', { phone: sender, id: material._id, msg: `title set — executing` });
+        // the conditional approval is now effective: execute the authorized
+        // actions with the teacher's OWN title
+        const instr = await captureReplyInstructions(material._id, body, aiIntent);
+        const doc = await TeacherMaterial.findById(material._id).lean();
+        return await executeAuthorized(instr ? await TeacherMaterial.findById(material._id).lean() : doc,
+          teacherRecords, scopeFromBody(t) ?? { portal: true, group: true });
+      }
+      if (verdict.answer !== 'decline') {
+        // a plain "haan" does NOT satisfy a title condition — hold honestly
+        await sendTeacherText(sender, titleConditionMessage({ language }));
+        chatLog('CONDITIONAL', { phone: sender, id: material._id, msg: 'title awaited — no action' });
+        return 'conditional';
+      }
+      // a decline falls through to the decline branch below
+    } else if (!condIsTitle && !cancelled) {
+      if (verdict.answer === 'approve') {
+        await TeacherMaterial.updateOne({ _id: material._id }, { $set: { pendingCondition: '' } });
+        auditPush(material._id, 'condition-cleared', 'a clear approval supersedes the earlier condition');
+      } else if (verdict.answer !== 'decline') {
+        await sendTeacherText(sender, genericConditionMessage(material.pendingCondition, { language }));
+        chatLog('CONDITIONAL', { phone: sender, id: material._id, msg: 'condition still open' });
+        return 'conditional';
+      }
+    } else if (cancelled) {
+      await TeacherMaterial.updateOne({ _id: material._id }, { $set: { pendingCondition: '' } });
+      auditPush(material._id, 'condition-cancelled', 'teacher cancelled their earlier condition');
+      // falls through: an approve executes, a decline declines
+    }
+  }
+
+  /* CONDITIONAL SET (owner example "Pehle title change kar do"): the reply
+ * carries approval VERBS but attaches a condition — it is NOT an execution
+ * approval. Runs for BOTH verdict shapes: a kar-do verb offline reads as
+ * approve and a conditional AI intent reads as other. A reply that already
+ * NAMES the new title ("title Lecture 5 rakh do") satisfies itself. */
+if (!material.pendingCondition && (aiIntent?.intent === 'conditional_approval' || conditionalOffline)) {
+  const title = cleanRequestedTitle(body);
+  if (title) {
+    await TeacherMaterial.updateOne({ _id: material._id },
+      { $set: { requestedTitle: title, lastReplyMsgId: msgId } });
+    auditPush(material._id, 'condition-satisfied', `title given in the same reply: "${title.slice(0, 80)}"`);
+    chatLog('CONDITIONAL', { phone: sender, id: material._id, msg: `title "${title.slice(0, 40)}" — executing` });
+    const instr = await captureReplyInstructions(material._id, body, aiIntent);
+    const doc = await TeacherMaterial.findById(material._id).lean();
+    return await executeAuthorized(instr ? await TeacherMaterial.findById(material._id).lean() : doc,
+      teacherRecords, scopeFromBody(t) ?? { portal: true, group: true });
+  }
+  const condition = String(aiIntent?.additionalInstructions || aiIntent?.missingInformation || (body ?? '')).slice(0, 600);
+  await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
+    pendingCondition: condition, askedAt: new Date(), lastReplyMsgId: msgId } });
+  auditPush(material._id, 'conditional', `approval IF: ${condition.slice(0, 120)}`);
+  const isTitle = /title|tittle|naam|name/i.test(condition) || /title|naam/i.test(t);
+  await sendTeacherText(sender, isTitle
+    ? titleConditionMessage({ language })
+    : genericConditionMessage(condition, { language }));
+  chatLog('CONDITIONAL', { phone: sender, id: material._id, msg: condition.slice(0, 80) });
+  return 'conditional';
+}
+
+  if (verdict.answer === 'other') {
+    // AMBIGUOUS ACKNOWLEDGEMENT ("Hmm", "acha", "okay") — NEVER an
+    // authorization: ONE natural both-actions confirmation, owner wording.
+    if (bareAck) {
+      await TeacherMaterial.updateOne({ _id: material._id },
+        { $set: { lastReplyMsgId: msgId }, $inc: { confirmAsks: 1 } });
+      const doc = await TeacherMaterial.findById(material._id).select('confirmAsks').lean();
+      await sendTeacherText(sender, confirmBothActionsMessage({ language, attempt: doc?.confirmAsks ?? 1 }));
+      auditPush(material._id, 'confirm', 'ambiguous acknowledgement — asked for a clear both-actions confirmation');
+      chatLog('CONFIRM', { phone: sender, id: material._id, msg: 'ambiguous ack — no action taken' });
+      return 'confirm-asked';
+    }
+    await markReplySeen(); return 'pending';
+  }
   if (verdict.answer === 'decline') {
     await TeacherMaterial.updateOne({ _id: material._id },
       { $set: { status: 'declined', lastReplyMsgId: msgId, lastReply: String(payload?.data?.body ?? payload?.data?.text ?? '').slice(0, 120) } });
@@ -1065,10 +1413,11 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
   const instructions = await captureReplyInstructions(material._id, body, aiIntent);
   const materialForPublish = instructions ? await TeacherMaterial.findById(material._id).lean() : material;
 
-  // publishAndConfirm: verified upload + ONE dedupe-keyed confirmation
-  // (spec §2/§6) — a redelivery can never repeat the upload or confirmation.
-  return await publishAndConfirm(materialForPublish, teacherRecords);
+  // SMART-FILE-APPROVAL §3: ONLY the authorized actions execute — portal
+  // upload and group share are claimed, executed and reported separately.
+  return await executeAuthorized(materialForPublish, teacherRecords, actions);
 }
+
 
 /* ------------------------------ publication ----------------------------- */
 
@@ -1143,7 +1492,11 @@ async function publishMaterial(material, { resume = false } = {}) {
 
 
 
-    const title = String(material.filename).replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim().slice(0, TITLE_MAX) || material.filename;
+    // SMART-FILE-APPROVAL conditional: the teacher's OWN requested title
+    // ("pehle title change kar do" → provided) beats the filename.
+    const title = (material.requestedTitle && String(material.requestedTitle).trim()
+      ? String(material.requestedTitle).replace(/[_]+/g, ' ').trim().slice(0, TITLE_MAX)
+      : String(material.filename).replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim().slice(0, TITLE_MAX)) || material.filename;
     // OWNER SPEC 2026-10-11 §2: description = the teacher's OWN words only —
     // caption (sent with the file) + extra instructions (sent in the
     // approval reply). No teacher words → the file's VERIFIED Gemini content
@@ -1191,15 +1544,36 @@ async function publishMaterial(material, { resume = false } = {}) {
     // SAME subject-group routing (subject group first, general fallback),
     // one file + text = ONE message. Best-effort: a group failure NEVER
     // fails the portal publish.
-    let groupSent = false;
-    try {
-      const noteDoc = await Note.findById(note._id).lean();
-      const out = await broadcastToSubjectGroup(material.section, material.proposedSubject, await noteMessage(noteDoc), [meta]);
-      groupSent = Boolean(out?.sent);
-      if (groupSent) await Note.updateOne({ _id: note._id }, { $set: { groupBroadcastAt: new Date() } });
-      auditPush(material._id, 'broadcast', groupSent ? 'sent to the class group' : `group broadcast skipped (${out?.reason ?? 'unknown'})`);
-    } catch (err) {
-      auditPush(material._id, 'broadcast', `best-effort failed: ${String(err?.message ?? err).slice(0, 200)}`);
+    let groupSent = false; // tri-state outcome: false → pending/retry, null → skipped
+    if (material.authGroup === false) {
+      // SMART-FILE-APPROVAL §3: the teacher authorized ONLY the portal —
+      // the group share is SKIPPED, never inferred from the upload approval.
+      await TeacherMaterial.updateOne({ _id: material._id }, { $set: { broadcastStatus: 'skipped' } });
+      auditPush(material._id, 'broadcast', 'skipped — the teacher did not authorize the group share');
+      groupSent = null;
+    } else {
+      try {
+        const noteDoc = await Note.findById(note._id).lean();
+        const out = await broadcastToSubjectGroup(material.section, material.proposedSubject, await noteMessage(noteDoc), [meta]);
+        // NO GROUP LINKED (or provider unconfigured) is a PERMANENT condition —
+        // an honest "not shared" today, never a retry promise that cannot
+        // come true (owner spec: no false hope).
+        if (!out?.sent && (out?.reason === 'no-group' || out?.reason === 'not-configured')) {
+          await TeacherMaterial.updateOne({ _id: material._id }, { $set: { broadcastStatus: 'skipped' } });
+          auditPush(material._id, 'broadcast', `group share skipped — ${out.reason}`);
+          groupSent = null;
+        } else {
+          groupSent = Boolean(out?.sent);
+          await TeacherMaterial.updateOne({ _id: material._id },
+            { $set: { broadcastStatus: groupSent ? 'done' : 'failed' }, $inc: { broadcastAttempts: 1 } });
+          if (groupSent) await Note.updateOne({ _id: note._id }, { $set: { groupBroadcastAt: new Date() } });
+          auditPush(material._id, 'broadcast', groupSent ? 'sent to the class group' : `group share failed (${out?.reason ?? 'unknown'}) — the sweep retries ONLY the share`);
+        }
+      } catch (err) {
+        await TeacherMaterial.updateOne({ _id: material._id },
+          { $set: { broadcastStatus: 'failed' }, $inc: { broadcastAttempts: 1 } }).catch(() => {});
+        auditPush(material._id, 'broadcast', `best-effort failed: ${String(err?.message ?? err).slice(0, 200)} — the sweep retries ONLY the share`);
+      }
     }
 
     const teacherDoc = await Teacher.findById(material.teacher).select('name').lean();
@@ -1220,7 +1594,8 @@ async function publishMaterial(material, { resume = false } = {}) {
       message: `"${material.filename}" from ${teacherDoc?.name ?? 'the teacher'} was uploaded to the ${subjectDoc.name} Notes section after their WhatsApp approval. Students can open it now.`,
       lines: publishedLines,
     });
-    return { ok: true, subjectName: subjectDoc.name, sectionName: sectionDoc.name, crDelivered: Boolean(crOut?.delivered) };
+    return { ok: true, subjectName: subjectDoc.name, sectionName: sectionDoc.name,
+      crDelivered: Boolean(crOut?.delivered), groupSent };
   } catch (err) {
     await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
       status: 'failed', uploadError: String(err?.message ?? err).slice(0, 600) } });
@@ -1318,7 +1693,7 @@ function chatLog(event, { phone, msg, id } = {}) {
  *   4. awaiting_* silent >24h    → expire + tell the CR, no infinite re-ask
  * Returns a compact summary for the sweep endpoint's log. NEVER throws. */
 export async function runTeacherMaterialSweep() {
-  const out = { retrievalRecovered: 0, resumedReceived: 0, resumedUploading: 0, uploadRetried: 0, uploadRecovered: 0, uploadTerminal: 0, crNotifyRetried: 0, crNotifyDelivered: 0, expired: 0, failed: 0 };
+  const out = { retrievalRecovered: 0, resumedReceived: 0, resumedUploading: 0, uploadRetried: 0, uploadRecovered: 0, uploadTerminal: 0, shareRetried: 0, shareRecovered: 0, crNotifyRetried: 0, crNotifyDelivered: 0, expired: 0, failed: 0 };
   try {
     // 0) ATTACHMENT RETRIEVAL RECOVERY (owner spec 2026-10-12): a file whose
     // decrypt failed at receipt sits in 'retrieving' with the raw (encrypted)
@@ -1479,11 +1854,61 @@ export async function runTeacherMaterialSweep() {
       } catch (err) { auditPush(m._id, 'failed', `sweep retry: ${String(err?.message ?? err).slice(0, 200)}`); }
     }
 
+    // 2e) SMART-FILE-APPROVAL §5: the portal Note is LIVE but the group
+    // share failed — retry ONLY the share (never re-upload), bounded, and
+    // tell the teacher ONCE when it finally goes through (deduped).
+    const shareFails = await TeacherMaterial.find({ status: 'published', authGroup: true,
+      broadcastStatus: 'failed', broadcastAttempts: { $lt: 4 },
+      updatedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }).limit(10).lean();
+    for (const m of shareFails) {
+      try {
+        const note = await Note.findById(m.publishedNote).lean();
+        if (!note?.attachments?.length) continue;
+        const out = await broadcastToSubjectGroup(m.section, m.proposedSubject,
+          await noteMessage(note), note.attachments ?? [m.attachment].filter(Boolean));
+        if (out?.sent) {
+          await TeacherMaterial.updateOne({ _id: m._id },
+            { $set: { broadcastStatus: 'done' }, $inc: { broadcastAttempts: 1 } });
+          await Note.updateOne({ _id: note._id }, { $set: { groupBroadcastAt: new Date() } });
+          auditPush(m._id, 'broadcast', 'share recovered by the sweep — ONE deduped follow-up');
+          await sendTracked(m.phone, `Sir, "${cleanFilename(m.filename, 50)}" ab students ke WhatsApp group mein bhi share ho gayi hai.`, {
+            kind: 'material', refKey: `material:${m._id}:broadcast-done`,
+            dedupeKey: `material:${m._id}:broadcast-done`, once: true }).catch(() => {});
+          out.shareRecovered++;
+        } else {
+          await TeacherMaterial.updateOne({ _id: m._id },
+            { $set: { broadcastStatus: 'failed' }, $inc: { broadcastAttempts: 1 } });
+          out.shareRetried++;
+        }
+      } catch (err) {
+        auditPush(m._id, 'broadcast', `sweep share retry: ${String(err?.message ?? err).slice(0, 200)}`);
+        await TeacherMaterial.updateOne({ _id: m._id },
+          { $inc: { broadcastAttempts: 1 } }).catch(() => {});
+        out.shareRetried++;
+      }
+    }
+
+    // 2f) group-ONLY share failed — the teacher authorized no portal upload,
+    // so the sweep retries the SHARE alone (bounded) with no Note involved.
+    const groupOnlyFails = await TeacherMaterial.find({ status: 'awaiting_approval', authPortal: false, authGroup: true,
+      broadcastStatus: 'failed', broadcastAttempts: { $lt: 4 },
+      updatedAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }).limit(10).lean();
+    for (const m of groupOnlyFails) {
+      try {
+        const recs = await Teacher.find({ whatsapp: m.phone })
+          .populate('subject', 'name code').populate('section', 'name').lean();
+        const res = await shareGroupOnly(m, recs);
+        if (res === 'shared') out.shareRecovered++; else out.shareRetried++;
+      } catch (err) {
+        auditPush(m._id, 'broadcast', `sweep group-only retry: ${String(err?.message ?? err).slice(0, 200)}`);
+      }
+    }
+
     // 3) CR-notification retries — NEVER re-upload because a ping failed
     const pendingNotifies = await TeacherMaterial.find({ 'crNotify.status': 'pending',
       'crNotify.attempts': { $lt: 6 },
       'crNotify.lastTriedAt': { $lt: new Date(Date.now() - 5 * 60 * 1000) },
-      status: { $in: ['published', 'failed', 'declined', 'expired'] } }).limit(20).lean();
+      status: { $in: ['published', 'shared', 'failed', 'declined', 'expired'] } }).limit(20).lean();
     for (const m of pendingNotifies) {
       try {
         // OWNER LIVE AUDIT (2026-10-11, double CR ping): the outbox sweep

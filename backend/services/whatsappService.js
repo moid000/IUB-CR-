@@ -177,6 +177,22 @@ export async function sendTracked(phone, body, { kind = 'teacher', refKey = '', 
       const since = new Date(Date.now() - (windowMs || 30 * 24 * 3600 * 1000));
       const existing = await OutboxMessage.findOne({ dedupeKey, status: 'sent', sentAt: { $gte: since } }).lean();
       if (existing) return { sent: true, alreadySent: true };
+      /* ONE ROW PER KEY (owner spec 2026-10-12): a queued/failed row from an
+       * earlier attempt is RE-DISPATCHED, never duplicated — the material
+       * sweep retry and the outbox sweep can both retry the same broadcast
+       * without any chance of delivering the file twice. */
+      const prior = await OutboxMessage.findOne({ dedupeKey, status: { $in: ['queued', 'failed'] } })
+        .sort({ createdAt: -1 });
+      if (prior) {
+        let ok2 = false; let err2 = '';
+        try { ok2 = await dispatchRow(prior); } catch (err) { err2 = String(err?.message ?? err).slice(0, 300); }
+        try { await OutboxMessage.updateOne({ _id: prior._id }, { $set: {
+          status: ok2 ? 'sent' : 'failed', sentAt: ok2 ? new Date() : null,
+          lastTriedAt: new Date(),
+          attempts: (prior.attempts ?? 0) + (ok2 || !isRateLimitError(err2) ? 1 : 0),
+          lastError: err2 } }); } catch { /* best-effort */ }
+        return { sent: ok2, error: err2, redelivered: true };
+      }
     }
     row = await OutboxMessage.create({ phone: digits, kind, refKey, dedupeKey, body: String(body ?? '').slice(0, 4000), status: 'queued' });
   } catch (err) {

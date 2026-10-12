@@ -70,7 +70,10 @@ const materialSchema = new Schema(
       // encrypted attachment is not yet fetched (decrypt-media temporarily
       // down): rawMessage is persisted and the sweep retries — the teacher
       // is acked ONCE and NEVER asked to resend while a retry can succeed.
-      enum: ['retrieving', 'received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'uploading', 'published', 'declined', 'failed', 'ignored', 'expired', 'offered'],
+      // 'shared' (smart-file-approval spec 2026-10-12) = the teacher
+      // authorized ONLY the WhatsApp group share — the file reached the
+      // class group without a portal Note.
+      enum: ['retrieving', 'received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'uploading', 'published', 'shared', 'declined', 'failed', 'ignored', 'expired', 'offered'],
       default: 'received',
       index: true,
     },
@@ -94,6 +97,7 @@ const materialSchema = new Schema(
     attachmentError: { type: String, default: '', maxlength: 600 }, // receipt-time stash failure (transient) — publish falls back to re-download
     aiIntent: { // OWNER PERMANENT-REPAIR SPEC §3 (2026-10-12): the VALIDATED structured intent proposal from the reply interpreter
       intent: { type: String, default: '' },
+      fileReference: { type: String, default: '' }, // SMART-FILE-APPROVAL: which pending file the reply named
       subject: { type: String, default: '' },
       section: { type: String, default: '' },
       studentMessage: { type: String, default: '' },
@@ -102,6 +106,19 @@ const materialSchema = new Schema(
       missingInformation: { type: String, default: '' },
       at: { type: Date },
     },
+    // OWNER SMART-FILE-APPROVAL SPEC (2026-10-12): portal upload and
+    // WhatsApp group share are TWO SEPARATELY authorized actions — approval
+    // of one NEVER implies the other. null = the question is open.
+    authPortal: { type: Boolean, default: null }, // teacher explicitly authorized portal upload
+    authGroup: { type: Boolean, default: null }, // teacher explicitly authorized the group share
+    portalStatus: { type: String, enum: ['', 'pending', 'done', 'skipped', 'failed'], default: '' },
+    broadcastStatus: { type: String, enum: ['', 'pending', 'done', 'skipped', 'failed'], default: '' },
+    broadcastAttempts: { type: Number, default: 0 }, // group-share retry cap (sweep retries ONLY the share)
+    // conditional approval: the teacher approved IF something is fixed first
+    // ("pehle title change kar do") — nothing executes until it is satisfied.
+    pendingCondition: { type: String, default: '', maxlength: 600 },
+    requestedTitle: { type: String, default: '', maxlength: 300 }, // condition satisfied: the teacher's chosen Note title
+    confirmAsks: { type: Number, default: 0 }, // ambiguous acknowledgements ("hmm") already re-confirmed
     uploadError: { type: String, default: '', maxlength: 600 },
     audit: [{
       at: { type: Date, default: Date.now },

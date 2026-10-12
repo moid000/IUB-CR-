@@ -186,15 +186,33 @@ test('TEST A: THREE separate files, each approved → all three independently up
   assert.equal(new Set(notes.map((n) => n.attachments[0].publicId)).size, 3, 'distinct files per note');
 });
 
-test('TEST A2: file 2 arrives BEFORE file 1 is answered → file 1 publishes, then file 2 is re-asked automatically (no orphan)', async () => {
+test('TEST A2 (smart-file-approval §4): two open files → GENERIC approval asks WHICH file, NAMED approval binds, no orphan', async () => {
   geminiClassify = { study_material: true, subject: 'Data Structures', reason: 'notes', summary: '' };
   await webhook(fileMsg({ filename: 'File_One.pdf' })); // question for file 1
-  await webhook(fileMsg({ filename: 'File_Two.pdf' })); // question for file 2 (now newest asked)
+  await webhook(fileMsg({ filename: 'File_Two.pdf' })); // question for file 2
   geminiClassify = null;
   let open = await TeacherMaterial.countDocuments({ status: 'awaiting_approval' });
   assert.equal(open, 2, 'both files tracked independently, both open');
+  // GENERIC approval with two open questions → NOTHING publishes, the agent
+  // asks which file the approval means (owner spec §4, never a guess)
   geminiApproval = { answer: 'approve' };
-  await webhook(incoming('haan upload kar do')); // binds to file 2 (latest asked)
+  const fromA2 = sent.length;
+  const generic = { event_type: 'message_received', instanceId: 'test-instance',
+    data: { id: 'a2-generic-1', from: '923001112233@c.us', body: 'haan upload kar do', fromMe: false, type: 'chat', time: Math.floor(Date.now() / 1000) } };
+  await webhook(generic);
+  assert.equal(await Note.countDocuments({}), 0, 'nothing published — the approval could mean either file');
+  const whichQ = sent.slice(fromA2).filter((s) => s.to === '923001112233' && /pending hain/.test(s.body));
+  assert.ok(whichQ.length >= 1, 'the agent asked which file the approval means');
+  // the SAME generic approval REDELIVERED (same message id) → no second
+  // which-file question and no action; a NEW message id may ask again
+  const dupe = { event_type: 'message_received', instanceId: 'test-instance',
+    data: { id: 'a2-generic-1', from: '923001112233@c.us', body: 'haan upload kar do', fromMe: false, type: 'chat', time: Math.floor(Date.now() / 1000) } };
+  await webhook(dupe);
+  await webhook(dupe);
+  assert.equal(sent.slice(fromA2).filter((s) => s.to === '923001112233' && /pending hain/.test(s.body)).length, whichQ.length,
+    'a redelivered generic approval never repeats the which-file question');
+  // the teacher NAMES the file → binds to exactly that one
+  await webhook(incoming('File_Two upload kar do'));
   geminiApproval = null;
   open = await TeacherMaterial.countDocuments({ status: 'awaiting_approval' });
   assert.equal(open, 1, 'file 1 still open, file 2 published');
