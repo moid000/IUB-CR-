@@ -906,7 +906,12 @@ async function converseGeneralTeacher(sender, payload, mode) {
 
   // claim the message id (webhook redelivery → answered once) and record the turn
   const rawTime = Number(payload.data.time ?? payload.data.timestamp);
-  const at = Number.isFinite(rawTime) && rawTime > 1.5e9 ? new Date(rawTime > 1e11 ? rawTime / 1000 : rawTime) : new Date();
+  // CR-DELIVERY BUG 2026-10-12 (evidence: teacher turns stored at 1970-01-21):
+  // the unit detection was INVERTED for a DATE — ms values were divided by
+  // 1000 and seconds were used as-is, so EVERY teacher turn got a 1970 date,
+  // silently excluding all of them from the 72h history replay (the model
+  // only ever saw its own words). >1e11 means ms; seconds must be MULTIPLIED.
+  const at = Number.isFinite(rawTime) && rawTime > 1.5e9 ? new Date(rawTime > 1e11 ? rawTime : rawTime * 1000) : new Date();
   const claimed = await Teacher.findOneAndUpdate({ _id: primary._id,
     $or: [{ lastChatMsgId: null }, { lastChatMsgId: '' }, { lastChatMsgId: { $ne: msgId } }] },
     { $set: { lastChatMsgId: msgId },
@@ -987,21 +992,43 @@ async function converseGeneralTeacher(sender, payload, mode) {
     const topicalQuestion = !GREETING_RE.test(body) && !INTERPRET_IDENTITY_RE.test(body)
       && /(\?|kya|kab|kahan|kaun|kon|kyun|when|what|where|who|why|how)/i.test(body)
       && /(kal|cancel|extend|deadline|room|test|quiz|exam|paper|assignment|class|schedule|shift|change|chutti|holiday|reschedul|next|time|date)/i.test(body);
-    if (reply?.escalate || (!reply && topicalQuestion)) {
+    // CR-DELIVERY BUG 2026-10-12 (owner mandate — functional, not prompt):
+    // live evidence shows the LLM chat reply can PROMISE CR contact
+    // ("main aap ki ye baat CR Abdul Rehman tak pohuncha deta hoon", outbox
+    // 2026-10-11 08:01/08:02) while setting escalate:false — NO task was
+    // created and the CR never received the question. The backend no longer
+    // trusts the model's flag alone: a first-person CR promise in the reply
+    // the teacher actually RECEIVED, or an explicit teacher-side "ask the
+    // CR" request, functionally CREATES the durable task and dispatches it.
+    // Identity/contact answers (who is the CR, their number) never match.
+    const promiseReply = PROMISE_CR_RE.test(message) && !CR_INFO_RE.test(message);
+    const crRequested = ASK_CR_RE.test(body) && !SELF_CONTACT_RE.test(body) && !CR_INFO_RE.test(body);
+    if (reply?.escalate || (!reply && topicalQuestion) || promiseReply || crRequested) {
+      const honestFail = async () => sendTracked(sender,
+        'Sir, aap ka sawal abhi CR tak bheja nahi ja saka — thori dair mein dobara koshish karta hoon.',
+        { kind: 'ack', once: true,
+          refKey: `q-fail:${msgId}`, dedupeKey: `q-fail:${msgId}` }).catch(() => {});
       try {
         const esc = await escalateTeacherQuestion({ sender, payload, teacherDoc: primary,
           sectionId: primary.section?._id, crDoc, question: body });
-        if (!esc.reused) {
+        if (!esc?.task || esc.failed) {
+          // task creation itself failed — the teacher is NEVER left holding
+          // a promise nothing will keep (owner: no silently swallowed errors)
+          await honestFail();
+          chatLog('ESCALATE-FAILED', { phone: sender, msg: esc?.error ?? 'create failed' });
+        } else if (!esc.reused) {
           await ackEscalatedTeacher({ sender, payload, task: esc.task, crName: esc.crName, delivered: esc.delivered });
         } else {
           await sendText(sender, [
             'Sir, ye sawal aap ke CR ke paas pending hai — jawab milte hi main aap ko foran bata dunga.',
-            '',
-            '— Tri3M Class Agent',
           ].join('\n')).catch(() => {});
         }
-        chatLog('ESCALATED-TO-CR', { phone: sender, msg: `${esc.task.refCode} ${esc.reused ? '(reused task)' : '(new task)'}` });
-      } catch (err) { console.error('[teacher escalate]', err.message); }
+        chatLog('ESCALATED-TO-CR', { phone: sender,
+          msg: esc?.task ? `${esc.task.refCode} ${esc.reused ? '(reused task)' : '(new task)'}${promiseReply ? ' (promise-gate)' : ''}${crRequested ? ' (ask-cr-gate)' : ''}` : 'no task' });
+      } catch (err) {
+        console.error('[teacher escalate]', err.message);
+        await honestFail();
+      }
     }
   } catch (err) { console.error('[teacher general chat]', err.message); }
   return true;
@@ -1035,6 +1062,28 @@ function chatLog(event, { phone, classId, state, msg, reply, send, verdict } = {
 /* sender-identity ONLY (ap/g/tum kon?, who is this?) — NOT detail questions
  * like 'CR kaun hai?' (asks the CR's name → full card). */
 const INTERPRET_IDENTITY_RE = /\b(ap|aap|tum|tu|g|ji|gee)\s+(kon|kaun|kvn)\b|^\s*(kon|kaun|kvn)\b|\b(kon|kaun|kvn)\s*\?+\s*$|\bwho\b\s*(?:is|are)?\s*(?:this|that|you|u|messaging|texting)?\b\s*(?:me|u|you)?\s*\?*\s*$|\bkis?\s*ka\s*(number|nmbr|no)\b|\bkiska\s*(number|nmbr)\b|number\s+kis|whose\s+number/i;
+
+/* CR-DELIVERY BUG 2026-10-12 — functional escalation detectors (owner
+ * mandate: never trust the LLM flag alone). All Roman-Urdu/English forms seen
+ * live; identity/contact answers are excluded so the CR is never pinged for
+ * "CR kaun hai / number kya hai". */
+const CR_WORD_RE = /\b(cr|c\.r\.?|abdul\s+rehman)\b/i;
+const RELAY_VERB_RE = /(p[o]+u?ch|puch|poochwa|puchwa|k(?:a)?h(?:a)?o+|kaha|batao|batai?ye|bhej\s?(do|dein|dena|dijiye|dunga|dungi|deta|deti|doonga|diya|dijye|denge)|bhejo|pohunch|forward|convey|inform|confirm|check|ask|asking|message|rabta)/i;
+const FIRST_PERSON_RE = /\b(main|maine|hum|mai|i)\b/i;
+const PROMISE_CR_RE = new RegExp(
+  `${FIRST_PERSON_RE.source}[^.!?]{0,90}${CR_WORD_RE.source}[^.!?]{0,90}${RELAY_VERB_RE.source}`
+  + `|${CR_WORD_RE.source}[^.!?]{0,60}${FIRST_PERSON_RE.source}[^.!?]{0,90}${RELAY_VERB_RE.source}`
+  + `|${FIRST_PERSON_RE.source}[^.!?]{0,90}${RELAY_VERB_RE.source}[^.!?]{0,60}${CR_WORD_RE.source}`, 'i');
+// identity/contact requests about the CR itself — never a relay task
+const CR_INFO_RE = new RegExp(
+  `${CR_WORD_RE.source}[^.!?]{0,50}\\b(number|nmbr|phone|contact|kaun|kon|kvn|who|details?)\\b`
+  + `|\\b(number|nmbr|phone|contact|kaun|kon|kvn|who|details?)\\b[^.!?]{0,50}${CR_WORD_RE.source}`, 'i');
+// teacher-side explicit "ask the CR for me" request
+const ASK_CR_RE = new RegExp(
+  `${CR_WORD_RE.source}[^.!?]{0,60}\\b(se|ko|sy)\\b[^.!?]{0,40}${RELAY_VERB_RE.source}`
+  + `|${RELAY_VERB_RE.source}[^.!?]{0,40}\\b(se|ko|sy)\\b[^.!?]{0,20}${CR_WORD_RE.source}`
+  + `|${RELAY_VERB_RE.source}[^.!?]{0,40}${CR_WORD_RE.source}`, 'i');
+const SELF_CONTACT_RE = /\b(khud|apne\s+aap|myself)\b|main\s+[^.!?]{0,30}(p[o]+u?ch|puch|rabta)|i'?ll\s+(ask|check)/i;
 
 /* OWNER MASTER SPEC (§3, §10, §17): identity questions get a natural,
  * honest, SHORT class-coordination answer — never the details dump, never a

@@ -119,12 +119,21 @@ export async function escalateTeacherQuestion({ sender, payload, teacherDoc, sec
   }
   const refCode = await uniqueRefCode();
   const crUser = crDoc ?? await User.findOne({ role: 'admin' }).sort({ createdAt: 1 }).select('name role phone').lean();
-  const task = await TeacherQuestion.create({
-    teacher: teacherDoc._id, teacherName: teacherDoc.name ?? '', phone: sender,
-    section: sectionId ?? teacherDoc?.section?._id ?? teacherDoc?.section ?? undefined,
-    question: String(question ?? '').slice(0, 800), questionKey, refCode,
-    crUser: crUser?._id ?? null, escalatedBy,
-  });
+  let task;
+  try {
+    task = await TeacherQuestion.create({
+      teacher: teacherDoc._id, teacherName: teacherDoc.name ?? '', phone: sender,
+      section: sectionId ?? teacherDoc?.section?._id ?? teacherDoc?.section ?? undefined,
+      question: String(question ?? '').slice(0, 800), questionKey, refCode,
+      crUser: crUser?._id ?? null, escalatedBy,
+    });
+  } catch (e) {
+    // CR-DELIVERY BUG 2026-10-12 (owner mandate): "NEVER throws" is now
+    // literal — a task-creation failure returns { failed } so the caller can
+    // tell the teacher honestly instead of leaving a promise nothing keeps.
+    qlog('CREATE-FAILED', { phone: sender, code: refCode, msg: String(e?.message ?? e).slice(0, 160) });
+    return { task: null, failed: true, error: String(e?.message ?? e).slice(0, 200) };
+  }
   qlog('ESCALATED', { phone: sender, code: refCode, msg: question });
   const dispatch = await dispatchToCr(task, crUser);
   return { task, reused: false, delivered: dispatch.delivered, crName: dispatch.crName };
