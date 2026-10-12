@@ -349,7 +349,7 @@ router.get('/invdiag', async (req, res, next) => {
     const { WhatsAppEvent, TeacherQuestion, TeacherMaterial, Teacher, User, Section, OutboxMessage } = await import('../models/index.js');
     const winH = Math.min(Math.max(Number(req.query.windowHours) || 3, 1), 72);
     const threeHAgo = new Date(Date.now() - winH * 3600 * 1000);
-    const [events, questions, materials, outbox, teachers, sections, directEvents] = await Promise.all([
+    const [events, questions, materials, outbox, teachers, sections, directEvents, teacherChats] = await Promise.all([
       WhatsAppEvent.find({ at: { $gte: threeHAgo } }).sort({ at: -1 }).limit(200).lean(),
       TeacherQuestion.find({ askedAt: { $gte: new Date(Date.now() - Math.max(winH, 26) * 3600 * 1000) } }).sort({ askedAt: -1 }).limit(60).lean(),
       TeacherMaterial.find({ createdAt: { $gte: threeHAgo } }).sort({ createdAt: -1 }).limit(100).lean(),
@@ -359,7 +359,8 @@ router.get('/invdiag', async (req, res, next) => {
       // CR-DELIVERY BUG 2026-10-12: teacher/CR 1:1 traffic drowns under ~85
       // group events/hour in the 200-row window — the exact inbound text of
       // a teacher question was never visible. Direct-only feed, last 48h.
-      WhatsAppEvent.find({ chatType: 'direct' }).sort({ at: -1 }).limit(60).lean(),
+      WhatsAppEvent.find({ chatType: 'direct' }).sort({ at: -1 }).limit(150).lean(),
+      Teacher.find({}).sort({ updatedAt: -1 }).limit(4).select('name whatsapp updatedAt conversation').lean(),
     ]);
     const crIds = [...new Set([...questions.map((q) => q.crUser), ...sections.map((s) => s.cr), ...sections.map((s) => s.gr)].filter(Boolean))];
     const crs = crIds.length ? await User.find({ _id: { $in: crIds } }).select('name role phone').lean() : [];
@@ -373,7 +374,12 @@ router.get('/invdiag', async (req, res, next) => {
           body: String(r.body ?? '').slice(0, 400) })),
       directEvents: directEvents.map((e) => ({ at: e.at, msgId: String(e.msgId).slice(-14), from: e.from,
         chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery,
-        bodyText: (e.bodyText ?? '').slice(0, 300) })),
+        bodyText: (e.bodyText ?? '').slice(0, 300),
+        rawShape: (e.rawShape ?? '').slice(0, 600) })),
+      teacherChats: teacherChats.map((t) => ({ name: t.name, phone: t.whatsapp,
+        updatedAt: t.updatedAt,
+        conversation: (t.conversation ?? []).slice(-24).map((m) => ({ role: m.role, at: m.at,
+          text: String(m.text ?? '').slice(0, 220) })) })),
       events: events.map((e) => ({ at: e.at, msgId: String(e.msgId).slice(-14), from: e.from,
         chatType: e.chatType, msgType: e.msgType, redelivery: e.redelivery, rawShape: e.rawShape || null,
         bodyText: (e.bodyText ?? '').slice(0, 160) })),
