@@ -56,6 +56,60 @@ const MEDIA_KINDS = [
   ['stickerMessage', 'sticker'],
 ];
 
+/* OWNER INCIDENT 2026-10-12 (teacher JPEG + .ipynb both lost): REAL teacher
+ * media with a caption does NOT arrive as a top-level imageMessage /
+ * documentMessage. WhatsApp wraps it in a Baileys "wrapper" message — the
+ * live payloads (WhatsAppEvent rawShape, msgIds 847BDC97A82A8A /
+ * 1E4D0E8B42EAF3) showed BOTH files as:
+ *   message: { messageContextInfo: {...},
+ *              documentWithCaptionMessage: { message: { <real media>… } } }
+ * The old pickMedia only looked at TOP-LEVEL keys → media invisible → the
+ * file fell through as an empty chat and the teacher was told the file never
+ * arrived. resolveMedia unwraps every known wrapper family (view-once,
+ * ephemeral, edited, captioned-document) to the REAL media object. */
+export const MEDIA_WRAPPERS = [
+  'documentWithCaptionMessage',
+  'viewOnceMessage',
+  'viewOnceMessageV2',
+  'viewOnceMessageV3',
+  'viewOnceMessageV4',
+  'ephemeralMessage',
+  'editedMessage',
+  'editedImageMessage',
+  'editedVideoMessage',
+];
+
+export function resolveMedia(message, depth = 0) {
+  if (!message || typeof message !== 'object' || depth > 4) return null;
+  for (const [k, kind] of MEDIA_KINDS) {
+    if (message[k]) return { kind, raw: message[k], mediaMessage: message, wrapped: depth > 0 };
+  }
+  for (const w of MEDIA_WRAPPERS) {
+    const inner = message[w]?.message;
+    if (inner && typeof inner === 'object') {
+      const found = resolveMedia(inner, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function pickMedia(message) { return resolveMedia(message); }
+
+/** The stored raw message must stay SMALL: WhatsApp media objects embed a
+ * jpegThumbnail (base64 image) that is pure dead weight for a later
+ * decrypt retry. Keep the fields the decrypt call needs. */
+export function stripHeavy(message, depth = 0) {
+  if (!message || typeof message !== 'object' || depth > 4) return message;
+  if (Array.isArray(message)) return message.map((v) => stripHeavy(v, depth + 1));
+  const out = {};
+  for (const [k, v] of Object.entries(message)) {
+    if (/thumbnail|imagePayload|mediaContext/i.test(k)) continue;
+    out[k] = stripHeavy(v, depth + 1);
+  }
+  return out;
+}
+
 /** Text extraction that mirrors what WhatsApp actually sends. Plain chats
  * ride in `conversation` or the top-level messageBody; MENTIONS, links and
  * replies ride in `extendedTextMessage.text`; media captions in the media
@@ -73,49 +127,64 @@ export function extractBody(m, message) {
     const text = k === 'conversation' ? v : v?.caption;
     if (text !== undefined && text !== null && String(text).length) return String(text);
   }
+  // OWNER INCIDENT 2026-10-12: captioned media arrives WRAPPED — the caption
+  // lives on the media object INSIDE the wrapper, not at the top level.
+  const wrapped = resolveMedia(msg);
+  if (wrapped?.raw?.caption && String(wrapped.raw.caption).length) return String(wrapped.raw.caption);
   return String(direct ?? '');
 }
 
-function pickMedia(message) {
-  for (const [k, kind] of MEDIA_KINDS) {
-    if (message?.[k]) return { kind, raw: message[k] };
-  }
-  return null;
-}
-
+/* OWNER SPEC 2026-10-12 (attachment ingestion): WhatsApp media is encrypted
+ * at rest (the raw `url` serves CIPHERTEXT — HKDF+mediaKey needed, per
+ * Wasender docs). Publishing that raw URL would store unreadable garbage,
+ * so it is NO LONGER used as a fallback. The decrypt-media endpoint is the
+ * ONLY source of a publishable URL; when it is temporarily down the caller
+ * persists the raw message (url+mediaKey) and retries later — the teacher is
+ * NEVER told the file was not received while a retry can still succeed. */
 async function decryptMediaUrl(message, key) {
   const media = pickMedia(message);
-  if (!media) return { url: null, mimetype: null, filename: null, caption: null };
-  const { kind, raw } = media;
+  if (!media) return { url: null, mimetype: null, filename: null, caption: null, rawMessage: null };
+  const { raw } = media;
   const mimetype = raw?.mimetype ?? null;
   const filename = raw?.fileName ?? raw?.filename ?? null;
   const caption = raw?.caption ?? null;
-  // The raw `url` points at WhatsApp's ENCRYPTED media store — usable only as
-  // a last-ditch fallback. The primary path is the decrypt-media endpoint,
-  // which returns a 1-hour publicUrl.
-  const fallback = typeof raw?.url === 'string' && /^https?:\/\//.test(raw.url) ? raw.url : null;
-  try {
-    const base = String(env.wasender?.apiUrl || 'https://wasenderapi.com/api').replace(/\/+$/, '');
-    const res = await fetch(`${base}/decrypt-media`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${env.wasender.apiKey}`, 'content-type': 'application/json' },
-      // Wasender docs (decrypt-media-file): every request example carries
-      // data.messages.key.id alongside data.messages.message — 2026-10-11 fix.
-      body: JSON.stringify({ data: { messages: { key: { id: key?.id ?? '' }, message } } }),
-      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-    });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* non-JSON */ }
-    const publicUrl = json?.data?.publicUrl ?? json?.data?.url ?? json?.publicUrl ?? null;
-    if (res.ok && publicUrl && /^https?:\/\//.test(publicUrl)) {
-      return { url: publicUrl, mimetype, filename, caption };
+  const rawMessage = stripHeavy(media.mediaMessage);
+  const base = String(env.wasender?.apiUrl || 'https://wasenderapi.com/api').replace(/\/+$/, '');
+  // attempt order (owner incident 2026-10-12): the UNWRAPPED media-bearing
+  // message first — it matches Wasender's documented shape exactly — then
+  // the FULL outer message, in case their endpoint expects the wrapper.
+  const attempts = media.wrapped ? [media.mediaMessage, message] : [message];
+  for (const msgPayload of attempts) {
+    try {
+      const res = await fetch(`${base}/decrypt-media`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${env.wasender.apiKey}`, 'content-type': 'application/json' },
+        // Wasender docs (decrypt-media-file): every request example carries
+        // data.messages.key.id alongside data.messages.message — 2026-10-11 fix.
+        body: JSON.stringify({ data: { messages: { key: { id: key?.id ?? '' }, message: msgPayload } } }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch { /* non-JSON */ }
+      const publicUrl = json?.data?.publicUrl ?? json?.data?.url ?? json?.publicUrl ?? null;
+      if (res.ok && publicUrl && /^https?:\/\//.test(publicUrl)) {
+        return { url: publicUrl, mimetype, filename, caption, rawMessage };
+      }
+      console.error(`[wasender] decrypt-media failed (HTTP ${res.status}): ${String(text).slice(0, 200)}`);
+    } catch (err) {
+      console.error('[wasender] decrypt-media error:', String(err?.message ?? err).slice(0, 200));
     }
-    console.error(`[wasender] decrypt-media failed (HTTP ${res.status}): ${String(text).slice(0, 200)}`);
-  } catch (err) {
-    console.error('[wasender] decrypt-media error:', String(err?.message ?? err).slice(0, 200));
   }
-  return { url: fallback, mimetype, filename, caption };
+  return { url: null, mimetype, filename, caption, rawMessage };
+}
+
+/** Sweep retry path (owner spec 2026-10-12): the webhook stored the raw
+ * (thumbnail-stripped) media message on the material row; this re-attempts
+ * the decrypt so a temporarily-down provider never loses the file. */
+export async function decryptStoredMedia(rawMessage, keyId) {
+  if (!rawMessage || typeof rawMessage !== 'object') return null;
+  return decryptMediaUrl(rawMessage, { id: String(keyId ?? '') });
 }
 
 /**
@@ -180,10 +249,15 @@ export async function normalizeWasenderPayload(raw) {
   }
 
   if (media) {
-    const { url, mimetype, filename, caption } = await decryptMediaUrl(message, key);
+    const { url, mimetype, filename, caption, rawMessage } = await decryptMediaUrl(message, key);
     if (url) {
       out.data.media = url;
       out.data.mediaUrl = url;
+    } else if (rawMessage) {
+      // decrypt temporarily failed: keep the raw media (encrypted url +
+      // mediaKey) so the pipeline persists a RETRYABLE task instead of
+      // telling the teacher the file never arrived (owner spec 2026-10-12).
+      out.data.mediaRaw = rawMessage;
     }
     if (mimetype) out.data.mimetype = mimetype;
     if (filename) out.data.filename = String(filename).slice(0, 255);

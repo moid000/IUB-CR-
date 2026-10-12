@@ -35,6 +35,12 @@ const materialSchema = new Schema(
     phone: { type: String, required: true, index: true }, // WhatsApp digits, matches Teacher.whatsapp
     section: { type: ObjectId, ref: 'Section', required: true }, // authorized destination (server-derived)
     waMsgId: { type: String, required: true, unique: true, maxlength: 220 },
+    // OWNER SPEC 2026-10-12 (attachment ingestion): the provider's raw
+    // (encrypted) media object — url + mediaKey — persisted when the decrypt
+    // call failed at receipt, so the sweep can retry retrieval without the
+    // teacher resending. Thumbnails stripped server-side; kept small.
+    rawMessage: { type: Schema.Types.Mixed, default: null },
+    retrievalAttempts: { type: Number, default: 0 },
     mediaUrl: { type: String, default: '' }, // gateway CDN link (private files still need it to re-download at upload time)
     filename: { type: String, required: true, maxlength: 300 },
     mime: { type: String, default: '' },
@@ -60,7 +66,11 @@ const materialSchema = new Schema(
     sectionSubjectName: { type: String, default: '', maxlength: 120 }, // OWNER (2026-10-08 night): subject name matched across MULTIPLE sections — the section question is open for it
     status: {
       type: String,
-      enum: ['received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'uploading', 'published', 'declined', 'failed', 'ignored', 'expired', 'offered'],
+      // 'retrieving' (owner spec 2026-10-12) = EVENT_RECEIVED but the
+      // encrypted attachment is not yet fetched (decrypt-media temporarily
+      // down): rawMessage is persisted and the sweep retries — the teacher
+      // is acked ONCE and NEVER asked to resend while a retry can succeed.
+      enum: ['retrieving', 'received', 'awaiting_approval', 'awaiting_subject', 'awaiting_section', 'uploading', 'published', 'declined', 'failed', 'ignored', 'expired', 'offered'],
       default: 'received',
       index: true,
     },

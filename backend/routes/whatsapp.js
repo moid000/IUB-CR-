@@ -22,7 +22,7 @@ import { retryOutbox } from '../services/whatsappService.js';
 import * as whatsappService from '../services/whatsappService.js';
 // OWNER 2026-10-10: Wasender webhook payloads are converted into the UltraMsg
 // shape BEFORE any handler runs — UltraMsg payloads pass through untouched.
-import { normalizeIncomingPayload } from '../services/wasenderPayload.js';
+import { normalizeIncomingPayload, MEDIA_WRAPPERS } from '../services/wasenderPayload.js';
 
 /**
  * External pinger endpoints (cron-job.org hits this every ~5 minutes).
@@ -188,7 +188,29 @@ router.post('/ops-replay', async (req, res, next) => {
         materialStatus: mat?.status ?? null,
         publishedNote: mat?.publishedNote ? String(mat.publishedNote).slice(-8) : null,
         crNotify: mat?.crNotify ?? null } });
-    } else throw new ApiError(400, '"mode" must be group, teacher or teacher-file');
+    } else if (mode === 'wasender-raw') {
+      // OWNER SPEC 2026-10-12: replay an EXACT Wasender webhook payload
+      // (event messages.received, raw Baileys message incl. WRAPPED media)
+      // through normalizeIncomingPayload + the real pipeline — the same
+      // shape the provider delivers, so wrapper handling is verifiable
+      // without waiting for a teacher to resend a real file.
+      const raw = req.body?.payload;
+      if (!raw?.data?.messages?.key?.id || !raw?.data?.messages?.message) {
+        throw new ApiError(400, '"payload" must be a full messages.received body (data.messages.key.id + data.messages.message)');
+      }
+      raw.data.messages.key.id = `${raw.data.messages.key.id.slice(0, 180)}_ops${Date.now() % 100000}`;
+      const payload = await normalizeIncomingPayload(raw);
+      const handled = await handleTeacherReply(payload);
+      const { TeacherMaterial } = await import('../models/index.js');
+      const mat = await TeacherMaterial.findOne({ waMsgId: raw.data.messages.key.id }).lean();
+      res.json({ success: true, data: { handled,
+        normalizedType: payload?.data?.type ?? null,
+        normalizedHasUrl: Boolean(payload?.data?.mediaUrl),
+        normalizedCaption: String(payload?.data?.caption ?? '').slice(0, 120) || null,
+        materialId: mat ? String(mat._id).slice(-8) : null,
+        materialStatus: mat?.status ?? null,
+        publishedNote: mat?.publishedNote ? String(mat.publishedNote).slice(-8) : null } });
+    } else throw new ApiError(400, '"mode" must be group, teacher, teacher-file or wasender-raw');
   } catch (err) { next(err); }
 });
 
@@ -439,10 +461,20 @@ router.post('/teacher-reply', async (req, res, next) => {
         return typeof v;
       };
       const MEDIA_KEYS = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
-      const rawKind = MEDIA_KEYS.find((k) => rawMessage?.[k])?.replace('Message', '')
-        ?? (rawMessage?.conversation !== undefined || rawMessage?.extendedTextMessage?.text !== undefined
-          || rawMessageBodyHas(req.body) ? 'chat'
-          : Object.keys(rawMessage)[0] ?? 'unknown');
+      // OWNER INCIDENT 2026-10-12: real captioned media arrives WRAPPED
+      // (documentWithCaptionMessage{message:{…}}) — the audit must resolve
+      // the real kind through the wrapper, or a lost attachment shows up as
+      // the misleading 'messageContextInfo' instead of the media kind.
+      const rawKind = (() => {
+        const inner = MEDIA_WRAPPERS.reduce((msg, w) => msg?.[w]?.message ?? msg, rawMessage) ?? rawMessage;
+        return MEDIA_KEYS.find((k) => inner?.[k] && rawMessage?.[k])?.replace('Message', '')
+          ?? (MEDIA_WRAPPERS.some((w) => rawMessage?.[w])
+            ? `wrapped:${MEDIA_KEYS.find((k) => inner?.[k])?.replace('Message', '') ?? 'unknown'}`
+            : null)
+          ?? (rawMessage?.conversation !== undefined || rawMessage?.extendedTextMessage?.text !== undefined
+            || rawMessageBodyHas(req.body) ? 'chat'
+            : Object.keys(rawMessage)[0] ?? 'unknown');
+      })();
       const rawId = String(rawKey?.id ?? req.body?.data?.id ?? '').slice(0, 220);
       const rawFrom = String(rawKey?.remoteJid ?? req.body?.data?.from ?? '').slice(0, 120)
         + (rawKey?.cleanedSenderPn ? ` |pn:${String(rawKey.cleanedSenderPn).slice(0, 18)}` : ' |pn:NONE')
@@ -451,6 +483,7 @@ router.post('/teacher-reply', async (req, res, next) => {
         const seen = await WhatsAppEvent.findOne({ msgId: rawId }).lean();
         // what the sender actually typed/sent — the single most important
         // diagnostic for approval-interpretation bugs (owner audit 2026-10-11)
+        const innerTyped = MEDIA_WRAPPERS.reduce((msg, w) => msg?.[w]?.message ?? msg, rawMessage) ?? {};
         const typed = String(rawMessage?.conversation
           ?? rawMessage?.extendedTextMessage?.text
           ?? rawMessage?.imageMessage?.caption
@@ -458,6 +491,10 @@ router.post('/teacher-reply', async (req, res, next) => {
           ?? rawMessage?.documentMessage?.caption
           ?? rawMessage?.documentMessage?.fileName
           ?? rawMessage?.audioMessage?.caption
+          ?? innerTyped?.imageMessage?.caption
+          ?? innerTyped?.videoMessage?.caption
+          ?? innerTyped?.documentMessage?.caption
+          ?? innerTyped?.documentMessage?.fileName
           ?? '').slice(0, 300);
         await WhatsAppEvent.create({ msgId: rawId, from: rawFrom, author: '',
           chatType: String(rawKey?.remoteJid ?? '').endsWith('@g.us') ? 'group' : 'direct',

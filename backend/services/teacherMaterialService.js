@@ -249,8 +249,15 @@ function clearUploadInstruction(text) {
   if (!s) return false;
   const declines = /(^|\b)(no|nahi|nahin|mat|mat karo|mat kro|skip|rehne do|rehne dein|cancel|band karo)(\b|$)/.test(s) && !/matlab/.test(s);
   if (declines || s.includes('?')) return false;
+  // OWNER INCIDENT 2026-10-12 (screenshot evidence): the teacher's literal
+  // caption 'ye karo' did NOT count as an approval because 'karo' (one
+  // complete imperative word) was missing from the verb set — the bot then
+  // re-asked for approval although the instruction was already clear. The
+  // single-word imperatives (kardo|krdo|karo|kro) stand alone; the bare
+  // kr/kar/kardi verbs still require the following do/de word.
   return /(?:upload|share|post|publish|bhej)[\s]+(?:kar|kr|kro|kardo|krdo|kardi)?[\s]*(?:do|doon|doon ga|de|dein|dena|dijiye|d)\b/.test(s)
-    || /(?:^|\s)(?:kr|kar|kro|kardo|krdo)[\s]+(?:do|doon|de|dein|dena|dijiye|d)\b/.test(s);
+    || /(?:^|\s)(?:kardo|krdo|karo|kro)(?:[\s]+(?:do|doon|de|dein|dena|dijiye|d))?\b/.test(s)
+    || /(?:^|\s)(?:kr|kar|kardi)[\s]+(?:do|doon|de|dein|dena|dijiye|d)\b/.test(s);
 }
 
 /* OWNER PERMANENT-REPAIR SPEC §4 Case C (2026-10-12): every path that
@@ -408,19 +415,46 @@ export async function handleTeacherFile(payload) {
   const caption = String(data.caption ?? '').trim().slice(0, 600);
   const size = Number(data.size ?? 0);
 
-  const mediaUrl = await findMediaUrl(data);
-  if (!mediaUrl) {
-    chatLog('FILE', { phone: sender, msg: `no media url for ${filename}` });
-    await sendTeacherText(sender, 'Maazrat Sir, file poori tarah upload nahi hui — dobara bhej dein.');
-    return true; // consumed, honestly answered — never silently dropped
-  }
-
   const primary = usableRecords[0] ?? teacherRecords[0];
   if (!usableRecords.length) {
     // every record for this number lacks subject/section — the portal setup
     // is incomplete. NEVER silent: tell the teacher the honest next step.
     chatLog('FILE', { phone: sender, msg: `no subject/section on any teacher record for ${filename}` });
     await sendTeacherText(sender, 'Sir, aap ka teacher record portal me complete nahi hai (subject/section set nahi) — isi liye file save nahi ho saki. CR se theek karwa dein, phir dobara bhej dein.');
+    return true; // consumed, honestly answered — never silently dropped
+  }
+
+  const mediaUrl = await findMediaUrl(data);
+  if (!mediaUrl) {
+    // OWNER SPEC 2026-10-12 (attachment ingestion): NO usable URL at receipt.
+    // If the provider's raw (encrypted) media object was carried through, the
+    // attachment is NOT lost — persist a RETRIEVAL task and let the sweep
+    // retry the decrypt. The teacher is acked ONCE that the file arrived;
+    // they are NEVER asked to resend while a retry can still succeed.
+    const rawMessage = data.mediaRaw ?? null;
+    if (rawMessage && typeof rawMessage === 'object') {
+      let pending;
+      try {
+        pending = await TeacherMaterial.create({
+          teacher: primary._id, phone: sender, section: primary.section?._id ?? primary.section,
+          waMsgId: msgId, mediaUrl: '', filename, mime: effectiveMime, ext, size, caption,
+          rawMessage, retrievalAttempts: 0, status: 'retrieving',
+        });
+      } catch (err) {
+        if (String(err?.code) === '11000') return true; // concurrent redelivery already created it
+        chatLog('FILE', { phone: sender, msg: `retrieval save failed: ${err.message}` });
+        await sendTeacherText(sender, 'Maazrat Sir, file save karne mein masla aa gaya — thori dair baad dobara bhej dein.');
+        return true;
+      }
+      auditPush(pending._id, 'received', `${filename} (${effectiveMime || 'unknown mime'}) — attachment fetch pending, retry scheduled`);
+      chatLog('FILE', { phone: sender, id: pending._id, msg: `${filename} RETRIEVAL PENDING (no decrypted url yet)` });
+      await sendTeacherText(sender, 'Sir, aap ki file mil gayi hai — thori dair mein process kar ke bata dun ga.');
+      return true; // consumed; the sweep owns the retrieval retry
+    }
+    // GENUINELY unavailable (no raw media object either — legacy/unknown
+    // provider shape): ONE concise honest message, resend asked ONCE.
+    chatLog('FILE', { phone: sender, msg: `no media url for ${filename}` });
+    await sendTeacherText(sender, 'Maazrat Sir, aap ki file tak main pohanch nahi paya — ek baar dobara bhej dein.');
     return true; // consumed, honestly answered — never silently dropped
   }
   let material;
@@ -1284,8 +1318,59 @@ function chatLog(event, { phone, msg, id } = {}) {
  *   4. awaiting_* silent >24h    → expire + tell the CR, no infinite re-ask
  * Returns a compact summary for the sweep endpoint's log. NEVER throws. */
 export async function runTeacherMaterialSweep() {
-  const out = { resumedReceived: 0, resumedUploading: 0, uploadRetried: 0, uploadRecovered: 0, uploadTerminal: 0, crNotifyRetried: 0, crNotifyDelivered: 0, expired: 0, failed: 0 };
+  const out = { retrievalRecovered: 0, resumedReceived: 0, resumedUploading: 0, uploadRetried: 0, uploadRecovered: 0, uploadTerminal: 0, crNotifyRetried: 0, crNotifyDelivered: 0, expired: 0, failed: 0 };
   try {
+    // 0) ATTACHMENT RETRIEVAL RECOVERY (owner spec 2026-10-12): a file whose
+    // decrypt failed at receipt sits in 'retrieving' with the raw (encrypted)
+    // media object persisted. The sweep retries the provider decrypt — on
+    // success the file enters the NORMAL classification/approval flow, so a
+    // temporarily-down provider NEVER loses the teacher's attachment and the
+    // teacher is never asked to resend while a retry can succeed.
+    const retrieving = await TeacherMaterial.find({ status: 'retrieving',
+      createdAt: { $lt: new Date(Date.now() - 2 * 60 * 1000) } }).limit(20).lean();
+    for (const m of retrieving) {
+      try {
+        const doc = await TeacherMaterial.findById(m._id); // live doc — classifyAndAsk saves it
+        const { decryptStoredMedia } = await import('./wasenderPayload.js');
+        const r = await decryptStoredMedia(doc.rawMessage, doc.waMsgId);
+        const attempts = (doc.retrievalAttempts ?? 0) + 1;
+        if (r?.url && /^https?:\/\//.test(r.url)) {
+          doc.mediaUrl = r.url; doc.status = 'received'; doc.retrievalAttempts = attempts;
+          await doc.save();
+          auditPush(m._id, 'retrieved', `attachment fetched on retry ${attempts} — entering classification`);
+          const teacherRecords = await Teacher.find({ whatsapp: m.phone })
+            .populate('subject', 'name code').populate('section', 'name semester department').lean();
+          const usable = teacherRecords.filter((t) => t.subject && t.section);
+          if (!usable.length) {
+            await TeacherMaterial.updateOne({ _id: m._id }, { $set: { status: 'failed', uploadError: 'no usable teacher record (sweep retrieval)' } });
+            out.failed++; continue;
+          }
+          await classifyAndAsk(doc, { sender: m.phone, filename: m.filename, effectiveMime: m.mime,
+            caption: m.caption, teacherRecords, usableRecords: usable, primary: usable[0] });
+          out.retrievalRecovered++;
+        } else if (attempts >= 4) {
+          // bounded retries exhausted — ONE honest resend ask (deduped), CR informed
+          await TeacherMaterial.updateOne({ _id: m._id }, { $set: { status: 'failed',
+            retrievalAttempts: attempts, uploadError: `media retrieval failed after ${attempts} attempts` } });
+          auditPush(m._id, 'failed', `attachment could not be fetched after ${attempts} retries`);
+          await sendTracked(m.phone, `Maazrat Sir, "${cleanFilename(m.filename, 60)}" tak main pohanch nahi paya — ek baar dobara bhej dein.`, {
+            kind: 'material', refKey: `material:${m._id}:failed-final`,
+            dedupeKey: `material:${m._id}:failed-final`, once: true }).catch(() => {});
+          await notifyCrPersisted(m, { event: 'failed',
+            title: 'Teacher material could not be fetched',
+            message: `"${m.filename}" arrived but its attachment could not be retrieved after several retries. The teacher was asked to resend it once.`,
+            lines: [
+              `Sir, teacher ki file "${cleanFilename(m.filename, 60)}" fetch nahi ho saki (kai retries ke baad bhi).`,
+              '',
+              'Teacher ko ek baar dobara bhejne ke liye kaha hai.',
+            ].join('\n') }).catch(() => {});
+          out.failed++;
+        } else {
+          await TeacherMaterial.updateOne({ _id: m._id }, { $set: { retrievalAttempts: attempts } });
+        }
+      } catch (err) { auditPush(m._id, 'failed', `sweep retrieval: ${String(err?.message ?? err).slice(0, 200)}`); out.failed++; }
+    }
+
     // 1) crash recovery — classification never finished
     const stuckReceived = await TeacherMaterial.find({ status: 'received',
       createdAt: { $lt: new Date(Date.now() - 10 * 60 * 1000) } }).limit(20).lean();
