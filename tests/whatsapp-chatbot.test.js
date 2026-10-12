@@ -244,8 +244,12 @@ test('stripMentions removes mention tokens', () => {
 });
 
 test('parseGeminiJson handles clean, fenced and dirty output', () => {
-  assert.deepEqual(parseGeminiJson('{"reply":"hi","send_note_titles":["A"]}'), { reply: 'hi', send_note_titles: ['A'] });
-  assert.deepEqual(parseGeminiJson('```json\n{"reply":"hi"}\n```'), { reply: 'hi', send_note_titles: [] });
+  // OWNER UPGRADE 2026-10-12: structured intent + needs_cr ride along
+  assert.deepEqual(parseGeminiJson('{"reply":"hi","send_note_titles":["A"]}'), { reply: 'hi', send_note_titles: ['A'], intent: null, needs_cr: false });
+  assert.deepEqual(parseGeminiJson('```json\n{"reply":"hi"}\n```'), { reply: 'hi', send_note_titles: [], intent: null, needs_cr: false });
+  // intent/needs_cr are parsed only from the allow-list — junk is nulled
+  assert.equal(parseGeminiJson('{"reply":"hi","intent":"hacker"}').intent, null);
+  assert.equal(parseGeminiJson('{"reply":"hi","needs_cr":"yes"}').needs_cr, false);
   const parsed = parseGeminiJson('Sure! {"reply":"hi"} ok');
   assert.equal(parsed?.reply, 'hi');
   assert.equal(parseGeminiJson('no json at all'), null);

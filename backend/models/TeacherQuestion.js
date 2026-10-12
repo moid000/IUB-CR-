@@ -24,7 +24,9 @@ const { ObjectId } = Schema.Types;
  */
 const questionSchema = new Schema(
   {
-    teacher: { type: ObjectId, ref: 'Teacher', required: true },
+    // OWNER UPGRADE 2026-10-12 §7: also carries GROUP-student escalations
+    // (escalatedBy='group-chat', teacher=null, asker name in teacherName).
+    teacher: { type: ObjectId, ref: 'Teacher', default: null },
     teacherName: { type: String, default: '', maxlength: 120 },
     phone: { type: String, required: true, index: true }, // teacher's WhatsApp digits (answer delivery target)
     section: { type: ObjectId, ref: 'Section', required: true },

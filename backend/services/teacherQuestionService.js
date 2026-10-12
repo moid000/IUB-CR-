@@ -120,9 +120,14 @@ function teacherAnswerMessage({ teacherName, crName, question, answer }) {
  * The teacher ack is the CALLER's decision — escalate() only dispatches. */
 export async function escalateTeacherQuestion({ sender, payload, teacherDoc, sectionId, crDoc, question, escalatedBy = 'general-chat' }) {
   const questionKey = normalizeKey(question);
-  // spec §8: the SAME unresolved question reuses its task — never two rows
-  const existing = await TeacherQuestion.findOne({ teacher: teacherDoc._id,
-    status: { $in: ['pending_cr', 'cr_responded'] }, questionKey }).sort({ askedAt: -1 }).lean();
+  // spec §8: the SAME unresolved question reuses its task — never two rows.
+  // OWNER UPGRADE 2026-10-12 §7: group-student askers have no Teacher record
+  // (teacherDoc._id null) — their reuse key is the ASKER'S PHONE, so a
+  // re-ask reuses the task while a different student gets their own.
+  const reuseQuery = teacherDoc?._id
+    ? { teacher: teacherDoc._id, status: { $in: ['pending_cr', 'cr_responded'] }, questionKey }
+    : { phone: sender, status: { $in: ['pending_cr', 'cr_responded'] }, questionKey };
+  const existing = await TeacherQuestion.findOne(reuseQuery).sort({ askedAt: -1 }).lean();
   if (existing && Date.now() - new Date(existing.askedAt).getTime() < REUSE_WINDOW_MS) {
     return { task: existing, reused: true, delivered: Boolean(existing.crNotifiedAt), crName: existing.crName ?? null };
   }
@@ -131,7 +136,7 @@ export async function escalateTeacherQuestion({ sender, payload, teacherDoc, sec
   let task;
   try {
     task = await TeacherQuestion.create({
-      teacher: teacherDoc._id, teacherName: teacherDoc.name ?? '', phone: sender,
+      teacher: teacherDoc?._id ?? null, teacherName: teacherDoc.name ?? '', phone: sender,
       section: sectionId ?? teacherDoc?.section?._id ?? teacherDoc?.section ?? undefined,
       question: String(question ?? '').slice(0, 800), questionKey, refCode,
       crUser: crUser?._id ?? null, escalatedBy,
