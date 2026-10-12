@@ -290,7 +290,9 @@ async function publishAndConfirm(material, teacherRecords) {
     await askNextPendingMaterial(material.phone, material._id, teacherRecords).catch(() => {});
     return 'published';
   }
-  await sendTeacherText(material.phone, failedMessage({ filename: material.filename }));
+  const failedDoc = await TeacherMaterial.findById(material._id).select('uploadError filename phone').lean()
+    .catch(() => null) ?? material; // publish just $set uploadError — refetch it
+  await sendTeacherText(material.phone, failedMessage({ filename: material.filename, uploadError: failedDoc.uploadError }));
   await askNextPendingMaterial(material.phone, material._id, teacherRecords).catch(() => {});
   return 'failed';
 }
@@ -314,9 +316,15 @@ function extraInstructionsFromBody(body) {
     .slice(0, 600);
 }
 
-function failedMessage({ filename }) {
+/* 2026-10-12 owner incident: a download 404 means the WhatsApp file link
+ * EXPIRED — 'thori dair baad' would be a lie (it never comes back). The
+ * honest next step is a resend, and the resend happens IN THIS CHAT. */
+function failedMessage({ filename, uploadError }) {
   const short = cleanFilename(filename, 70);
-  return `Maazrat Sir, "${short}" upload nahi ho saki — thori dair baad dobara bhej dein ya CR se bata dein.`;
+  if (uploadError && /download status 40[34]/.test(uploadError)) {
+    return `Maazrat Sir, "${short}" ka WhatsApp link expire ho gaya — file dobara is chat par bhej dein, main foran upload kar dunga.`;
+  }
+  return `Maazrat Sir, "${short}" upload nahi ho saki — file dobara is chat par bhej dein, main foran upload kar dunga.`;
 }
 
 function duplicateMessage({ filename, status }) {
@@ -705,6 +713,18 @@ async function reopenDeclinedMaterial(sender, body, payload) {
     { new: true }).sort({ updatedAt: -1 }).lean();
   if (!reopened) return false;
   auditPush(reopened._id, 'reopened', 'teacher changed their mind — clear upload verb re-opened the declined file');
+  // 2026-10-12 owner incident: a declined file from BEFORE the receipt-stash
+  // deploy has NO stored attachment and its WhatsApp URL EXPIRES after ~2h —
+  // publishing it can only 404. Honest path: ask for the file again in chat.
+  const receivedAt = reopened.receivedAt ?? reopened.createdAt;
+  const staleLink = !reopened.attachment?.publicId && receivedAt
+    && Date.now() - new Date(receivedAt).getTime() > 2 * 3600 * 1000;
+  if (staleLink) {
+    await TeacherMaterial.updateOne({ _id: reopened._id }, { $set: { status: 'declined' } });
+    auditPush(reopened._id, 'reopened-stale', 'old file link expired — asking the teacher to resend in chat');
+    await sendTeacherText(sender, `Sir, purani file ka WhatsApp link expire ho chuka hai — "${cleanFilename(reopened.filename, 60)}" dobara is chat par bhej dein, main foran upload kar dunga.`);
+    return true; // consumed with the honest next step
+  }
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name code').populate('section', 'name').lean();
   const captured = await captureReplyInstructions(reopened._id, body, null); // Case C applies here too
@@ -1296,7 +1316,7 @@ export async function runTeacherMaterialSweep() {
         await TeacherMaterial.updateOne({ _id: m._id }, { $set: {
           status: 'failed', uploadError: 'publish stuck beyond retry cap (sweep terminal)' } });
         auditPush(m._id, 'failed', 'publish stuck beyond retry cap — task closed as failed');
-        await sendTracked(m.phone, failedMessage({ filename: m.filename }), {
+        await sendTracked(m.phone, failedMessage({ filename: m.filename, uploadError: m.uploadError }), {
           kind: 'material', refKey: `material:${m._id}:failed-final`,
           dedupeKey: `material:${m._id}:failed-final`, once: true }).catch(() => {});
         await notifyCrPersisted(m, { event: 'failed',
@@ -1366,7 +1386,7 @@ export async function runTeacherMaterialSweep() {
         } else {
           out.uploadRetried++;
           if ((m.uploadAttempts ?? 0) >= 3) { // cap reached — ONE honest final message, never more
-            await sendTracked(m.phone, failedMessage({ filename: m.filename }), {
+            await sendTracked(m.phone, failedMessage({ filename: m.filename, uploadError: m.uploadError }), {
               kind: 'material', refKey: `material:${m._id}:failed-final`,
               dedupeKey: `material:${m._id}:failed-final`, once: true }).catch(() => {});
           }

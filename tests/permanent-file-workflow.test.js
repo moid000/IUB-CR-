@@ -221,8 +221,10 @@ test('T3: transient publish failure → sweep retry-with-backoff recovers it, ON
   geminiApproval = null;
   let material = await TeacherMaterial.findOne({ filename: 'Retry_Me.pdf' }).lean();
   assert.equal(material.status, 'failed', 'transient publish failure recorded');
-  const failMsgs = teacherMsgs().filter((b) => /upload nahi ho saki/.test(b)).length;
+  const failMsgs = teacherMsgs().filter((b) => /upload nahi ho saki|expire ho gaya/.test(b)).length;
   assert.ok(failMsgs >= 1 && failMsgs <= 2, 'honest failure message sent');
+  assert.match(teacherMsgs().find((b) => /expire ho gaya/.test(b)) || '', /dobara is chat par bhej dein/,
+    'a DEAD link is called what it is — resend in this chat, never "thori dair baad"');
   // provider recovers — rewind the backoff window and let the sweep heal it
   downloads404 = false;
   await TeacherMaterial.collection.updateOne({ _id: material._id }, { $set: { updatedAt: new Date(Date.now() - 11 * 60 * 1000) } });
@@ -234,7 +236,7 @@ test('T3: transient publish failure → sweep retry-with-backoff recovers it, ON
   assert.ok(note, 'real Note after recovery');
   assert.equal(await Note.countDocuments({}), 1, 'exactly one Note — no duplicates');
   assert.equal(teacherMsgs().filter((b) => /upload ho gay/.test(b)).length, 1, 'ONE published ack');
-  assert.equal(teacherMsgs().filter((b) => /upload nahi ho saki/.test(b)).length, failMsgs, 'no extra failure messages');
+  assert.equal(teacherMsgs().filter((b) => /upload nahi ho saki|expire ho gaya/.test(b)).length, failMsgs, 'no extra failure messages');
 });
 
 test('T4: PERMANENT failure (destination gone) — never retried by the sweep', async () => {
@@ -298,6 +300,24 @@ test('T7: Case C — approval + student instructions together → verbatim words
   const note = await Note.findById(material.publishedNote).lean();
   assert.match(String(note.content), /kal test hai/, 'instructions reached the Note description');
   assert.equal(teacherMsgs().filter((b) => /upload ho gay/.test(b)).length, 1, 'ONE confirmation');
+});
+
+test('T10: reopen of a PRE-STASH declined file (dead WhatsApp link) → honest resend ask, NO doomed publish', async () => {
+  // simulate a declined file received 3h ago, before the receipt-stash deploy
+  const t = await Teacher.findOne({ whatsapp: '923001112233' });
+  const stale = await TeacherMaterial.create({ teacher: t._id, phone: '923001112233',
+    section: section4B, waMsgId: 'stale-reopen-1', filename: 'Old_Declined_Image.jpeg',
+    mime: 'image/jpeg', proposedSubject: subject4B, status: 'declined' });
+  await TeacherMaterial.collection.updateOne({ _id: stale._id },
+    { $set: { createdAt: new Date(Date.now() - 3 * 3600 * 1000), updatedAt: new Date(Date.now() - 3 * 3600 * 1000) } });
+  const before = sent.length;
+  await webhook(incoming('us image ko ab upload kar do'));
+  assert.match(sent.slice(before).find((m) => m.to === '923001112233')?.body ?? '', /expire ho chuka|dobara is chat par bhej/,
+    'honest resend-in-chat ask, never a doomed publish');
+  const after = await TeacherMaterial.findById(stale._id).lean();
+  assert.equal(after.status, 'declined', 'not left half-open in awaiting');
+  assert.equal(await Note.countDocuments({}), 0, 'nothing published from a dead link');
+  assert.equal(sent.slice(before).filter((m) => m.to === '923009876543').length, 0, 'CR not spammed for a resend');
 });
 
 test('T7b: OFFER accepted WITH instructions → published in one step, instructions preserved', async () => {
