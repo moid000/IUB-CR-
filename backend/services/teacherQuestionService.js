@@ -88,19 +88,28 @@ function crQuestionAlert({ teacherName, sectionLabel, question, refCode }) {
   ].join('\n');
 }
 
-function teacherAckMessage({ crName, delivered }) {
-  // OWNER STYLE SPEC 2026-10-11 §1/§5: one concise ack, honest about
-  // dispatch state, no footer, no 'correct information' phrasing.
-  if (delivered) {
-    return 'Sir, yeh detail main ne aap ke CR se confirm karne ke liye bhej di hai. Jawab milte hi bata dunga.';
-  }
-  return 'Sir, sawal note kar liya hai — CR ko bhejne mein masla aa raha hai, thori dair mein retry karta hoon.';
+/* CR-DELIVERY BUG 2026-10-12 live follow-up: acks/answers addressed 'Sir' to
+ * a female teacher (Ma'am Hafsa) — the salutation now follows the teacher's
+ * own name/title so the professional tone spec survives female teachers. */
+function salutationOf(name) {
+  return /\b(ma'?am|madam|miss|mrs|ms\.?)\b/i.test(String(name ?? '')) ? "Ma'am" : 'Sir';
 }
 
-function teacherAnswerMessage({ crName, question, answer }) {
+function teacherAckMessage({ teacherName, crName, delivered }) {
+  // OWNER STYLE SPEC 2026-10-11 §1/§5: one concise ack, honest about
+  // dispatch state, no footer, no 'correct information' phrasing.
+  const s = salutationOf(teacherName);
+  if (delivered) {
+    return `${s}, yeh detail main ne aap ke CR se confirm karne ke liye bhej di hai. Jawab milte hi bata dunga.`;
+  }
+  return `${s}, sawal note kar liya hai — CR ko bhejne mein masla aa raha hai, thori dair mein retry karta hoon.`;
+}
+
+function teacherAnswerMessage({ teacherName, crName, question, answer }) {
   // OWNER STYLE SPEC 2026-10-11: one concise delivered answer.
+  const s = salutationOf(teacherName);
   return [
-    `Sir, aap ke sawal ("${String(question ?? '').slice(0, 100)}") ka jawab ${crName ?? 'aap ke CR'} ne bheja hai: "${String(answer ?? '').slice(0, 600)}"`,
+    `${s}, aap ke sawal ("${String(question ?? '').slice(0, 100)}") ka jawab ${crName ?? 'aap ke CR'} ne bheja hai: "${String(answer ?? '').slice(0, 600)}"`,
   ].join('\n');
 }
 
@@ -197,7 +206,7 @@ async function dispatchToCr(task, crUserIn) {
 export async function ackEscalatedTeacher({ sender, payload, task, crName, delivered }) {
   const msgId = String(payload?.data?.id ?? '').slice(0, 220);
   if (task.teacherAckMsgId && task.teacherAckMsgId === msgId) return; // redelivery
-  const ack = teacherAckMessage({ crName, delivered });
+  const ack = teacherAckMessage({ teacherName: task.teacherName, crName, delivered });
   await sendTracked(sender, ack, { kind: 'ack', refKey: `question:${task._id}:ack:${msgId}`, once: true, dedupeKey: `q-ack:${task._id}:${msgId}` });
   await TeacherQuestion.updateOne({ _id: task._id }, { $set: { teacherAckMsgId: msgId } }).catch(() => {});
   qlog('TEACHER-ACKED', { phone: sender, code: task.refCode, msg: delivered ? 'forwarded' : 'dispatch pending' });
@@ -262,7 +271,7 @@ export async function handleCrQuestionReply(sender, body, payload) {
     crUser: task.crUser ?? users[0]._id, status: 'cr_responded' } });
   qlog('CR-REPLIED', { phone: sender, code: task.refCode, msg: text });
   const crUser = users[0];
-  const answer = teacherAnswerMessage({ crName: crUser?.name ?? task.crName ?? 'the CR', question: task.question, answer: text });
+  const answer = teacherAnswerMessage({ teacherName: task.teacherName, crName: crUser?.name ?? task.crName ?? 'the CR', question: task.question, answer: text });
   // tracked send: a temporary WhatsApp failure leaves a retryable outbox row
   const delivered = await sendTracked(task.phone, answer, {
     kind: 'answer', refKey: `question:${task._id}:answer`, once: true, dedupeKey: `q-answer:${task._id}` });
@@ -350,7 +359,7 @@ export async function runTeacherQuestionSweep() {
         out.redelivered++;
       } else if (!row) { // crash before any outbox row existed
         const delivered = await sendTracked(t.phone,
-          teacherAnswerMessage({ crName: t.crName ?? 'the CR', question: t.question, answer: t.crReply }),
+          teacherAnswerMessage({ teacherName: t.teacherName, crName: t.crName ?? 'the CR', question: t.question, answer: t.crReply }),
           { kind: 'answer', refKey: `question:${t._id}:answer`, once: true, dedupeKey: `q-answer:${t._id}` });
         if (delivered.sent) {
           await TeacherQuestion.updateOne({ _id: t._id }, { $set: {
