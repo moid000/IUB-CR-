@@ -253,6 +253,27 @@ function clearUploadInstruction(text) {
     || /(?:^|\s)(?:kr|kar|kro|kardo|krdo)[\s]+(?:do|doon|de|dein|dena|dijiye|d)\b/.test(s);
 }
 
+/* OWNER PERMANENT-REPAIR SPEC §4 Case C (2026-10-12): every path that
+ * publishes from a TEACHER REPLY (offered-acceptance, declined-file reopen,
+ * the approval answer) must capture the instructions riding that reply —
+ * the teacher's VERBATIM words go to teacherInstructions → the Note
+ * description → the class-group broadcast. The AI proposal fields only act
+ * as a capped fallback at medium/high confidence (never invented text). */
+async function captureReplyInstructions(materialId, body, aiIntent) {
+  let instructions = extraInstructionsFromBody(body);
+  if (!instructions && aiIntent?.intent === 'provide_instructions' && ['high', 'medium'].includes(aiIntent.confidence)) {
+    const aiText = sanitizeWhatsAppText(aiIntent.additionalInstructions || aiIntent.studentMessage || '');
+    if (aiText && aiText.length >= 4) {
+      instructions = aiText.slice(0, 600);
+      auditPush(materialId, 'instructions', `model-extracted (confidence ${aiIntent.confidence}): ${instructions.slice(0, 120)}`);
+    }
+  }
+  if (!instructions) return null;
+  await TeacherMaterial.updateOne({ _id: materialId }, { $set: { teacherInstructions: instructions } });
+  auditPush(materialId, 'instructions', `reply carried: ${instructions.slice(0, 120)}`);
+  return instructions;
+}
+
 /* Publish + ONE dedupe-keyed confirmation + advance the pending queue.
  * Shared by the approval path and the caption auto-approve path so both are
  * retry-safe and never double-confirm. */
@@ -686,7 +707,8 @@ async function reopenDeclinedMaterial(sender, body, payload) {
   auditPush(reopened._id, 'reopened', 'teacher changed their mind — clear upload verb re-opened the declined file');
   const teacherRecords = await Teacher.find({ whatsapp: sender })
     .populate('subject', 'name code').populate('section', 'name').lean();
-  await publishAndConfirm(reopened, teacherRecords);
+  const captured = await captureReplyInstructions(reopened._id, body, null); // Case C applies here too
+  await publishAndConfirm(captured ? await TeacherMaterial.findById(reopened._id).lean() : reopened, teacherRecords);
   return true;
 }
 
@@ -852,6 +874,7 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
       // asking a redundant second confirmation. A bare yes still gets the
       // real approval question.
       const direct = clearUploadVerbIn(body);
+      if (direct) await captureReplyInstructions(material._id, body, aiIntent); // Case C: instructions ride the acceptance
       await TeacherMaterial.updateOne({ _id: material._id }, { $set: {
         proposedSubject: resolved.subject?._id ?? resolved.subject,
         section: resolved.section?._id ?? resolved.section,
@@ -985,24 +1008,7 @@ Never invent instructions or messages the teacher did not write. Return ONLY JSO
   // are preserved VERBATIM on the record → the Notes description. A bare
   // yes stores nothing. This runs BEFORE publishMaterial so the published
   // Note carries them.
-  let instructions = extraInstructionsFromBody(body);
-  if (!instructions && aiIntent?.intent === 'provide_instructions' && ['high', 'medium'].includes(aiIntent.confidence)) {
-    // OWNER PERMANENT-REPAIR SPEC §3: the model flagged instructions the
-    // regex could not lift (long/complex phrasing). PROPOSAL, not proof: use
-    // it only with medium/high confidence, capped + sanitized, and record
-    // its source so the audit shows it came from the model's reading of the
-    // teacher's own words — never a free-form invention.
-    const aiText = sanitizeWhatsAppText(aiIntent.additionalInstructions || aiIntent.studentMessage || '');
-    if (aiText && aiText.length >= 4) {
-      instructions = aiText.slice(0, 600);
-      auditPush(material._id, 'instructions', `model-extracted (confidence ${aiIntent.confidence}): ${instructions.slice(0, 120)}`);
-    }
-  }
-  if (instructions) {
-    await TeacherMaterial.updateOne({ _id: material._id },
-      { $set: { teacherInstructions: instructions } });
-    auditPush(material._id, 'instructions', `approval carried: ${instructions.slice(0, 120)}`);
-  }
+  const instructions = await captureReplyInstructions(material._id, body, aiIntent);
   const materialForPublish = instructions ? await TeacherMaterial.findById(material._id).lean() : material;
 
   // publishAndConfirm: verified upload + ONE dedupe-keyed confirmation

@@ -300,6 +300,27 @@ test('T7: Case C — approval + student instructions together → verbatim words
   assert.equal(teacherMsgs().filter((b) => /upload ho gay/.test(b)).length, 1, 'ONE confirmation');
 });
 
+test('T7b: OFFER accepted WITH instructions → published in one step, instructions preserved', async () => {
+  // offered state: Gemini says not-material, the offer question goes out
+  geminiClassify = { study_material: false, subject: '', reason: 'unclear content', summary: '' };
+  await webhook(fileMsg({ filename: 'Offered_Case.pdf' }));
+  geminiClassify = null;
+  let material = await TeacherMaterial.findOne({ filename: 'Offered_Case.pdf' }).lean();
+  assert.equal(material.status, 'offered', 'offer question open');
+  assert.ok(material.attachment?.publicId, 'stash still happened at receipt');
+  // acceptance rides an upload verb + Case-C instructions
+  geminiApproval = { intent: 'approve', confidence: 'high' };
+  const r2 = await webhook(incoming('haan kar do aur students ko bata dena ke ye chapter 5 ki tayari ke liye hain'));
+  geminiApproval = null;
+  assert.equal(r2.json.data.updated, true);
+  material = await TeacherMaterial.findOne({ filename: 'Offered_Case.pdf' }).lean();
+  assert.equal(material.status, 'published', 'published directly — no redundant second approval ask');
+  assert.match(material.teacherInstructions, /chapter 5/, 'Case-C instructions captured on the offered path');
+  const note = await Note.findById(material.publishedNote).lean();
+  assert.match(String(note.content), /chapter 5/, 'instructions reached the Note description');
+  assert.equal(teacherMsgs().filter((b) => /upload ho gay/.test(b)).length, 1, 'ONE confirmation, no second question');
+});
+
 test('T8: decline → stashed attachment destroyed from storage', async () => {
   const material0 = await sendFileGetQuestion('Decline_Me.pdf');
   assert.ok(material0.attachment?.publicId, 'stash existed');
