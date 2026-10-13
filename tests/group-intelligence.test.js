@@ -331,6 +331,29 @@ test('GI-10b (live bug 2026-10-13): {"reply":"","needs_cr":true} is a VALID esca
   assert.ok(!/CR:/i.test(reply), 'the old fallback CR-card never fires for a needs_cr answer');
 });
 
+/* ---------- live bug 2026-10-13: weak models deflect without needs_cr ---------- */
+
+test('GI-10c (live bug 2026-10-13): a deflected CR-ask creates the REAL task even when the model forgot needs_cr', async () => {
+  // backup lite model answered the fee question with a pure deflection and
+  // needs_cr absent — the functional gate must still create the task
+  geminiPayload = { reply: 'Fees aur official deadlines ki maloomat mere paas nahi hain, ye apne CR se confirm kar lein.', intent: null, needs_cr: false };
+  assert.equal(await handleGroupMessage(groupMsg('@Tri3M fee submission ki exact last date CR se confirm karo please')), true);
+  const task = await TeacherQuestion.findOne({ question: /fee submission/ }).lean();
+  assert.ok(task, 'task created despite the missing flag');
+  const reply = groupAnswer()[0];
+  assert.match(reply, /CR Ali Raza ko bhej diya hai/, 'deflection replaced by the verified status');
+  assert.match(reply, new RegExp(task.refCode), 'refCode shared');
+  assert.ok(!/confirm kar lein/.test(reply), 'the empty deflection text never reaches the student');
+});
+
+test('GI-10d: CR identity questions NEVER escalate through the functional gate', async () => {
+  geminiPayload = { reply: 'Aap ke CR ka naam Ali Raza hai — baqi details ke liye un se hi poochein.', intent: 'class_info', needs_cr: false };
+  assert.equal(await handleGroupMessage(groupMsg('CR kaun hai?')), true);
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'identity question creates no task');
+  const reply = groupAnswer()[0];
+  assert.match(reply, /Ali Raza/, 'the answer itself is delivered');
+});
+
 /* ---------- 11. silence preserved: untagged + self-messages ---------- */
 
 test('GI-14: untagged messages and the bot\u2019s own messages stay silent (no loops)', async () => {

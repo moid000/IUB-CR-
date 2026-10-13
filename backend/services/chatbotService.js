@@ -1312,7 +1312,17 @@ export async function handleGroupMessage(payload) {
         const retry = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader, banReply: memory.prevReply });
         if (retry) llm = retry;
       }
-      if (llm?.needs_cr) {
+      // OWNER FIX 2026-10-13 (live evidence, backup models): lite models deflect
+      // to the CR in TEXT ("apne CR se confirm kar lein") without setting the
+      // needs_cr flag — the exact promise-gap the teacher flow already fixed.
+      // FUNCTIONAL GATE: the student explicitly asked the bot to contact the
+      // CR AND the reply deflected to the CR → create the real task anyway.
+      // Identity questions ("CR kaun hai?") never escalate.
+      const askCr = /\bcr\b[^.?!]{0,30}\b(pooch|poocho|confirm|kaho|kaha|batao|bata|bhejo|bhej|ask|request|milwa)/i.test(question)
+        || /\b(poocho|confirm karo|kaho|bhejo|pooch)\b[^.?!]{0,20}\bcr\b/i.test(question);
+      const identityAsk = /\b(cr|class rep)\b[^?]{0,25}\b(kaun|kon|number|contact|phone|naam|name|number)\b/i.test(question);
+      const deflected = /\bcr se\b[^.]{0,25}\b(confirm|pooch|poocho|check|batao|bata|kar)|\bapne cr se\b/i.test(String(llm?.reply ?? ''));
+      if (llm?.needs_cr || (llm && askCr && !identityAsk && deflected)) {
         // OWNER UPGRADE 2026-10-12 §7: a question that genuinely needs CR
         // confirmation creates a REAL task through the existing
         // TeacherQuestion workflow. The group reply states ONLY the
@@ -1321,6 +1331,7 @@ export async function handleGroupMessage(payload) {
         const esc = await escalateGroupQuestion({ author, sectionId: section._id, question });
         answer = esc.reply;
         sendTitles = [];
+        intent = intent ?? 'cr_needed';
       } else if (llm) {
         answer = llm.reply;
         sendTitles = llm.send_note_titles;
