@@ -548,11 +548,26 @@ async function geminiCall(url, payload, deadline = null) {
   }
 }
 
+/**
+ * 2026-10-13 LIVE ROOT CAUSE HUNT: Gemini v1beta 400s ("Request contains an
+ * invalid argument") whenever the request carries the group MEMORY block —
+ * every multi-turn question silently degraded to the keyword fallback.
+ * Chat-log strings are user content; strip JSON-illegal characters (raw
+ * U+2028/U+2029 line separators, C0 controls, lone surrogates) that strict
+ * server-side JSON parsing rejects.
+ */
+function sanitizePromptText(value) {
+  return String(value ?? '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u2028\u2029]/g, ' ')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+}
+
 export async function askGemini({ question, data, apiKey, memory = null, leader = false, banReply = null, diag = null }) {
   const key = apiKey || env.chatbot.googleApiKey;
   if (!key) return null;
 
-  const payload = {
+  const buildPayload = (withMemory) => ({
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [
       { role: 'user', parts: [{ text: `CLASS DATA (JSON):\n${JSON.stringify(data)}` }] },
@@ -560,12 +575,12 @@ export async function askGemini({ question, data, apiKey, memory = null, leader 
       {
         role: 'user',
         parts: [{
-          text: `${memory?.prevReply
+          text: `${withMemory?.prevReply
             ? `MEMORY — your recent conversation in this group, oldest first (use it to keep the chat continuous, continue jokes, answer follow-ups):
-${(memory.history ?? []).map((h) => `Student: ${h.q}\nTri3M: ${h.a}`).join('\n---\n')}
-Titles you offered: ${JSON.stringify(memory.offeredTitles ?? [])}. If the student's new message refers to one of them ("ye wala", "dusra wala", "last wala", a title fragment), resolve it to the EXACT title and fill "send_note_titles" with it.
+${(withMemory.history ?? []).map((h) => `Student: ${sanitizePromptText(h.q)}\nTri3M: ${sanitizePromptText(h.a)}`).join('\n---\n')}
+Titles you offered: ${JSON.stringify((withMemory.offeredTitles ?? []).map(sanitizePromptText))}. If the student's new message refers to one of them ("ye wala", "dusra wala", "last wala", a title fragment), resolve it to the EXACT title and fill "send_note_titles" with it.
 DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies — do NOT reuse their openings, punchlines or emoji. Vary wording and structure in the new reply.\n\n`
-            : ''}Student asks: ${question}${leader ? "\n\nNOTE: the asker is this class's CR/GR (class representative) — speak with FULL RESPECT (aap, adab), never roast or tease THEM, and answer completely." : ''}${banReply ? `\n\nSYSTEM (diversity): your previous reply in this group was EXACTLY the text below. Do NOT send it again — vary the opening, punchline, structure and emoji.\nPREVIOUS REPLY: ${String(banReply).slice(0, 300)}` : ''}`,
+            : ''}Student asks: ${question}${leader ? "\n\nNOTE: the asker is this class's CR/GR (class representative) — speak with FULL RESPECT (aap, adab), never roast or tease THEM, and answer completely." : ''}${banReply ? `\n\nSYSTEM (diversity): your previous reply in this group was EXACTLY the text below. Do NOT send it again — vary the opening, punchline, structure and emoji.\nPREVIOUS REPLY: ${sanitizePromptText(banReply).slice(0, 300)}` : ''}`,
         }],
       },
     ],
@@ -587,27 +602,51 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
       },
       thinkingConfig: { thinkingBudget: 0 },
     },
-  };
+  });
 
   const models = [env.chatbot.model, ...BACKUP_MODELS.filter((m) => m !== env.chatbot.model)];
   const deadline = Date.now() + GEMINI_TOTAL_BUDGET_MS;
-  let lastFail = null;
-  for (const model of models) {
-    if (Date.now() > deadline) break; // never exceed the serverless budget
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-    let out = await geminiCall(url, payload, deadline);
-    if (out.ok && out.parsed) return out.parsed;
-    lastFail = { model: model.slice(0, 40), status: out.status ?? null, textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null };
-    // one retry with a short backoff on transient errors (5xx/429/network)
-    if (out.retryable && Date.now() + 1500 < deadline) {
-      await new Promise((r) => setTimeout(r, 1200));
-      out = await geminiCall(url, payload, deadline);
+  const fails = [];
+  let memoryDropped = false;
+
+  const runPass = async (useMemory) => {
+    for (const model of models) {
+      if (Date.now() > deadline) break; // never exceed the serverless budget
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+      const payload = buildPayload(useMemory);
+      let out = await geminiCall(url, payload, deadline);
       if (out.ok && out.parsed) return out.parsed;
+      fails.push({ model: model.slice(0, 40), status: out.status ?? null,
+        textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null,
+        ...(useMemory ? {} : { noMemory: true }) });
+      // one retry with a short backoff on transient errors (5xx/429/network)
+      if (out.retryable && Date.now() + 1500 < deadline) {
+        await new Promise((r) => setTimeout(r, 1200));
+        out = await geminiCall(url, payload, deadline);
+        if (out.ok && out.parsed) return out.parsed;
+        fails.push({ model: model.slice(0, 40), status: out.status ?? null,
+          textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null, retried: true });
+      }
+      // still failing → next backup model (e.g. primary is overloaded 503)
     }
-    // still failing → next backup model (e.g. primary is overloaded 503)
+    return null;
+  };
+
+  // 2026-10-13 LIVE ROOT CAUSE (evidence): the SAME question succeeds
+  // without memory and 400s ("Request contains an invalid argument") with
+  // the memory block attached — production gemini-flash-lite-latest rejects
+  // something in the multi-turn payload. SELF-HEAL: a full pass that fails
+  // WITH memory is retried once WITHOUT it — the student still gets a real
+  // Gemini answer (single-turn) instead of the keyword fallback.
+  let parsed = await runPass(memory);
+  if (!parsed && memory) {
+    memoryDropped = true;
+    parsed = await runPass(null);
   }
-  if (diag && lastFail) { try { diag(lastFail); } catch { /* never fatal */ } }
-  return null;
+  if (diag && (fails.length || memoryDropped)) {
+    try { diag({ fails, memoryDropped }); } catch { /* never fatal */ }
+  }
+  return parsed;
 }
 
 /** Tolerant JSON parse — Gemini sometimes wraps JSON in fences. */
@@ -784,7 +823,7 @@ export function casualReply(question, { leader = false } = {}) {
   if (CASUAL_DISS_RE.test(q)) {
     return pick([
       'Aray aisi baat na karo — main to tumhara hi helper hoon. Bolo kaam kya hai, foran ho jayega. (Mazak samajh lo, gussa nahi.)',
-      'Aji main sharma raha hoon — mazak qubool hai. Chalo ab bolo, kaam kya karna hai?',
+      'Aji sharma gaya main — mazak qubool hai. Bolo kaam kya hai, main tumhara helper hoon, foran ho jayega.',
       'Ye ghalyaare ki zor lagi — samajh gaya mazak hai. Pooch lo jo chahiye, main tumhara helper hoon, hazir hoon.',
     ]);
   }
@@ -807,6 +846,7 @@ export function casualReply(question, { leader = false } = {}) {
       'Main to theek hoon — poora din tumhari class ka hisaab rakhna parta hai, mera kaam hi ye hai. Tum batao, aaj parhai hui ya WhatsApp hi WhatsApp hai?',
       'Haal theek hai, bas tumhari deadlines ka intezaar hai. Mazak kar raha hoon — bolo, kya poochhna hai?',
       'Main masst hoon — class ka data sambhalna hi kaam hai, kabhi kabhi shugal bhi ho jata hai. Tum batao, kya scenario hai aaj ka?',
+      'Mera haal poochne ke liye shukriya — mazak bhi qubool hai. Chalo bolo, kaam kya karna hai?',
     ];
     return replies[Math.floor(Math.random() * replies.length)];
   }
