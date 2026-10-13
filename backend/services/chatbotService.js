@@ -6,7 +6,6 @@ import {
   isConfigured, sendText, sendImage, sendDocument, sendAudio, sendVideo,
   getLidFromPhone,
 } from './whatsappService.js';
-import { escalateTeacherQuestion } from './teacherQuestionService.js';
 
 /**
  * Tri3M WhatsApp GROUP CHATBOT (owner-approved 2026-10-03).
@@ -1227,44 +1226,46 @@ async function traceGroup(msgId, why, extra = {}) {
   } catch { /* diagnostics only */ }
 }
 
-/** OWNER UPGRADE 2026-10-12 §7: a group question the LLM marks needs_cr
- * becomes a REAL TeacherQuestion task through the existing escalation
- * workflow (reused for group askers with teacher=null). The reply handed
- * back to the group states only the VERIFIED dispatch result — the same
- * honesty contract as the teacher DM flow. NEVER throws. */
-export async function escalateGroupQuestion({ author, sectionId, question }) {
-  try {
-    const sec = await Section.findById(sectionId).select('cr gr').lean();
-    let crDoc = null;
-    if (sec?.cr) crDoc = await User.findById(sec.cr).select('name role phone').lean();
-    const askerName = await groupAskerName(author, sectionId);
-    const esc = await escalateTeacherQuestion({
-      sender: author, payload: null,
-      teacherDoc: { _id: null, name: `${askerName} (Section group)` },
-      sectionId, crDoc, question, escalatedBy: 'group-chat' });
-    if (!esc?.task || esc.failed) {
-      return { reply: 'Aap ka sawal save to ho gaya, lekin abhi CR tak bheja nahi ja saka — thori dair mein dobara koshish karta hoon.' };
-    }
-    if (esc.reused) {
-      return { reply: `Ye sawal pehle hi aap ke CR ke paas bheja ja chuka hai (${esc.task.refCode}) — jawab milte hi yahan bata dunga.` };
-    }
-    if (esc.delivered) {
-      return { reply: `Aap ka sawal CR ${esc.crName ?? ''} ko bhej diya hai (${esc.task.refCode}). Jawab milte hi yahan bata dunga.` };
-    }
-    return { reply: `Sawal note kar liya (${esc.task.refCode}) — CR ko bhej raha hoon, jawab milte hi yahan bata dunga.` };
-  } catch (e) {
-    return { reply: 'Aap ka sawal abhi CR tak bheja nahi ja saka — thori dair mein dobara koshish karta hoon.' };
-  }
+/**
+ * OWNER SPEC 2026-10-13 — STRICT TEACHER-VS-STUDENT CR ESCALATION SPLIT.
+ * An unknown/unverifiable question asked in a STUDENT GROUP never enters
+ * the teacher private-DM workflow: no TeacherQuestion task, no private
+ * message to the CR on the student's behalf. The configured CR is
+ * @MENTIONED in the SAME group (real WhatsApp mention — the provider needs
+ * digits in the body + the JID in mentions[]) with the student's question,
+ * so the CR answers publicly in the group. No task is created and nothing
+ * is claimed to have been sent anywhere.
+ */
+
+/** Re-asking the same question within the chat window must not re-ping the
+ * CR: a recent reply that already carried the CR mention counts. */
+export function recentlyCrMentioned(recentLogs, question, crDigits) {
+  const norm = (x) => String(x ?? '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 120);
+  const qn = norm(question);
+  const tag = `@${crDigits}`;
+  return (recentLogs ?? []).some((l) => norm(l.question) === qn
+    && String(l.reply ?? '').includes(tag)
+    && /confirm kar dein/.test(String(l.reply ?? '')));
 }
 
-/** The asker's real name from the section roster (name + roll only; never a phone). */
-async function groupAskerName(author, sectionId) {
-  try {
-    if (!author) return 'Ek student';
-    const users = await User.find({ section: sectionId, role: { $in: ['student', 'cr', 'gr'] } }).select('name phone').lean();
-    const u = users.find((x) => x.phone && samePhone(x.phone, author));
-    return u?.name || 'Ek student';
-  } catch { return 'Ek student'; }
+/** Compose the group CR-mention reply. Returns { reply, crDigits } when a
+ * real mention is possible; { reply } with an honest limitation otherwise
+ * (no invented number, no fake mention). NEVER throws. */
+export function buildCrMentionReply({ question, crDoc, recentLogs }) {
+  const crDigits = digitsOf(crDoc?.phone);
+  const qShort = String(question ?? '').trim().slice(0, 300);
+  if (!crDigits) {
+    // spec §1B: real mention unsupported → best supported format + the
+    // limitation stated clearly
+    return { reply: 'Mujhe iska verified answer nahi mil raha, aur is waqt section ka CR number portal par configured nahi hai — mention nahi kar saka. CR se directly rabta kar lein.' };
+  }
+  if (recentlyCrMentioned(recentLogs, question, crDigits)) {
+    return { reply: 'Ye sawal maine abhi abhi CR ko mention kar ke pooch liya hai — jawab group me hi aayega, thora intezar karein.' };
+  }
+  return {
+    reply: `Mujhe iska verified answer nahi mil raha. @${crDigits} Bhai, is question ka answer confirm kar dein please:\n\n"${qShort}"`,
+    crDigits,
+  };
 }
 
 export async function handleGroupMessage(payload) {
@@ -1382,6 +1383,7 @@ export async function handleGroupMessage(payload) {
 
     let source = 'gemini';
     let sendTitles = [];
+    let crMentionDigits = ''; // OWNER SPEC 2026-10-13: in-group CR mention (real JID, never plain text)
     let intent = null; // structured LLM intent — diagnostics only, never sent
     let llmFail = null; // raw Gemini failure diagnostic when the LLM path dies
     // fixed-outcome mini-game (owner's phopho spin): always the same two
@@ -1414,13 +1416,30 @@ export async function handleGroupMessage(payload) {
       const identityAsk = /\b(cr|class rep)\b[^?]{0,25}\b(kaun|kon|number|contact|phone|naam|name|number)\b/i.test(question);
       const deflected = /\bcr se\b[^.]{0,25}\b(confirm|pooch|poocho|check|batao|bata|kar)|\bapne cr se\b/i.test(String(llm?.reply ?? ''));
       if (llm?.needs_cr || (llm && askCr && !identityAsk && deflected)) {
-        // OWNER UPGRADE 2026-10-12 §7: a question that genuinely needs CR
-        // confirmation creates a REAL task through the existing
-        // TeacherQuestion workflow. The group reply states ONLY the
-        // backend-verified dispatch result — the LLM's own claim is never
-        // sent. Task-creation failure is told honestly (sweep retries).
-        const esc = await escalateGroupQuestion({ author, sectionId: section._id, question });
-        answer = esc.reply;
+        // OWNER SPEC 2026-10-13 (STRICT teacher-vs-student split): a student-
+        // group question NEVER enters the teacher private-DM workflow —
+        // no TeacherQuestion task, no private CR message. The configured CR
+        // is @mentioned in THIS group with the student's question; the CR
+        // answers publicly. The LLM's own deflection/claim is never sent.
+        let crDoc = null;
+        try {
+          if (leadSec?.cr) crDoc = await User.findById(leadSec.cr).select('name role phone').lean();
+        } catch { /* mention falls back to the honest limitation line */ }
+        // the CR asking his own unknown question can never be told to ask
+        // himself (owner CR-respect rule) — honest answer, no self-mention
+        if (crDoc?.phone && samePhone(crDoc.phone, author)) {
+          await traceGroup(data.id, 'cr-mention-self-skip', {});
+          answer = 'Is ka verified answer mere paas filhaal nahi hai — jo pata ho, aap khud group me share kar dein.';
+        } else {
+          const built = buildCrMentionReply({ question, crDoc, recentLogs });
+          answer = built.reply;
+          if (built.crDigits) {
+            crMentionDigits = built.crDigits;
+            await traceGroup(data.id, 'cr-mention', {});
+          } else {
+            await traceGroup(data.id, 'cr-mention-unsupported', {});
+          }
+        }
         sendTitles = [];
         intent = intent ?? 'cr_needed';
       } else if (llm) {
@@ -1513,8 +1532,12 @@ export async function handleGroupMessage(payload) {
       sendTitles = [];
     }
     const picked = sendTitles.length ? pickNotesForDelivery(sendTitles, ctx.notes) : [];
+    // OWNER SPEC 2026-10-13: the CR mention is a REAL WhatsApp mention —
+    // digits in the body + the CR's JID in the provider's mentions array
+    // (plain '@CR' text would not tag anyone)
+    const mentionList = [asker, crMentionDigits].filter(Boolean);
     const [, sentFiles] = await Promise.all([
-      sendText(groupId, `${prefix}${String(answer).slice(0, 1150)}`, asker ? [asker] : []),
+      sendText(groupId, `${prefix}${String(answer).slice(0, 1150)}`, mentionList),
       deliverFiles(groupId, picked),
     ]);
     recordSpend(groupId);

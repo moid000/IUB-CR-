@@ -256,102 +256,108 @@ test('GI-9b: conversation history + diversity instruction are in every Gemini pr
   assert.match(prompt, /PF hai aaj/, 'previous bot reply carried in memory');
 });
 
-/* ---------- 10. needs_cr: a REAL task via the existing workflow ---------- */
+/* ---------- 10. OWNER SPEC 2026-10-13: student-group unknown questions →
+   IN-GROUP CR mention, NEVER the teacher private-DM workflow ---------- */
 
-test('GI-10: CR-confirmation question → REAL TeacherQuestion task + honest verified group reply', async () => {
+test('GI-10 (spec §1B): unknown group question → CR @mentioned in the SAME group; no task, no private DM', async () => {
   geminiPayload = { reply: 'Ye official confirm karna hoga.', intent: 'cr_needed', needs_cr: true };
   await handleGroupMessage(groupMsg('university ne fee waiver ka last date extend kiya hai?'));
-  const task = await TeacherQuestion.findOne({}).lean();
-  assert.ok(task, 'real task created');
-  assert.equal(task.escalatedBy, 'group-chat');
-  assert.equal(task.teacher, null, 'group asker has no Teacher record');
-  assert.equal(task.phone, STUDENT, 'answer delivery targets the asker');
-  assert.match(task.teacherName, /Sara Khan/, 'real asker name from the roster');
-  assert.equal(task.status, 'pending_cr');
-  assert.ok(task.crNotifiedAt, 'CR dispatch succeeded (gateway confirmed)');
-  const crPing = waSent.find((s) => s.params.to === CR_PHONE);
-  assert.ok(crPing, 'CR DM really sent');
-  assert.match(crPing.params.body, /Sara Khan/, 'CR alert names the student');
-  assert.match(crPing.params.body, /fee waiver/, 'question verbatim');
-  assert.match(crPing.params.body, /Q-[A-F0-9]{4}/, 'ref code for the CR reply');
-  const answers = groupAnswer();
-  assert.match(answers[0], /CR Ali Raza ko bhej diya hai/, 'group reply states the VERIFIED result');
-  assert.match(answers[0], /Q-[A-F0-9]{4}/, 'ref code shared with the asker');
-  assert.ok(!/official confirm karna hoga/.test(answers[0]), "the LLM's own text is NEVER the status claim");
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'NO TeacherQuestion task — group asks never enter the teacher DM workflow');
+  assert.ok(!waSent.some((s) => s.params.to === CR_PHONE), 'NO private CR message on the student\'s behalf');
+  const groupSends = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID);
+  const reply = groupSends.at(-1).params.body;
+  assert.match(reply, new RegExp(`@${CR_PHONE}`), 'the CR\'s REAL number is @mentioned in the group text');
+  assert.match(reply, /Bhai, is question ka answer confirm kar dein please/, "owner's exact mention line");
+  assert.match(reply, /fee waiver/, 'the student\'s question travels with the mention');
+  // ultramsg facade: body carries the @tag, mentionedIds carries the digits
+  const mentions = JSON.parse(groupSends.at(-1).params.mentionedIds ?? '[]');
+  assert.ok(mentions.includes(CR_PHONE), 'the CR is in the provider mention list');
+  assert.ok(mentions.includes(STUDENT), 'the asker stays mentioned too');
+  assert.ok(!/official confirm karna hoga/.test(reply), "the LLM's own deflection is never the shipped text");
 });
 
-test('GI-11: needs_cr dispatch FAILURE → honest could-not-send, task still recoverable', async () => {
-  // CR without a phone → dispatch cannot confirm → honest wording, no fake claim
+test('GI-11 (spec §1B): CR number not configured → honest limitation, no fake mention', async () => {
   await Section.updateOne({ _id: section._id }, { cr: null });
-  const noPhoneCr = await User.create({ name: 'Phoneless CR', email: 'nocr@gi-test.local', password: 'Pass#12345678', role: 'cr', section: section._id });
-  await Section.updateOne({ _id: section._id }, { cr: noPhoneCr._id });
   geminiPayload = { reply: 'x', intent: 'cr_needed', needs_cr: true };
   await handleGroupMessage(groupMsg('sir ne kaha tha quiz cancel — confirm karo'));
-  const task = await TeacherQuestion.findOne({}).lean();
-  assert.ok(task, 'task persisted (recoverable — sweep retries the dispatch)');
-  assert.ok(!task.crNotifiedAt, 'no fake delivery state');
-  const answers = groupAnswer();
-  assert.ok(/CR ko bhej raha hoon/.test(answers[0]) || /bheja nahi ja saka/.test(answers[0]),
-    'honest pending/failure wording');
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'still no task');
+  assert.ok(!waSent.some((s) => s.params.to === CR_PHONE), 'no DM anywhere');
+  const reply = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID).at(-1).params.body;
+  assert.match(reply, /configured nahi hai/, 'the limitation is clearly reported (spec §1B)');
+  assert.ok(!/\b@\d{10,}\b/.test(reply), 'no invented/fake @mention');
   await Section.updateOne({ _id: section._id }, { cr: crUser._id });
 });
 
-test('GI-12: same needs_cr question re-asked → task REUSED, no duplicate CR ping', async () => {
+test('GI-12 (spec §5): the same question re-asked → NO second CR ping', async () => {
   geminiPayload = { reply: 'x', intent: 'cr_needed', needs_cr: true };
-  await handleGroupMessage(groupMsg('fee waiver ka date extend hua?'));
-  await sendAgain(groupMsg('fee waiver ka date extend hua?'));
-  assert.equal(await TeacherQuestion.countDocuments({}), 1, 'one durable task');
-  assert.equal(waSent.filter((s) => s.params.to === CR_PHONE).length, 1, 'CR pinged once');
-  assert.match(groupAnswer()[1], /pehle hi.*bheja ja chuka hai/, 'reuse told honestly');
+  await sendAgain(groupMsg('fee waiver ka date extend hua?'));           // → mention
+  await sendAgain(groupMsg('fee waiver ka date extend hua?'));          // fresh id, same text → deduped
+  const mentions = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID)
+    .filter((s) => String(s.params.body).includes(`@${CR_PHONE}`));
+  assert.equal(mentions.length, 1, 'the CR is mentioned exactly once');
+  assert.match(groupAnswer().at(-1), /abhi abhi CR ko mention/, 'the repeat ask is told honestly');
 });
 
-test('GI-13: CR answers via ref code → answer DMs the group asker, task closes', async () => {
+test('GI-13 (spec §1B): the CR answers in the group — no hidden task, nothing to relay privately', async () => {
   geminiPayload = { reply: 'x', intent: 'cr_needed', needs_cr: true };
-  await handleGroupMessage(groupMsg('fee waiver extend confirm karo'));
-  const task = await TeacherQuestion.findOne({}).lean();
-  await handleCrQuestionReply(CR_PHONE, `${task.refCode} Ji, extension nahi hui — same date hai.`, { data: { id: 'cr-reply-gi-1', from: `${CR_PHONE}@c.us` } });
-  const closed = await TeacherQuestion.findById(task._id).lean();
-  assert.equal(closed.status, 'closed', 'closed only after delivery');
-  const dm = waSent.find((s) => s.params.to === STUDENT && /extension nahi hui/.test(s.params.body));
-  assert.ok(dm, 'CR answer delivered to the asker');
+  await sendAgain(groupMsg('fee waiver extend confirm karo'));
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'group asks leave no TeacherQuestion trail');
+  // a stray CR DM with a ref code finds no task to bind — teacher workflow untouched
+  await handleCrQuestionReply(CR_PHONE, 'Q-XXXX Ji, extension nahi hui — same date hai.', { data: { id: 'cr-reply-gi-1', from: `${CR_PHONE}@c.us` } });
+  assert.ok(!waSent.some((s) => s.params.to === STUDENT && /extension nahi hui/.test(s.params.body)),
+    'no private relay to the student — the CR answers publicly in the group');
 });
 
 /* ---------- live bug 2026-10-13: empty reply + needs_cr ---------- */
 
-test('GI-10b (live bug 2026-10-13): {"reply":"","needs_cr":true} is a VALID escalation, never a keyword fallback', async () => {
-  // production sent the fee/CR question to the keyword fallback because the
-  // empty reply + needs_cr response was discarded as unparseable
+test('GI-10b (live bug 2026-10-13): {"reply":"","needs_cr":true} → in-group CR mention, never a keyword fallback', async () => {
   geminiPayload = { reply: '', needs_cr: true, intent: 'cr_needed' };
-  assert.equal(await handleGroupMessage(groupMsg('@Tri3M fee waiver ki last date CR se confirm karo')), true);
-  const task = await TeacherQuestion.findOne({ question: /fee waiver/ }).lean();
-  assert.ok(task, 'real task created despite the empty LLM reply');
-  const reply = groupAnswer()[0];
-  assert.match(reply, /CR Ali Raza ko bhej diya hai/, 'backend-composed verified status, not a fallback card');
-  assert.match(reply, new RegExp(task.refCode), 'refCode in the group reply');
+  assert.equal(await sendAgain(groupMsg('@Tri3M fee waiver ki last date CR se confirm karo')), true);
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'no task');
+  const reply = groupAnswer().at(-1);
+  assert.match(reply, new RegExp(`@${CR_PHONE}`), 'backend-composed CR mention, not a fallback card');
+  assert.match(reply, /fee waiver/, 'question included');
   assert.ok(!/CR:/i.test(reply), 'the old fallback CR-card never fires for a needs_cr answer');
 });
 
 /* ---------- live bug 2026-10-13: weak models deflect without needs_cr ---------- */
 
-test('GI-10c (live bug 2026-10-13): a deflected CR-ask creates the REAL task even when the model forgot needs_cr', async () => {
-  // backup lite model answered the fee question with a pure deflection and
-  // needs_cr absent — the functional gate must still create the task
+test('GI-10c (live bug 2026-10-13): a deflected CR-ask → in-group mention even when the model forgot needs_cr', async () => {
   geminiPayload = { reply: 'Fees aur official deadlines ki maloomat mere paas nahi hain, ye apne CR se confirm kar lein.', intent: null, needs_cr: false };
-  assert.equal(await handleGroupMessage(groupMsg('@Tri3M fee submission ki exact last date CR se confirm karo please')), true);
-  const task = await TeacherQuestion.findOne({ question: /fee submission/ }).lean();
-  assert.ok(task, 'task created despite the missing flag');
-  const reply = groupAnswer()[0];
-  assert.match(reply, /CR Ali Raza ko bhej diya hai/, 'deflection replaced by the verified status');
-  assert.match(reply, new RegExp(task.refCode), 'refCode shared');
+  assert.equal(await sendAgain(groupMsg('@Tri3M fee submission ki exact last date CR se confirm karo please')), true);
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'no task — teacher workflow untouched');
+  const reply = groupAnswer().at(-1);
+  assert.match(reply, new RegExp(`@${CR_PHONE}`), 'deflection replaced by the REAL group mention');
+  assert.match(reply, /fee submission/, 'question included');
   assert.ok(!/confirm kar lein/.test(reply), 'the empty deflection text never reaches the student');
 });
 
-test('GI-10d: CR identity questions NEVER escalate through the functional gate', async () => {
+test('GI-10e (spec §2, CR-respect): the CR asking his own unknown question is never told to ask himself', async () => {
+  geminiPayload = { reply: 'x', intent: 'cr_needed', needs_cr: true };
+  assert.equal(await sendAgain(groupMsg('university ki fee policy exact kya hai?', { author: CR_PHONE })), true);
+  const reply = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID).at(-1).params.body;
+  assert.ok(!reply.includes(`@${CR_PHONE} Bhai`), 'no self-mention of the CR');
+  assert.ok(!/apne CR se|CR se rabta kar/i.test(reply), 'the CR is never told to ask himself');
+});
+
+test('GI-10f (spec §2/case-8): an UNVERIFIED group sender → same safe group path, never a private escalation', async () => {
+  // not on the roster at all: sender identity cannot be established — the
+  // backend must not silently default to the teacher DM workflow
+  geminiPayload = { reply: 'x', intent: 'cr_needed', needs_cr: true };
+  assert.equal(await sendAgain(groupMsg('fee ka exact last date kya hai? CR se confirm karo', { author: '923999999999' })), true);
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'no task for an unverified sender');
+  assert.ok(!waSent.some((s) => s.params.to === CR_PHONE), 'no private DM either');
+  const reply = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID).at(-1).params.body;
+  assert.match(reply, new RegExp(`@${CR_PHONE}`), 'the in-group mention path stays safe and public');
+});
+
+test('GI-10d: CR identity questions NEVER trigger the mention workflow', async () => {
   geminiPayload = { reply: 'Aap ke CR ka naam Ali Raza hai — baqi details ke liye un se hi poochein.', intent: 'class_info', needs_cr: false };
-  assert.equal(await handleGroupMessage(groupMsg('CR kaun hai?')), true);
+  assert.equal(await sendAgain(groupMsg('CR kaun hai?')), true);
   assert.equal(await TeacherQuestion.countDocuments({}), 0, 'identity question creates no task');
-  const reply = groupAnswer()[0];
+  const reply = groupAnswer().at(-1);
   assert.match(reply, /Ali Raza/, 'the answer itself is delivered');
+  assert.ok(!reply.includes(`@${CR_PHONE} Bhai`), 'identity answers never mention-ping the CR');
 });
 
 /* ---------- 11. silence preserved: untagged + self-messages ---------- */
