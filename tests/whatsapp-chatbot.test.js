@@ -452,18 +452,28 @@ test('owner rule (2026-10-05): bare subject answer ("ICT") after the bot asked r
   assert.equal(resolveSubjectFollowUp('ICT', { reply: 'Aaj 9:00 AM — ICT' }, FALLBACK_DATA), null);
 });
 
-test('owner rule (2026-10-05): end-to-end — "notes bhej do" asks the subject, bare "ICT" then delivers ICT files', async () => {
-  geminiResponse = null; // Gemini down -> fallback path must handle it alone
-  assert.equal(await handleGroupMessage(groupMsg('notes bhej do')), true);
-  const ask = waSent.find((st) => st.kind === 'chat');
-  assert.ok(ask, 'clarification sent');
-  assert.match(ask.params.body, /kis subject ke notes chahiye\?/i);
-  assert.ok(!waSent.some((st) => st.kind === 'document'), 'no files sent before the subject is known');
-  chatbot.__resetGuards(); // clear the per-group cooldown
-  assert.equal(await handleGroupMessage(groupMsg('ICT')), true);
-  const after = waSent.filter((st) => st.kind === 'chat').at(-1);
-  assert.match(after.params.body, /Lecture 1/);
-  assert.ok(waSent.some((st) => st.kind === 'document'), 'ICT note files delivered');
+test('owner rule (2026-10-05 → spec 2026-10-13): end-to-end — broad ask asks the subject when SEVERAL subjects have notes, bare "ICT" then delivers ICT files', async () => {
+  // NEW SPEC §2: with exactly ONE notes-subject the backend auto-delivers;
+  // the two-step ask flow only happens when the choice is genuinely ambiguous
+  const aiSubj2 = await Subject.create({ name: 'Artificial Intelligence', code: 'AI-201', section: section._id, status: 'active', createdBy: section._id });
+  const aiNote2 = await Note.create({ createdBy: section._id, author: section._id, title: 'AI Lecture 1 - Agents', subject: aiSubj2._id, section: section._id,
+    attachments: [{ publicId: 'ai1', url: 'https://res.cloudinary.com/demo/ai1.pdf', mimeType: 'application/pdf', originalName: 'ai1.pdf' }] });
+  try {
+    geminiResponse = null; // Gemini down -> fallback path must handle it alone
+    assert.equal(await handleGroupMessage(groupMsg('notes bhej do')), true);
+    const ask = waSent.find((st) => st.kind === 'chat');
+    assert.ok(ask, 'clarification sent');
+    assert.match(ask.params.body, /kis subject ke notes chahiye\?/i);
+    assert.ok(!waSent.some((st) => st.kind === 'document'), 'no files sent before the subject is known');
+    chatbot.__resetGuards(); // clear the per-group cooldown
+    assert.equal(await handleGroupMessage(groupMsg('ICT')), true);
+    const after = waSent.filter((st) => st.kind === 'chat').at(-1);
+    assert.match(after.params.body, /Lecture 1/);
+    assert.ok(waSent.some((st) => st.kind === 'document'), 'ICT note files delivered');
+  } finally {
+    await Note.deleteOne({ _id: aiNote2._id });
+    await Subject.deleteOne({ _id: aiSubj2._id });
+  }
 });
 
 test('owner feature (2026-10-05): VOICE NOTES — transcribed voice that addresses the bot gets answered', async () => {
@@ -473,7 +483,9 @@ test('owner feature (2026-10-05): VOICE NOTES — transcribed voice that address
   assert.equal(openaiCalls.length, 1); // Whisper was called once
   const chat = waSent.find((st) => st.kind === 'chat');
   assert.ok(chat, 'voice question answered');
-  assert.match(chat.params.body, /kis subject ke notes chahiye\?/i); // subject-first applies to voice too
+  // SPEC 2026-10-13 §2: one notes-subject → determinable → auto-delivery, no question
+  assert.match(chat.params.body, /Lecture 1|Notes/i);
+  assert.ok(waSent.some((st) => st.kind === 'document'), 'voice notes request delivers the real file');
 });
 
 test('owner rule (2026-10-05): voice that does NOT address the bot stays silent', async () => {
@@ -516,7 +528,7 @@ test('owner feature (2026-10-08): GEMINI-FIRST free transcription — voice answ
     assert.equal(openaiCalls.length, 0, 'Whisper never called — Gemini handled it, zero OpenAI spend');
     const chat = waSent.find((st) => st.kind === 'chat');
     assert.ok(chat, 'voice question answered via the free Gemini transcript');
-    assert.match(chat.params.body, /kis subject ke notes chahiye\?/i);
+    assert.match(chat.params.body, /Lecture 1|Notes/i); // auto-delivery (spec 2026-10-13 §2)
   } finally {
     geminiVoiceTranscript = null;
     env.chatbot.openaiApiKey = hadKey;
@@ -1208,16 +1220,29 @@ test('SPEC §E: the SAME webhook event delivered twice → exactly ONE group rep
 });
 
 test('SPEC §C (fallback, Gemini down): vague notes ask lists ONLY the subjects that ACTUALLY have notes — never the whole roster', async () => {
-  chatbot.__resetGuards();
-  geminiResponse = null; // every model in the chain fails → honest fallback
-  assert.equal(await handleGroupMessage(groupMsg('notes bhej do')), true);
-  const chat = waSent.find((st) => st.kind === 'chat');
-  assert.ok(chat, 'fallback asked');
-  assert.match(chat.params.body, /Kis subject ke notes chahiye\?/i);
-  assert.match(chat.params.body, /In ke notes available hain: ICT/i, 'categories come from ACTUAL available notes');
-  assert.doesNotMatch(chat.params.body, /Class ke subjects:/i, 'never dumps the whole subject roster as if all had notes');
-  const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });
-  assert.equal(log.source, 'fallback');
+  // spec 2026-10-13 §2: the ask happens only when SEVERAL subjects have notes;
+  // a subject with NO notes must never appear in the offered list
+  const aiSubj3 = await Subject.create({ name: 'Artificial Intelligence', code: 'AI-201', section: section._id, status: 'active', createdBy: section._id });
+  const aiNote3 = await Note.create({ createdBy: section._id, author: section._id, title: 'AI Lecture 1 - Agents', subject: aiSubj3._id, section: section._id });
+  const histSubj = await Subject.create({ name: 'History', code: 'HIS-101', section: section._id, status: 'active', createdBy: section._id });
+  try {
+    chatbot.__resetGuards();
+    geminiResponse = null; // every model in the chain fails → honest fallback
+    assert.equal(await handleGroupMessage(groupMsg('notes bhej do')), true);
+    const chat = waSent.find((st) => st.kind === 'chat');
+    assert.ok(chat, 'fallback asked');
+    assert.match(chat.params.body, /Kis subject ke notes chahiye\?/i);
+    assert.match(chat.params.body, /In ke notes available hain:/i);
+    assert.match(chat.params.body, /ICT/, 'subjects with notes ARE offered');
+    assert.match(chat.params.body, /Artificial Intelligence/, 'every notes-subject is offered');
+    assert.doesNotMatch(chat.params.body, /History/, 'a subject with NO notes is never offered');
+    assert.doesNotMatch(chat.params.body, /Class ke subjects:/i, 'never dumps the whole subject roster as if all had notes');
+    const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });
+    assert.equal(log.source, 'fallback');
+  } finally {
+    await Note.deleteOne({ _id: aiNote3._id });
+    await Subject.deleteMany({ _id: { $in: [aiSubj3._id, histSubj._id] } });
+  }
 });
 
 test('SPEC §C (fallback): no notes exist at all → honest not-available answer, no subject dump, no fake claim', async () => {

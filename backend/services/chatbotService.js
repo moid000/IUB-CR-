@@ -1449,9 +1449,17 @@ export async function handleGroupMessage(payload) {
       source = 'fallback';
     }
     if (source === 'fallback' && !game) {
+      // OWNER SPEC 2026-10-13 §2: a clear DELIVERY ask auto-delivers even
+      // on the offline fallback path — same gate, same determinism as the
+      // LLM path; listing questions and broad asks still list/ask.
+      const nIntent2 = notesRequestIntent(question, Boolean(pickLog));
+      const clearDelivery = nIntent2 === 'clear'
+        && NOTES_DELIVERY_RE.test(question) && !NOTES_LISTING_RE.test(question)
+        ? resolveDirectNotes(question, dataJson) : null;
       const pick = resolveSubjectFollowUp(question, pickLog, dataJson)
         ?? resolvePick(question, pickLog, dataJson)
-        ?? resolveLastNotes(question, dataJson);
+        ?? resolveLastNotes(question, dataJson)
+        ?? clearDelivery;
       if (pick) {
         answer = pick.reply;
         sendTitles = pick.titles;

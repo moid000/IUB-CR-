@@ -256,6 +256,21 @@ test('NI-11: the SAME ask repeated moments later never re-sends the files', asyn
   assert.match(groupAnswers()[1], /abhi bheje hain/, 'the student is pointed to the earlier delivery');
 });
 
+test('NI-13: Gemini DOWN — a clear delivery ask still auto-delivers on the fallback path', async () => {
+  geminiPayload = null; // every model 500s
+  assert.equal(await handleGroupMessage(groupMsg('AI ke notes bhej do')), true);
+  const docs = filesSent();
+  assert.ok(docs.length >= 1, 'fallback delivers the real AI files too — no unnecessary question');
+  assert.match(groupAnswers()[0], /Notes — Artificial Intelligence|Overfitting|CNNs/, 'backend-composed delivery');
+});
+
+test('NI-14: Gemini DOWN — a listing question ("kaun se hain?") still only lists', async () => {
+  geminiPayload = null;
+  assert.equal(await handleGroupMessage(groupMsg('AI ke notes kaun se hain?')), true);
+  assert.equal(filesSent().length, 0, 'listing asks are answered with the list, not unsolicited files');
+  assert.match(groupAnswers()[0], /Overfitting|CNNs/, 'the real titles listed');
+});
+
 test('NI-12: recentlyDeliveredNotes unit — question + titles must BOTH match a recent delivery', async () => {
   const logs = [{ question: 'AI ke notes bhej do', sentFiles: 2, offeredTitles: ['Lecture 4 - Overfitting'], createdAt: new Date() }];
   assert.equal(recentlyDeliveredNotes(logs, 'AI ke notes bhej do', ['Lecture 4 - Overfitting']), true);
