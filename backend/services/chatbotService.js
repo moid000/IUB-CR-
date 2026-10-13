@@ -799,6 +799,96 @@ export function resolveLastNotes(question, dataJson) {
   return { reply: `Latest notes *${target.subject}: ${target.title}* hain, lekin iski files available nahi hain — CR se pooch lena.`, titles: [] };
 }
 
+/* ------------------------------------------------------------------ */
+/* NOTES INTENT GATE (owner spec 2026-10-13): files ONLY on real asks   */
+/*                                                                     */
+/* Live evidence (2026-10-13): a concept question ("for loop kya hota   */
+/* hai?") got a real PDF delivered because the model attached          */
+/* send_note_titles on its own; and clear requests sometimes got an     */
+/* unnecessary "kis subject?" question. Fix is in the HANDLER, not the  */
+/* prompt: the model's titles are only a PROPOSAL — the backend gate    */
+/* validates that this message (or an active pick context) actually     */
+/* requests notes before any file goes out.                            */
+/* ------------------------------------------------------------------ */
+const NOTES_MATERIAL_RE = /\b(notes?|note|slides?|handouts?|lectures?|study\s?material|materials?|pdf|ppt)\b/i;
+const NOTES_ACTION_RE = /\b(bhej|bhejo|bhejna|chahiye|chahie|chahye|send|share|dena|dijiye|dedo|de\s?do|mila|nikal|nikalo|batao|hain|hai|karo|kardo|krdo|kro|mile)\b/i;
+const PICK_FOLLOWUP_RE = /\b(ye|yeh|wo|woh|pehla|pehli|pehle|dusra|doosra|teesra|teensra|chautha|last|akhri|aakhri|wahi|same|haan|han|ji)\b/;
+// §2 correction scope: only a DELIVERY ask (bhej do / chahiye) forces the
+// direct send — "kaun se hain?" listing questions keep the model's list.
+const NOTES_DELIVERY_RE = /\b(bhej|bhejo|bhejna|chahiye|chahie|chahye|send|share|dena|dijiye|dedo|de\s?do|mila\s?do|nikal|nikalo)\b/i;
+const NOTES_LISTING_RE = /\b(kaun\s?se|kaunsa|kons[ei]?|which|list|kitn[ei]|kya\s+hain)\b/i;
+
+/** Spec §1: is THIS message (or an active pick) a real notes request?
+ * 'clear' = the message itself requests notes/material; 'followup' = a
+ * short pick phrase while an offer from the last 30 min is still open. */
+export function notesRequestIntent(question, hasActivePick = false) {
+  const q = String(question ?? '').trim().toLowerCase();
+  if (!q || q.length > 220) return null;
+  if (NOTES_MATERIAL_RE.test(q) && NOTES_ACTION_RE.test(q)) return 'clear';
+  if (/^notes?(\?)?$/.test(q)) return 'clear'; // a tagged bare "notes" IS a request
+  if (hasActivePick && q.length <= 90 && PICK_FOLLOWUP_RE.test(q)) return 'followup';
+  return null;
+}
+
+/** Spec §2: a CLEAR request must never get an unnecessary question — when
+ * the subject is determinable (named, or exactly one subject has notes)
+ * deliver the real notes deterministically, topic/lecture-pinned when the
+ * ask names one. Returns null when the request is genuinely ambiguous
+ * (broad ask + several subjects) — one clarification stays allowed. */
+export function resolveDirectNotes(question, dataJson) {
+  const q = String(question ?? '').toLowerCase();
+  const noteIdx = dataJson.noteFileIndex ?? [];
+  if (!noteIdx.length) {
+    return { reply: 'Filhaal kisi subject ke published notes available nahi hain 😅 CR se confirm kar lein.', titles: [] };
+  }
+  const subj = subjectAsked(q, dataJson.subjects ?? []);
+  let list = noteIdx;
+  if (subj) list = noteIdx.filter((n) => n.subject === subj.name);
+  const subjects = [...new Set(list.map((n) => n.subject).filter(Boolean))];
+  if (!subj && subjects.length > 1) return null; // ambiguous — one short question allowed
+  if (subj && !list.length) {
+    return { reply: `Is waqt ${subj.name} ke published notes nahi mile — CR se pooch lena.`, titles: [] };
+  }
+  // topic/lecture pin ("lec 4", "lecture 3", "chapter 2", "loops wali")
+  let targets = list;
+  const lecMatch = /\b(?:lec(?:ture)?\.?\s*(\d+)|chapter\s*(\d+))\b/i.exec(q);
+  if (lecMatch) {
+    const num = lecMatch[1] ?? lecMatch[2];
+    const hit = list.filter((n) => new RegExp(`\\b(?:lec[a-z]*|chapter)[^a-z0-9]*${num}\\b`, 'i').test(String(n.title ?? '')));
+    if (hit.length) targets = hit;
+  } else {
+    const STOP = new Set(['notes', 'note', 'slides', 'slide', 'lecture', 'lec', 'bhej', 'bhejo', 'send', 'share', 'karo', 'chahiye', 'hai', 'hain', 'wali', 'wala', 'mujhe', 'please', 'kar', 'dena', 'chahye', 'agay']);
+    const subjWords = new Set(String(subj?.name ?? '').toLowerCase().split(/\W+/).filter(Boolean));
+    const topicWords = q.split(/[^a-z0-9]+/).filter((w) => w.length > 3 && !STOP.has(w) && !subjWords.has(w));
+    if (topicWords.length) {
+      const hit = list.filter((n) => topicWords.some((w) => String(n.title ?? '').toLowerCase().includes(w)));
+      if (hit.length && hit.length <= 3) targets = hit;
+    }
+  }
+  const withFiles = targets.filter((n) => n.hasFiles);
+  if (!withFiles.length) {
+    const label = subj?.name ?? subjects[0] ?? '';
+    return { reply: `${label ? `${label} ke ` : ''}notes titles maujood hain, lekin files available nahi hain — CR se pooch lena.`, titles: [] };
+  }
+  const top = withFiles.slice(0, MAX_FILES_PER_REPLY);
+  const titles = top.map((n) => n.title);
+  const label = subj?.name ?? subjects[0] ?? '';
+  const reply = titles.length === 1
+    ? `Ye raha *${titles[0]}* — parh lo.`
+    : [`*Notes${label ? ` — ${label}` : ''}*`, '', ...titles.map((t) => `- ${t}`)].join('\n');
+  return { reply, titles };
+}
+
+/** Spec §5: the same request re-delivered must never double-send files. */
+export function recentlyDeliveredNotes(recentLogs, question, titles) {
+  const norm = (x) => String(x ?? '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 120);
+  const qn = norm(question);
+  const wanted = (titles ?? []).map(norm);
+  return (recentLogs ?? []).some((l) => norm(l.question) === qn
+    && (l.sentFiles ?? 0) > 0
+    && (l.offeredTitles ?? []).some((t) => wanted.includes(norm(t))));
+}
+
 /**
  * OWNER RULE (2026-10-03): a TAGGED casual message ("kaisay ho", "dafa ho",
  * mazak) always deserves a funny badtamezi reply — even when Gemini is down.
@@ -1336,6 +1426,22 @@ export async function handleGroupMessage(payload) {
         answer = llm.reply;
         sendTitles = llm.send_note_titles;
         intent = llm.intent;
+        // OWNER SPEC 2026-10-13 §4 — CENTRAL NOTES ACTION GATE: the model's
+        // titles are only a proposal. Files go out only when THIS message
+        // is a clear notes request (or a short follow-up to an offer still
+        // open from the last 30 min). Concept questions, jokes, thanks and
+        // unrelated chatter can never trigger a delivery.
+        const nIntent = notesRequestIntent(question, Boolean(pickLog));
+        if (sendTitles.length && !nIntent) {
+          await traceGroup(data.id, 'notes-gate-blocked', { titles: sendTitles.length });
+          sendTitles = []; // unsolicited delivery blocked; the text answer stays
+        } else if (!sendTitles.length && nIntent === 'clear'
+          && NOTES_DELIVERY_RE.test(question) && !NOTES_LISTING_RE.test(question)) {
+          // §2 — a CLEAR request never gets an unnecessary question: when
+          // the subject is determinable, deliver the real notes directly.
+          const direct = resolveDirectNotes(question, dataJson);
+          if (direct) { answer = direct.reply; sendTitles = direct.titles; intent = intent ?? 'class_info'; }
+        }
       } else {
         source = 'fallback';
       }
@@ -1363,6 +1469,13 @@ export async function handleGroupMessage(payload) {
     const prefix = asker ? `@${asker} ` : '';
     // OWNER SPEED RULE (2026-10-05): text and files go out in PARALLEL —
     // the answer arrives visibly faster than send-then-deliver.
+    // OWNER SPEC 2026-10-13 §5 — one request, one delivery: a repeated ask
+    // (same words, same notes, recent) never re-sends the same files.
+    if (sendTitles.length && recentlyDeliveredNotes(recentLogs, question, sendTitles)) {
+      await traceGroup(data.id, 'notes-dup-blocked', { titles: sendTitles.length });
+      answer = 'Ye notes maine abhi bheje hain — upar ki messages me mil jayenge.';
+      sendTitles = [];
+    }
     const picked = sendTitles.length ? pickNotesForDelivery(sendTitles, ctx.notes) : [];
     const [, sentFiles] = await Promise.all([
       sendText(groupId, `${prefix}${String(answer).slice(0, 1150)}`, asker ? [asker] : []),
