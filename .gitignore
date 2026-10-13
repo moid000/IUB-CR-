@@ -9,3 +9,6 @@ coverage/
 .vercel
 .env*
 frontend/dist
+
+# firmware per-device build flags (contains the one-time device secret)
+firmware/attendance-door/secrets.h
