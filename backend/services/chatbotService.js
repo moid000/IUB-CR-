@@ -1,7 +1,7 @@
 import { Section, Subject, Note, Assignment, Timetable, User, Teacher, Announcement, ChatbotLog, ChatbotSetting } from '../models/index.js';
 import { recordVoiceDiag } from '../models/VoiceDiag.js';
 import { env } from '../config/env.js';
-import { samePhone } from './phoneUtils.js';
+import { normalizePhone, samePhone } from './phoneUtils.js';
 import {
   isConfigured, sendText, sendImage, sendDocument, sendAudio, sendVideo,
   getLidFromPhone,
@@ -1252,7 +1252,9 @@ export function recentlyCrMentioned(recentLogs, question, crDigits) {
  * real mention is possible; { reply } with an honest limitation otherwise
  * (no invented number, no fake mention). NEVER throws. */
 export function buildCrMentionReply({ question, crDoc, recentLogs }) {
-  const crDigits = digitsOf(crDoc?.phone);
+  // 2026-10-13 live bug: CR phones are stored LOCAL format ('0308…') — the
+  // mention JID needs E.164 ('92308…') or Wasender rejects the whole send
+  const crDigits = normalizePhone(crDoc?.phone);
   const qShort = String(question ?? '').trim().slice(0, 300);
   if (!crDigits) {
     // spec §1B: real mention unsupported → best supported format + the

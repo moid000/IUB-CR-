@@ -351,6 +351,19 @@ test('GI-10f (spec §2/case-8): an UNVERIFIED group sender → same safe group p
   assert.match(reply, new RegExp(`@${CR_PHONE}`), 'the in-group mention path stays safe and public');
 });
 
+test('GI-10g (live bug 2026-10-13): CR phone stored LOCAL format → mention still E.164 (Wasender-valid JID)', async () => {
+  // production CR record: phone '03088787753' — raw digits made the whole
+  // group send fail with 'mentions.1 must be a valid WhatsApp User JID'
+  await User.updateOne({ _id: crUser._id }, { phone: '03005555000' });
+  geminiPayload = { reply: 'x', intent: 'cr_needed', needs_cr: true };
+  assert.equal(await sendAgain(groupMsg('fee ka last date confirm karo CR se')), true);
+  const reply = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID).at(-1).params.body;
+  assert.match(reply, /@923005555000/, 'mention tag normalized to E.164');
+  const mentions = JSON.parse(waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID).at(-1).params.mentionedIds ?? '[]');
+  assert.ok(mentions.includes('923005555000'), 'mention list carries E.164 digits');
+  await User.updateOne({ _id: crUser._id }, { phone: CR_PHONE });
+});
+
 test('GI-10d: CR identity questions NEVER trigger the mention workflow', async () => {
   geminiPayload = { reply: 'Aap ke CR ka naam Ali Raza hai — baqi details ke liye un se hi poochein.', intent: 'class_info', needs_cr: false };
   assert.equal(await sendAgain(groupMsg('CR kaun hai?')), true);
