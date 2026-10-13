@@ -304,7 +304,8 @@ test('Gemini down everywhere → keyword fallback still answers (no crash, no ha
   geminiResponse = null; // 500 from every model in the chain
   assert.equal(await handleGroupMessage(groupMsg('aj ka timetable batao?')), true);
   assert.ok(geminiCalls.length >= 1, 'at least one attempt made');
-  assert.ok(geminiCalls.length <= 6, 'chain stays inside the retry budget');
+  // 2026-10-13: the chain is primary + 3 backups (2 attempts each) = up to 12
+  assert.ok(geminiCalls.length <= 12, 'chain stays inside the retry budget');
   assert.equal(waSent.length, 1);
   assert.match(waSent[0].params.body, /9:00 AM/);
   const log = await ChatbotLog.findOne({ groupId: GROUP_ID }).sort({ createdAt: -1 });

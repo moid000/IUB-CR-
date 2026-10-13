@@ -510,7 +510,9 @@ Return ONLY JSON: { "reply": string, "send_note_titles": string[] (may be empty)
  * call live; gemini-flash-lite-latest answers in ~1.5s — it REPLACES 3.1 as
  * the group bot's second backup (the retry chain stays inside its budget and
  * the 12s model was useless under the group latency budget anyway). */
-const BACKUP_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-flash-lite-latest')
+// 2026-10-13: gemini-3.1-flash-lite added — the same proven backup the
+// TEACHER flows use in production (lite-latest 400s on thinkingConfig).
+const BACKUP_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-flash-lite-latest,gemini-3.1-flash-lite')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
 async function geminiCall(url, payload, deadline = null) {
@@ -567,7 +569,10 @@ export async function askGemini({ question, data, apiKey, memory = null, leader 
   const key = apiKey || env.chatbot.googleApiKey;
   if (!key) return null;
 
-  const buildPayload = (withMemory) => ({
+  // LIVE EVIDENCE 2026-10-13: gemini-flash-lite-latest 400s
+  // ("Request contains an invalid argument") on thinkingConfig — lite
+  // models in this API don't accept it (the teacher flows never send it).
+  const buildPayload = (withMemory, model = '') => ({
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [
       { role: 'user', parts: [{ text: `CLASS DATA (JSON):\n${JSON.stringify(data)}` }] },
@@ -600,7 +605,7 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
         },
         required: ['reply'],
       },
-      thinkingConfig: { thinkingBudget: 0 },
+      ...(/lite/i.test(model) ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
     },
   });
 
@@ -613,7 +618,7 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
     for (const model of models) {
       if (Date.now() > deadline) break; // never exceed the serverless budget
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-      const payload = buildPayload(useMemory);
+      const payload = buildPayload(useMemory, model);
       let out = await geminiCall(url, payload, deadline);
       if (out.ok && out.parsed) return out.parsed;
       fails.push({ model: model.slice(0, 40), status: out.status ?? null,
@@ -846,7 +851,7 @@ export function casualReply(question, { leader = false } = {}) {
       'Main to theek hoon — poora din tumhari class ka hisaab rakhna parta hai, mera kaam hi ye hai. Tum batao, aaj parhai hui ya WhatsApp hi WhatsApp hai?',
       'Haal theek hai, bas tumhari deadlines ka intezaar hai. Mazak kar raha hoon — bolo, kya poochhna hai?',
       'Main masst hoon — class ka data sambhalna hi kaam hai, kabhi kabhi shugal bhi ho jata hai. Tum batao, kya scenario hai aaj ka?',
-      'Mera haal poochne ke liye shukriya — mazak bhi qubool hai. Chalo bolo, kaam kya karna hai?',
+      'Theek hoon, aap ke haal poochne ka shukriya — mazak bhi qubool hai. Chalo bolo, kaam kya karna hai?',
     ];
     return replies[Math.floor(Math.random() * replies.length)];
   }
