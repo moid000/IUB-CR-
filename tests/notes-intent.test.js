@@ -271,6 +271,15 @@ test('NI-14: Gemini DOWN — a listing question ("kaun se hain?") still only lis
   assert.match(groupAnswers()[0], /Overfitting|CNNs/, 'the real titles listed');
 });
 
+test('NI-15 (live bug case-2): contradicting "not available" text is corrected when real files deliver', async () => {
+  // the lite model's TEXT claims unavailability while its own titles deliver
+  geminiPayload = { reply: 'Programming Fundamental ke notes filhaal data mein available nahi hain 😅 CR se rabta kar lein.', intent: 'class_info', needs_cr: false, send_note_titles: ['Lecture 1 - Loops'] };
+  assert.equal(await handleGroupMessage(groupMsg('PF ke notes bhej do')), true);
+  assert.equal(filesSent().length, 1, 'the real PF file still delivers');
+  assert.doesNotMatch(groupAnswers()[0], /available nahi/i, 'the contradicting deflection never ships');
+  assert.match(groupAnswers()[0], /Lecture 1 - Loops/, 'the delivery text names what was actually sent');
+});
+
 test('NI-12: recentlyDeliveredNotes unit — question + titles must BOTH match a recent delivery', async () => {
   const logs = [{ question: 'AI ke notes bhej do', sentFiles: 2, offeredTitles: ['Lecture 4 - Overfitting'], createdAt: new Date() }];
   assert.equal(recentlyDeliveredNotes(logs, 'AI ke notes bhej do', ['Lecture 4 - Overfitting']), true);

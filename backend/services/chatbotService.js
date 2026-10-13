@@ -1435,6 +1435,15 @@ export async function handleGroupMessage(payload) {
         if (sendTitles.length && !nIntent) {
           await traceGroup(data.id, 'notes-gate-blocked', { titles: sendTitles.length });
           sendTitles = []; // unsolicited delivery blocked; the text answer stays
+        } else if (sendTitles.length && /\b(available nahi|nahi mile|nahi mili|nahi hain\s*$|mujhe nahi pata|cr se (rabta|pooch|confirm))/i.test(String(answer))) {
+          // LIVE BUG 2026-10-13 (case-2 verification): the lite model's TEXT
+          // claimed 'notes available nahi hain' while its own titles delivered
+          // the real files — the sent files are the truth, never let a
+          // contradicting deflection line ship with a delivery.
+          await traceGroup(data.id, 'notes-text-corrected', {});
+          answer = sendTitles.length === 1
+            ? `Ye raha *${sendTitles[0]}* — parh lo.`
+            : ['*Notes*', '', ...sendTitles.map((t) => `- ${t}`)].join('\n');
         } else if (!sendTitles.length && nIntent === 'clear'
           && NOTES_DELIVERY_RE.test(question) && !NOTES_LISTING_RE.test(question)) {
           // §2 — a CLEAR request never gets an unnecessary question: when
