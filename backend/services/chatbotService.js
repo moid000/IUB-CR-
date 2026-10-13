@@ -1435,21 +1435,39 @@ export async function handleGroupMessage(payload) {
         if (sendTitles.length && !nIntent) {
           await traceGroup(data.id, 'notes-gate-blocked', { titles: sendTitles.length });
           sendTitles = []; // unsolicited delivery blocked; the text answer stays
-        } else if (sendTitles.length && /\b(available nahi|nahi mile|nahi mili|nahi hain\s*$|mujhe nahi pata|cr se (rabta|pooch|confirm))/i.test(String(answer))) {
-          // LIVE BUG 2026-10-13 (case-2 verification): the lite model's TEXT
-          // claimed 'notes available nahi hain' while its own titles delivered
-          // the real files — the sent files are the truth, never let a
-          // contradicting deflection line ship with a delivery.
-          await traceGroup(data.id, 'notes-text-corrected', {});
-          answer = sendTitles.length === 1
-            ? `Ye raha *${sendTitles[0]}* — parh lo.`
-            : ['*Notes*', '', ...sendTitles.map((t) => `- ${t}`)].join('\n');
-        } else if (!sendTitles.length && nIntent === 'clear'
-          && NOTES_DELIVERY_RE.test(question) && !NOTES_LISTING_RE.test(question)) {
-          // §2 — a CLEAR request never gets an unnecessary question: when
-          // the subject is determinable, deliver the real notes directly.
-          const direct = resolveDirectNotes(question, dataJson);
-          if (direct) { answer = direct.reply; sendTitles = direct.titles; intent = intent ?? 'class_info'; }
+        } else {
+          // OWNER SPEC §2 RELEVANCE (live evidence: the model attached OOP
+          // notes to a 'PF ke notes' ask while its text claimed PF had none):
+          // a subject-named request may only deliver THAT subject's notes.
+          // Wrong-subject titles are stripped; if the real subject HAS notes
+          // the direct branch below delivers them, otherwise the honest
+          // no-notes line stands.
+          const subj2 = subjectAsked(question, dataJson.subjects ?? []);
+          if (sendTitles.length && subj2) {
+            const subjOf = (t) => (dataJson.noteFileIndex ?? [])
+              .find((n) => String(n.title ?? '').toLowerCase() === String(t).toLowerCase())?.subject ?? null;
+            const relevant = sendTitles.filter((t) => !subjOf(t) || subjOf(t) === subj2.name);
+            if (relevant.length < sendTitles.length) {
+              await traceGroup(data.id, 'notes-subject-filter', { dropped: sendTitles.length - relevant.length });
+            }
+            sendTitles = relevant;
+          }
+          if (!sendTitles.length && nIntent === 'clear'
+            && NOTES_DELIVERY_RE.test(question) && !NOTES_LISTING_RE.test(question)) {
+            // §2 — a CLEAR request never gets an unnecessary question: when
+            // the subject is determinable, deliver the real notes directly.
+            const direct = resolveDirectNotes(question, dataJson);
+            if (direct) { answer = direct.reply; sendTitles = direct.titles; intent = intent ?? 'class_info'; }
+          } else if (sendTitles.length && /\b(available nahi|nahi mile|nahi mili|nahi hain\s*$|mujhe nahi pata|cr se (rabta|pooch|confirm))/i.test(String(answer))) {
+            // LIVE BUG 2026-10-13 (case-2 verification): the lite model's TEXT
+            // claimed 'notes available nahi hain' while its own titles delivered
+            // the real files — the sent files are the truth, never let a
+            // contradicting deflection line ship with a delivery.
+            await traceGroup(data.id, 'notes-text-corrected', {});
+            answer = sendTitles.length === 1
+              ? `Ye raha *${sendTitles[0]}* — parh lo.`
+              : ['*Notes*', '', ...sendTitles.map((t) => `- ${t}`)].join('\n');
+          }
         }
       } else {
         source = 'fallback';

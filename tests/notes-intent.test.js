@@ -280,6 +280,30 @@ test('NI-15 (live bug case-2): contradicting "not available" text is corrected w
   assert.match(groupAnswers()[0], /Lecture 1 - Loops/, 'the delivery text names what was actually sent');
 });
 
+test('NI-16 (live case-2 truth): a subject-named ask never delivers ANOTHER subject\'s notes', async () => {
+  // live evidence: 'PF ke notes bhej do' — the model attached the OOP-subject
+  // Python notes while its text claimed PF had none
+  geminiPayload = { reply: 'Programming Fundamental ke notes filhaal data mein available nahi hain 😅', intent: 'class_info', needs_cr: false, send_note_titles: ['Lecture 1 - Loops'] };
+  // fixture: 'Lecture 1 - Loops' belongs to PF — make the ask name AI instead,
+  // so the attached title is a WRONG-subject proposal
+  assert.equal(await handleGroupMessage(groupMsg('AI ke notes bhej do, AI wale hi chahiye')), true);
+  // the model's wrong-subject title is stripped; AI has REAL notes with files,
+  // so the backend delivers AI's own notes instead
+  const docs = filesSent();
+  assert.ok(docs.length >= 1, 'AI\'s real notes delivered');
+  assert.ok(!/loops\.pdf/.test(JSON.stringify(waSent.map((x) => x.params))), 'PF\'s note never ships for an AI ask');
+  const answers = groupAnswers();
+  assert.ok(!/available nahi/i.test(answers[0]), 'the contradicting deflection never ships');
+});
+
+test('NI-17 (live case-2 truth): the named subject genuinely has NO notes → honest, no wrong-subject files', async () => {
+  // fixture: ICT exists but has no notes; the model tries to attach AI notes
+  geminiPayload = { reply: 'Ye raha ICT ka material:', intent: 'class_info', needs_cr: false, send_note_titles: ['Lecture 4 - Overfitting'] };
+  assert.equal(await handleGroupMessage(groupMsg('ICT ke notes bhej do')), true);
+  assert.equal(filesSent().length, 0, 'AI\'s notes never ship for an ICT ask');
+  assert.match(groupAnswers()[0], /ICT ke published notes nahi mile/, 'honest no-notes for the REAL subject');
+});
+
 test('NI-12: recentlyDeliveredNotes unit — question + titles must BOTH match a recent delivery', async () => {
   const logs = [{ question: 'AI ke notes bhej do', sentFiles: 2, offeredTitles: ['Lecture 4 - Overfitting'], createdAt: new Date() }];
   assert.equal(recentlyDeliveredNotes(logs, 'AI ke notes bhej do', ['Lecture 4 - Overfitting']), true);
