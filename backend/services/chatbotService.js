@@ -524,7 +524,13 @@ async function geminiCall(url, payload, deadline = null) {
       signal: controller.signal,
       body: JSON.stringify(payload),
     });
-    if (!res.ok) return { ok: false, retryable: res.status >= 500 || res.status === 429, status: res.status, textHead: '' };
+    if (!res.ok) {
+      // 2026-10-13: a 400 is INVALID_ARGUMENT — the API's error body names
+      // the exact field; capture it so production traces show the real cause.
+      let errBody = '';
+      try { errBody = String((await res.json())?.error?.message ?? '').slice(0, 300); } catch { /* body unreadable */ }
+      return { ok: false, retryable: res.status >= 500 || res.status === 429, status: res.status, textHead: errBody };
+    }
     const json = await res.json();
     const text = json?.candidates?.[0]?.content?.parts?.map((p) => p?.text ?? '').join('') ?? '';
     const finish = json?.candidates?.[0]?.finishReason ?? '';
