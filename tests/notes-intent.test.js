@@ -304,6 +304,18 @@ test('NI-17 (live case-2 truth): the named subject genuinely has NO notes → ho
   assert.match(groupAnswers()[0], /ICT ke published notes nahi mile/, 'honest no-notes for the REAL subject');
 });
 
+test('NI-18 (live case-2 glitch): blank model titles never produce a broken delivery text', async () => {
+  // live: 'Ye raha ** — parh lo.' shipped when the model sent send_note_titles: ['']
+  geminiPayload = { reply: 'Programming Fundamental ke notes filhaal data mein available nahi hain 😅', intent: 'class_info', needs_cr: false, send_note_titles: ['', '   '] };
+  assert.equal(await handleGroupMessage(groupMsg('PF ke notes bhej do')), true);
+  const ans = groupAnswers()[0];
+  assert.ok(!/ye raha \*\*/i.test(ans), 'no broken asterisk line');
+  // the model's blank titles are gone; the DIRECT branch delivers PF's REAL
+  // note (the fixture PF subject has one) — a real title, never a blank one
+  assert.match(ans, /Lecture 1 - Loops/i, 'real PF note delivered by the direct path');
+  assert.equal(filesSent().length, 1, 'exactly the real file');
+});
+
 test('NI-12: recentlyDeliveredNotes unit — question + titles must BOTH match a recent delivery', async () => {
   const logs = [{ question: 'AI ke notes bhej do', sentFiles: 2, offeredTitles: ['Lecture 4 - Overfitting'], createdAt: new Date() }];
   assert.equal(recentlyDeliveredNotes(logs, 'AI ke notes bhej do', ['Lecture 4 - Overfitting']), true);

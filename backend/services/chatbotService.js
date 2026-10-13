@@ -676,7 +676,8 @@ export function parseGeminiJson(text) {
     // the escalation; the verified status still comes from the backend).
     const intents = ['academic_help', 'class_info', 'banter', 'emotional_support', 'ambiguous', 'cr_needed'];
     return { reply: (parsed.reply || '').trim(),
-      send_note_titles: Array.isArray(parsed.send_note_titles) ? parsed.send_note_titles.map(String) : [],
+      send_note_titles: Array.isArray(parsed.send_note_titles)
+        ? parsed.send_note_titles.map(String).map((t) => t.trim()).filter(Boolean) : [], // blank entries can never map to a real portal file
       intent: intents.includes(parsed.intent) ? parsed.intent : null,
       needs_cr: needsCr };
   } catch {
