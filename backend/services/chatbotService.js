@@ -524,16 +524,17 @@ async function geminiCall(url, payload, deadline = null) {
       signal: controller.signal,
       body: JSON.stringify(payload),
     });
-    if (!res.ok) return { ok: false, retryable: res.status >= 500 || res.status === 429 };
+    if (!res.ok) return { ok: false, retryable: res.status >= 500 || res.status === 429, status: res.status, textHead: '' };
     const json = await res.json();
     const text = json?.candidates?.[0]?.content?.parts?.map((p) => p?.text ?? '').join('') ?? '';
-    if (!text.trim()) return { ok: false, retryable: false };
+    const finish = json?.candidates?.[0]?.finishReason ?? '';
+    if (!text.trim()) return { ok: false, retryable: false, status: 200, textHead: `(empty text, finish=${finish})` };
     const parsed = parseGeminiJson(text);
     // 2026-10-13 live evidence: a 200 with unparseable output silently
     // became a keyword fallback — log the raw text so production can show
     // WHY the parse refused (Vercel logs, no student ever sees this).
     if (!parsed) console.error('[chatbot] gemini 200 but unparseable:', String(text).slice(0, 240));
-    return { ok: true, parsed };
+    return { ok: true, parsed, status: 200, textHead: String(text).slice(0, 300), finish };
   } catch {
     return { ok: false, retryable: true }; // network/abort — worth one more shot
   } finally {
@@ -541,7 +542,7 @@ async function geminiCall(url, payload, deadline = null) {
   }
 }
 
-export async function askGemini({ question, data, apiKey, memory = null, leader = false, banReply = null }) {
+export async function askGemini({ question, data, apiKey, memory = null, leader = false, banReply = null, diag = null }) {
   const key = apiKey || env.chatbot.googleApiKey;
   if (!key) return null;
 
@@ -584,11 +585,13 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
 
   const models = [env.chatbot.model, ...BACKUP_MODELS.filter((m) => m !== env.chatbot.model)];
   const deadline = Date.now() + GEMINI_TOTAL_BUDGET_MS;
+  let lastFail = null;
   for (const model of models) {
     if (Date.now() > deadline) break; // never exceed the serverless budget
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
     let out = await geminiCall(url, payload, deadline);
     if (out.ok && out.parsed) return out.parsed;
+    lastFail = { model: model.slice(0, 40), status: out.status ?? null, textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null };
     // one retry with a short backoff on transient errors (5xx/429/network)
     if (out.retryable && Date.now() + 1500 < deadline) {
       await new Promise((r) => setTimeout(r, 1200));
@@ -597,6 +600,7 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
     }
     // still failing → next backup model (e.g. primary is overloaded 503)
   }
+  if (diag && lastFail) { try { diag(lastFail); } catch { /* never fatal */ } }
   return null;
 }
 
@@ -1237,6 +1241,7 @@ export async function handleGroupMessage(payload) {
     let source = 'gemini';
     let sendTitles = [];
     let intent = null; // structured LLM intent — diagnostics only, never sent
+    let llmFail = null; // raw Gemini failure diagnostic when the LLM path dies
     // fixed-outcome mini-game (owner's phopho spin): always the same two
     // names, affectionate wording — and it never goes to the LLM
     const game = miniGameReply(question);
@@ -1245,7 +1250,8 @@ export async function handleGroupMessage(payload) {
       answer = game;
       source = 'fallback';
     } else if (setting.apiKey) {
-      let llm = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader });
+      let llm = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader,
+        diag: (info) => { llmFail = info; } });
       // OWNER UPGRADE 2026-10-12 §5 (diversity safeguard): a verbatim repeat
       // of the previous bot reply gets ONE regeneration with an explicit
       // ban. A legitimately identical factual answer (same question asked
@@ -1312,7 +1318,7 @@ export async function handleGroupMessage(payload) {
         sentFiles, source, latencyMs: Date.now() - started,
       });
       // 2026-10-11 evidence: the reply REALLY went through the full pipeline
-      await traceGroup(data.id, 'answered', { source, sentFiles, intent });
+      await traceGroup(data.id, 'answered', { source, sentFiles, intent, ...(llmFail ? { llmFail } : {}) });
     } catch (err2) { await traceGroup(data.id, 'log-failed', { msg: String(err2?.message ?? '').slice(0, 120) }); /* logging is never fatal */ }
     return true;
   } catch (err) {
