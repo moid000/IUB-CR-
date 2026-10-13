@@ -13,6 +13,11 @@ const chatbotLogSchema = new Schema(
   {
     section: { type: Schema.Types.ObjectId, ref: 'Section' },
     groupId: { type: String, trim: true, maxlength: 120 },
+    // OWNER SPEC 2026-10-13 §1 (persistent conversation memory): WHO said it
+    // and WHICH stable inbound message it answers — history lines are
+    // rendered per-student and duplicates stay idempotent end-to-end.
+    asker: { type: String, trim: true, maxlength: 24 },
+    msgId: { type: String, trim: true, maxlength: 100 },
     question: { type: String, trim: true, maxlength: 500 },
     reply: { type: String, trim: true, maxlength: 1200 },
     sentFiles: { type: Number, default: 0 },
@@ -29,6 +34,7 @@ const chatbotLogSchema = new Schema(
 
 chatbotLogSchema.index({ createdAt: -1 });
 chatbotLogSchema.index({ section: 1, createdAt: -1 });
+chatbotLogSchema.index({ groupId: 1, createdAt: -1 }); // history retrieval path
 
 
 const ChatbotLog = mongoose.model('ChatbotLog', chatbotLogSchema);
