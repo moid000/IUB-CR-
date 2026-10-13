@@ -155,7 +155,10 @@ router.post('/ops-replay', async (req, res, next) => {
         trace: ev?.groupTrace ?? null,
         lastAnswerAt: lastLog?.createdAt ?? null,
         lastAnswerQ: (lastLog?.question ?? '').slice(0, 120),
-        lastAnswerSource: lastLog?.source ?? null } });
+        lastAnswerSource: lastLog?.source ?? null,
+        // OWNER SPEC 2026-10-13 live E2E: the shipped reply text (masked-free
+        // group answer, no personal data) — evidence of the CR mention etc.
+        lastAnswerText: (lastLog?.reply ?? '').slice(0, 400) } });
     } else if (mode === 'teacher') {
       const from = digits(req.body?.fromDigits);
       if (!from) throw new ApiError(400, '"fromDigits" required');

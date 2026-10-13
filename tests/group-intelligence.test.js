@@ -364,6 +364,24 @@ test('GI-10g (live bug 2026-10-13): CR phone stored LOCAL format → mention sti
   await User.updateOne({ _id: crUser._id }, { phone: CR_PHONE });
 });
 
+test('GI-10h (spec §2, offline): Gemini DOWN + explicit CR-ask → the fallback path STILL gives the in-group mention', async () => {
+  // live 2026-10-13: whole model chain 429s at quota — the explicit textual
+  // CR-ask must fire the same functional gate, never the old deflection card
+  geminiPayload = null; // mock returns 500 → llm null → offline fallback
+  assert.equal(await sendAgain(groupMsg('fee ki last date CR se confirm karo')), true);
+  assert.equal(await TeacherQuestion.countDocuments({}), 0, 'no task on the offline path either');
+  assert.ok(!waSent.some((s) => s.params.to === CR_PHONE), 'no private DM');
+  const reply = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID).at(-1).params.body;
+  assert.match(reply, new RegExp(`@${CR_PHONE}`), 'in-group CR mention from the fallback gate');
+  assert.match(reply, /confirm kar dein please/, "owner's mention line");
+  // identity asks stay answers, never mentions
+  geminiPayload = null;
+  await sendAgain(groupMsg('CR kaun hai section me?'));
+  const idReply = waSent.filter((s) => s.kind === 'chat' && s.params.to === GROUP_ID).at(-1).params.body;
+  assert.ok(!idReply.includes(`@${CR_PHONE} Bhai`), 'offline identity ask does not ping the CR');
+  assert.match(idReply, /Ali Raza/, 'identity answer still delivered offline');
+});
+
 test('GI-10d: CR identity questions NEVER trigger the mention workflow', async () => {
   geminiPayload = { reply: 'Aap ke CR ka naam Ali Raza hai — baqi details ke liye un se hi poochein.', intent: 'class_info', needs_cr: false };
   assert.equal(await sendAgain(groupMsg('CR kaun hai?')), true);

@@ -889,6 +889,12 @@ export function recentlyDeliveredNotes(recentLogs, question, titles) {
     && (l.offeredTitles ?? []).some((t) => wanted.includes(norm(t))));
 }
 
+/** OWNER SPEC 2026-10-13: explicit CR-ask signals — hoisted module-level so
+ * the offline fallback path runs the SAME functional gate as the LLM path. */
+const CR_ASK_RE = /\bcr\b[^.?!]{0,30}\b(pooch|poocho|confirm|kaho|kaha|batao|bata|bhejo|bhej|ask|request|milwa)/i;
+const CR_ASK_REVERSE_RE = /\b(poocho|confirm karo|kaho|bhejo|pooch)\b[^.?!]{0,20}\bcr\b/i;
+const CR_IDENTITY_ASK_RE = /\b(cr|class rep)\b[^?]{0,25}\b(kaun|kon|number|contact|phone|naam|name|number)\b/i;
+
 /**
  * OWNER RULE (2026-10-03): a TAGGED casual message ("kaisay ho", "dafa ho",
  * mazak) always deserves a funny badtamezi reply — even when Gemini is down.
@@ -1226,6 +1232,22 @@ async function traceGroup(msgId, why, extra = {}) {
   } catch { /* diagnostics only */ }
 }
 
+/** Resolves the section CR and builds the in-group mention reply (shared by
+ * the LLM needs_cr path and the offline fallback path). NEVER throws. */
+export async function mentionCrInGroup({ leadSec, author, question, recentLogs }) {
+  let crDoc = null;
+  try {
+    if (leadSec?.cr) crDoc = await User.findById(leadSec.cr).select('name role phone').lean();
+  } catch { /* mention falls back to the honest limitation line */ }
+  // the CR asking his own unknown question can never be told to ask
+  // himself (owner CR-respect rule) — honest answer, no self-mention
+  if (crDoc?.phone && samePhone(crDoc.phone, author)) {
+    return { reply: 'Is ka verified answer mere paas filhaal nahi hai — jo pata ho, aap khud group me share kar dein.' };
+  }
+  const built = buildCrMentionReply({ question, crDoc, recentLogs });
+  return built; // { reply } or { reply, crDigits }
+}
+
 /**
  * OWNER SPEC 2026-10-13 — STRICT TEACHER-VS-STUDENT CR ESCALATION SPLIT.
  * An unknown/unverifiable question asked in a STUDENT GROUP never enters
@@ -1391,6 +1413,10 @@ export async function handleGroupMessage(payload) {
     // fixed-outcome mini-game (owner's phopho spin): always the same two
     // names, affectionate wording — and it never goes to the LLM
     const game = miniGameReply(question);
+    // OWNER SPEC 2026-10-13: hoisted CR-ask gates — the LLM path AND the
+    // offline fallback run the SAME functional check (never flag-trusting)
+    const askCr = CR_ASK_RE.test(question) || CR_ASK_REVERSE_RE.test(question);
+    const identityAsk = CR_IDENTITY_ASK_RE.test(question);
     let answer;
     if (game) {
       answer = game;
@@ -1413,9 +1439,6 @@ export async function handleGroupMessage(payload) {
       // FUNCTIONAL GATE: the student explicitly asked the bot to contact the
       // CR AND the reply deflected to the CR → create the real task anyway.
       // Identity questions ("CR kaun hai?") never escalate.
-      const askCr = /\bcr\b[^.?!]{0,30}\b(pooch|poocho|confirm|kaho|kaha|batao|bata|bhejo|bhej|ask|request|milwa)/i.test(question)
-        || /\b(poocho|confirm karo|kaho|bhejo|pooch)\b[^.?!]{0,20}\bcr\b/i.test(question);
-      const identityAsk = /\b(cr|class rep)\b[^?]{0,25}\b(kaun|kon|number|contact|phone|naam|name|number)\b/i.test(question);
       const deflected = /\bcr se\b[^.]{0,25}\b(confirm|pooch|poocho|check|batao|bata|kar)|\bapne cr se\b/i.test(String(llm?.reply ?? ''));
       if (llm?.needs_cr || (llm && askCr && !identityAsk && deflected)) {
         // OWNER SPEC 2026-10-13 (STRICT teacher-vs-student split): a student-
@@ -1423,24 +1446,13 @@ export async function handleGroupMessage(payload) {
         // no TeacherQuestion task, no private CR message. The configured CR
         // is @mentioned in THIS group with the student's question; the CR
         // answers publicly. The LLM's own deflection/claim is never sent.
-        let crDoc = null;
-        try {
-          if (leadSec?.cr) crDoc = await User.findById(leadSec.cr).select('name role phone').lean();
-        } catch { /* mention falls back to the honest limitation line */ }
-        // the CR asking his own unknown question can never be told to ask
-        // himself (owner CR-respect rule) — honest answer, no self-mention
-        if (crDoc?.phone && samePhone(crDoc.phone, author)) {
-          await traceGroup(data.id, 'cr-mention-self-skip', {});
-          answer = 'Is ka verified answer mere paas filhaal nahi hai — jo pata ho, aap khud group me share kar dein.';
+        const built = await mentionCrInGroup({ leadSec, author, question, recentLogs });
+        answer = built.reply;
+        if (built.crDigits) {
+          crMentionDigits = built.crDigits;
+          await traceGroup(data.id, 'cr-mention', {});
         } else {
-          const built = buildCrMentionReply({ question, crDoc, recentLogs });
-          answer = built.reply;
-          if (built.crDigits) {
-            crMentionDigits = built.crDigits;
-            await traceGroup(data.id, 'cr-mention', {});
-          } else {
-            await traceGroup(data.id, 'cr-mention-unsupported', {});
-          }
+          await traceGroup(data.id, 'cr-mention-unsupported', {});
         }
         sendTitles = [];
         intent = intent ?? 'cr_needed';
@@ -1515,6 +1527,19 @@ export async function handleGroupMessage(payload) {
       } else {
         answer = casualReply(question, { leader: askerIsLeader })
           ?? buildFallbackReply(question, dataJson, { leader: askerIsLeader });
+        // OWNER SPEC 2026-10-13 (strict split): an explicit CR-ask gets the
+        // REAL in-group CR mention even when the whole LLM chain is down —
+        // the old deflection card never fires, no private escalation
+        if (askCr && !identityAsk) {
+          const built = await mentionCrInGroup({ leadSec, author, question, recentLogs });
+          answer = built.reply;
+          if (built.crDigits) {
+            crMentionDigits = built.crDigits;
+            await traceGroup(data.id, 'cr-mention-fallback', {});
+          } else {
+            await traceGroup(data.id, 'cr-mention-fallback-unsupported', {});
+          }
+        }
       }
     }
     // 2026-10-11 evidence: a silent empty-answer exit is never invisible again
