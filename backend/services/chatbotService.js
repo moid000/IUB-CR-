@@ -528,7 +528,12 @@ async function geminiCall(url, payload, deadline = null) {
     const json = await res.json();
     const text = json?.candidates?.[0]?.content?.parts?.map((p) => p?.text ?? '').join('') ?? '';
     if (!text.trim()) return { ok: false, retryable: false };
-    return { ok: true, parsed: parseGeminiJson(text) };
+    const parsed = parseGeminiJson(text);
+    // 2026-10-13 live evidence: a 200 with unparseable output silently
+    // became a keyword fallback — log the raw text so production can show
+    // WHY the parse refused (Vercel logs, no student ever sees this).
+    if (!parsed) console.error('[chatbot] gemini 200 but unparseable:', String(text).slice(0, 240));
+    return { ok: true, parsed };
   } catch {
     return { ok: false, retryable: true }; // network/abort — worth one more shot
   } finally {
@@ -605,15 +610,21 @@ export function parseGeminiJson(text) {
   if (start === -1 || end === -1 || end < start) return null;
   try {
     const parsed = JSON.parse(raw.slice(start, end + 1));
-    if (typeof parsed?.reply !== 'string' || !parsed.reply.trim()) return null;
+    // OWNER FIX 2026-10-13 (live evidence): on CR-confirmation questions the
+    // model returns {"reply":"","needs_cr":true} — an empty reply WITH the
+    // escalation flag is VALID: the backend composes the group message from
+    // the verified dispatch result anyway. Only an empty reply WITHOUT
+    // needs_cr is unusable.
+    const needsCr = parsed?.needs_cr === true;
+    if (typeof parsed?.reply !== 'string' || (!parsed.reply.trim() && !needsCr)) return null;
     // OWNER UPGRADE 2026-10-12: structured intent + needs_cr ride along
     // (validated, never trusted for success claims — needs_cr only routes
     // the escalation; the verified status still comes from the backend).
     const intents = ['academic_help', 'class_info', 'banter', 'emotional_support', 'ambiguous', 'cr_needed'];
-    return { reply: parsed.reply.trim(),
+    return { reply: (parsed.reply || '').trim(),
       send_note_titles: Array.isArray(parsed.send_note_titles) ? parsed.send_note_titles.map(String) : [],
       intent: intents.includes(parsed.intent) ? parsed.intent : null,
-      needs_cr: parsed.needs_cr === true };
+      needs_cr: needsCr };
   } catch {
     return null;
   }

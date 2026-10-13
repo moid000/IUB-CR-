@@ -316,6 +316,21 @@ test('GI-13: CR answers via ref code → answer DMs the group asker, task closes
   assert.ok(dm, 'CR answer delivered to the asker');
 });
 
+/* ---------- live bug 2026-10-13: empty reply + needs_cr ---------- */
+
+test('GI-10b (live bug 2026-10-13): {"reply":"","needs_cr":true} is a VALID escalation, never a keyword fallback', async () => {
+  // production sent the fee/CR question to the keyword fallback because the
+  // empty reply + needs_cr response was discarded as unparseable
+  geminiPayload = { reply: '', needs_cr: true, intent: 'cr_needed' };
+  assert.equal(await handleGroupMessage(groupMsg('@Tri3M fee waiver ki last date CR se confirm karo')), true);
+  const task = await TeacherQuestion.findOne({ question: /fee waiver/ }).lean();
+  assert.ok(task, 'real task created despite the empty LLM reply');
+  const reply = groupAnswer()[0];
+  assert.match(reply, /CR Ali Raza ko bhej diya hai/, 'backend-composed verified status, not a fallback card');
+  assert.match(reply, new RegExp(task.refCode), 'refCode in the group reply');
+  assert.ok(!/CR:/i.test(reply), 'the old fallback CR-card never fires for a needs_cr answer');
+});
+
 /* ---------- 11. silence preserved: untagged + self-messages ---------- */
 
 test('GI-14: untagged messages and the bot\u2019s own messages stay silent (no loops)', async () => {
