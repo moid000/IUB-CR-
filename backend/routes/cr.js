@@ -10,6 +10,7 @@ import {
   broadcastAssignmentToGroup,
   broadcastNoteToGroup,
   cancelAttendanceSession,
+  registerDevice, listDevices, rotateSecret, revokeDevice, startEnrollment,
   copyTimetable,
   createAnnouncement,
   createAssignment,
@@ -157,6 +158,14 @@ router.delete('/timetable/:id', deleteTimetable);
 // OWNER FEATURE: teacher did not reply on WhatsApp; CR confirmed on a phone
 // call and sets the status manually. Automatic WhatsApp flow stays untouched.
 router.post('/timetable/:id/confirmation-override', overrideTeacherConfirmation);
+
+// Hardware attendance devices (docs/hardware-attendance-design.md) —
+// section-scoped, secret shown ONCE at register/rotate
+router.post('/attendance-devices', registerDevice);
+router.get('/attendance-devices', listDevices);
+router.post('/attendance-devices/:id/rotate', rotateSecret);
+router.post('/attendance-devices/:id/revoke', revokeDevice);
+router.post('/attendance-devices/:id/enroll', startEnrollment);
 
 // Attendance sessions — section ALWAYS req.user.section; code returned once
 router.post('/attendance/sessions', createAttendanceSession);

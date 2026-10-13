@@ -35,6 +35,11 @@ const attendanceSessionSchema = new Schema(
     // auto-cancelled when it reaches MAX_FAILED_ATTEMPTS (10).
     failedAttempts: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ['open', 'cancelled'], default: 'open' },
+    // OWNER SPEC hardware attendance: 'cr' = code/QR session (default),
+    // 'device' = auto-opened by the fingerprint device for a timetable slot.
+    // Device sessions carry a codeHash NOBODY ever sees (random UUID hashed),
+    // so they can never be attended through the student code path.
+    source: { type: String, enum: ['cr', 'device'], default: 'cr' },
   },
   { timestamps: true }
 );

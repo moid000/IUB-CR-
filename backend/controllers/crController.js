@@ -10,6 +10,7 @@ import noteSvc, { broadcastNoteToGroup as broadcastNote } from '../services/note
 import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
 import * as attendanceSvc from '../services/attendanceService.js';
+import * as deviceSvc from '../services/deviceAttendanceService.js';
 
 /**
  * CR student management. Section ownership is ALWAYS server-derived from
@@ -99,6 +100,12 @@ export const deleteTimetable = wrapDoc(timetableSvc.deleteTimetableCr);
 
 /* ---- Attendance — section ALWAYS req.user.section; code shown once at create ---- */
 export const createAttendanceSession = wrapDoc(attendanceSvc.createSession);
+// Hardware attendance devices — secret/PIN come back ONCE in the response
+export const registerDevice = wrapDoc(deviceSvc.registerDevice);
+export const listDevices = wrapList(deviceSvc.listDevices);
+export const rotateSecret = wrapDoc(deviceSvc.rotateSecret);
+export const revokeDevice = wrapDoc(deviceSvc.revokeDevice);
+export const startEnrollment = wrapDoc(deviceSvc.startEnrollment);
 export const listAttendanceSessions = wrapList(attendanceSvc.listSessionsCr);
 export const getAttendanceSession = wrapDoc(attendanceSvc.getSessionCr);
 export const cancelAttendanceSession = wrapDoc(attendanceSvc.cancelSession);

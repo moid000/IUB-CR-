@@ -21,7 +21,7 @@ const attendanceRecordSchema = new Schema(
     markedAt: { type: Date, default: Date.now },
     ip: { type: String },
     userAgent: { type: String },
-    method: { type: String, enum: ['self', 'manual'], default: 'self' },
+    method: { type: String, enum: ['self', 'manual', 'device'], default: 'self' },
     status: { type: String, enum: ['present', 'revoked'], default: 'present' },
     revokedBy: { type: ObjectId, ref: 'User', default: null },
     revocationReason: { type: String, trim: true },
