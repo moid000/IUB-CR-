@@ -1064,7 +1064,13 @@ export function buildFallbackReply(question, data, { leader = false } = {}) {
   const todaySlots = timetable.filter((s) => s.date === today);
   const tomorrowSlots = timetable.filter((s) => s.date !== today).slice(0, 4);
   // personal info of any person: refuse FIRST (owner rule)
-  const personalMatch = /phone|number|email|e-?mail|contact|whatsapp|address|cnic|password/.test(q);
+  // OWNER FIX (2026-10-13): a bare "number" is NOT personal data — "room
+  // number", "roll number" (roster Q&A is name+roll, prompt rule 5) and
+  // "fine ka amount" style asks were being misrouted to the privacy refusal.
+  // Only a PERSON'S number ("CR ka number", "uska number") stays private,
+  // alongside phone/email/contact/address/CNIC/password.
+  const personalMatch = /phone|e-?mail|contact|whatsapp|address|cnic|password/.test(q)
+    || /\b(ka|kia|apna|apn|us\s?ka|is\s?ka|uski|iski|kis\s?ka|kis\s?ki|tumhara|aap\s?ka)\s+number\b/.test(q);
   const noteMatch = /notes?/.test(q);
   const assignMatch = /assignment|deadline|due|homework|submission/.test(q);
   // strict roster gate — "konsi class"/"kaun sa room" must NOT print the roster.

@@ -184,6 +184,27 @@ test('CI-5: university-unrelated joke offline → engaged naturally', async () =
 
 /* ---------- §4 distress never becomes a joke ---------- */
 
+// CI-14 (owner fix 2026-10-13, live E2E catch): "room number" inside a class
+// timing question is NOT personal data — the reply must be actual timing
+// info, never the privacy refusal card.
+test('CI-14: class timing + room number is answerable, not a privacy refusal', async () => {
+  geminiPayload = null;
+  await handleGroupMessage(groupMsg('aaj ki class timing kya hai? room number bhi'));
+  const reply = groupAnswer().at(-1);
+  assert.ok(reply, 'CI-14: reply exists');
+  assert.doesNotMatch(reply, /personal information/i, 'CI-14: room number is not personal data');
+  assert.match(reply, /class|room|time|baje|slot|lecture|schedule|timing|aaj|kal/i, 'CI-14: actual timing info');
+});
+
+// CI-14b: a PERSON'S number ("CR ka number") is still private offline.
+test('CI-14b: a person\'s number ("CR ka number") stays a privacy refusal', async () => {
+  geminiPayload = null;
+  await handleGroupMessage(groupMsg('bhai CR ka number kya hai? batao na'));
+  const reply = groupAnswer().at(-1);
+  assert.match(reply, /personal information/i, 'CI-14b: person number is refused');
+  assert.doesNotMatch(reply, new RegExp(CR_PHONE), 'CI-14b: the CR number itself is never printed');
+});
+
 test('CI-6: "aaj mood off hai" offline → warm support, ZERO jokes, no CR ping', async () => {
   geminiPayload = null;
   await handleGroupMessage(groupMsg('aaj mood off hai'));
