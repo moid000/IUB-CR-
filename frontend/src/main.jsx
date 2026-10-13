@@ -9,6 +9,8 @@ import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/600.css';
 import '@fontsource/inter/700.css';
+// Vercel Speed Insights — track Core Web Vitals in production
+import { injectSpeedInsights } from '@vercel/speed-insights';
 
 // Clean URLs: the SPA's static build still lives under /frontend/ (vite base),
 // but pages are served at the root. If someone lands on a legacy /frontend/*
@@ -66,6 +68,9 @@ window.addEventListener('vite:preloadError', (event) => {
     window.location.reload();
   }
 });
+
+// Initialize Vercel Speed Insights for Core Web Vitals tracking
+injectSpeedInsights();
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
