@@ -104,7 +104,7 @@ export function isGroupMessage(payload) {
 const KEYWORD_RE = new RegExp(
   '(timetable|schedule|timing|time|notes?|assignment|deadline|due|submission|'
   + 'homework|class(es)?|lecture|syllabus|perhaya|parhaya|padhaya|topic|'
-  + 'subject(s)?|next|agle?y?|tomorrow|kal|aaj|aj|today|files?|'
+  + 'subject(s)?|next|agle?y?|tomorrow|\\bkal\\b|\\baaj\\b|\\baj\\b|today|files?|'
   + 'paper|quiz|test|attendance|marks?|section|announcement|notice|'
   + 'teacher|professor|ustaad|cr|gr|representative|monitor|'
   + 'student(s)?|classmate|batchmate|naam|name|kon|kaun|kithn|kitn|list)',
@@ -902,56 +902,138 @@ const CR_IDENTITY_ASK_RE = /\b(cr|class rep)\b[^?]{0,25}\b(kaun|kon|number|conta
  */
 const CASUAL_GREETING_RE = /\b(salam|as+salam|asa?lam|aoa|adaab|hello|hii?|hey|yo)\b/i;
 const CASUAL_DISS_RE = /\b(dafa|hutt|hato|chup|bakwas|pagal)\b/i;
+/* ------------------------------------------------------------------ */
+/* OWNER SPEC 2026-10-13 #2 ("intelligent conversations"): the message  */
+/* is CLASSIFIED before any reply is built — banter never lands on the */
+/* academic fallback and vice versa. Pure, exportable, test-first.     */
+/* ------------------------------------------------------------------ */
+const CASUAL_EMOTIONAL_RE = /mood\s?(off|kharab)|udaas|upset|dukhi|pareshan|tension|stressed?|ghabra|darr\s?(lag)?|dar lag|fail\s?ho|flop\s?ho|rona|ro\s?raha|crying|himmat\s?nahi|thak\s?gaya|tang\s?ho|breakdown|depress/i;
+const CASUAL_THANKS_RE = /\b(thanks?|thank\s?you|shukriya|jazakallah|jazak|mehrbani)\b/i;
+// teasing words that are BANTER in a class group, not insults (owner #4):
+// "bekaar ho / kya kaam ke ho / nalla bot" all get a confident comeback
+const CASUAL_TEASE_RE = /\b(bekaar|bekar|useless|nalla|faltu|faltugiri|tatol|kya\s?kaam|kaam\s?ke\s?bhi|kaam\s?ke\s?kaam|zero\s?ho|kuch\s?bhi\s?nahi|awara)\b/i;
+const ACADEMIC_MORE_RE = /exam|fee|admission|university|campus|semester|library|hostel|registration|voucher|result|gpa|paper|scholarship|transcript/i;
+const IDENTITY_ASK_RE = /tum\s?(kon|kaun|kaun)\s?(ho|hai)|tu\s?kaun|who\s?are\s?(you|u)|ap\s?kon|introduction\s?do|tumhara\s?naam/i;
+
+/** OWNER SPEC 2026-10-13 #1: what kind of message is this REALLY?
+ * Priority: emotional -> thanks -> teasing -> greeting -> chat -> academic.
+ * Banter categories win over academic keywords ("assignment ne zinda
+ * chhora" is chat, not an assignment request). Exported for tests. */
+export function classifyGroupIntent(question) {
+  const q = String(question ?? '').trim();
+  if (!q) return 'empty_tag';
+  if (CASUAL_EMOTIONAL_RE.test(q)) return 'emotional';
+  if (CASUAL_THANKS_RE.test(q) && q.length <= 80 && !/\?/.test(q)) return 'thanks';
+  if (CASUAL_DISS_RE.test(q) || CASUAL_TEASE_RE.test(q)) return 'teasing';
+  if (CASUAL_GREETING_RE.test(q)) return 'greeting';
+  if (CASUAL_CHAT_RE.test(q)) return 'chat';
+  if (IDENTITY_ASK_RE.test(q)) return 'identity';
+  if (KEYWORD_RE.test(q) || ACADEMIC_MORE_RE.test(q)) return 'academic';
+  return 'nonacademic';
+}
+
+/** A leftover non-academic message (no academic word at all) is
+ * conversation, never a missing-portal lookup. */
+function isNonAcademicLeftover(q) {
+  return !KEYWORD_RE.test(q) && !ACADEMIC_MORE_RE.test(q);
+}
+
+const BANTER_LEFTOVER_POOL = [
+  'Oho bhai, kya scene ho gaya? Batao, sun raha hoon 😄',
+  'Interesting baat hai — chal poora karo, kya kehna chahta hai? 😂',
+  'Aisi baatein group me hi hoti hain — bol bhai, kya chal raha hai? 😄',
+  'Hmm, sun raha hoon zahan. Aage batao — ya phir kaam poochhna tha, woh bhi chalta hai 😂',
+  'Bhai mazak aur kaam dono hazir hain — jo mann kare bolo 😄',
+];
+const BANTER_TEASE_POOL = [
+  'Bhai, tum logon ki duty hai mujhe test karna, aur meri duty hai tumhein tolerate karna 😂',
+  'Bhai, itni beizzati ke baad bhi 24/7 duty kar raha hoon — is se zyada kaam kya karun? 😂',
+  'Aray main kuch kaam ke hi hoon — tum log deadline ki sounchein, main data ki 😄',
+  'Kuch kaam ke nahi? Bhai pura class ka timetable yaad hai mujhe, tumhe apna roll number yaad hai? 😂',
+  'Nalla hoon to phir notes kis ne bheje the subah? Chalo agli baar khud dhoondna 😄',
+  'Bekaar bot ka kaam: tumhari class ki deadlines sambhalna. Free ka hai, shukriya banta hai 😂',
+];
+const BANTER_EMOTIONAL_POOL = [
+  'Oho bhai, kya scene ho gaya? Batao, sun raha hoon — aur agar study ka masla hai to woh to main foran hal kar deta hoon.',
+  'Sun raha hoon bhai. Jab dil heavy ho to ek kaam kar — jo dikh raha hai likh lo, phir dekhna hal ho jata hai. Main hazir hoon.',
+  'Tension mat lo bhai, akele nahi ho — bata kya chal raha hai. Study ka bhar to main utha deta hoon.',
+];
+const BANTER_LEFTOVER_LEADER_POOL = [
+  'Ji boliye — jo kehna tha poora kar lein, sun raha hoon. Kaam ho to foran hazir hoon.',
+  'Ji, kya poochhna tha? Batayein, main hazir hoon.',
+];
+const IDENTITY_REPLY = 'Main Tri3M hoon — tumhari hi class ke students ne banaya, class ka AI agent. Timetable, notes, assignments sab mere pass hai, aur shugal bhi chalta hai 😄';
+const BANTER_THANKS_POOL = [
+  'Bas shukriya kaafi hai — agli deadline yaad dilwa dena, barabar honge 😄',
+  'Anytime bhai! Ab parhai wapas chalao warna agli baar notes ki jagah taunt ayenge 😂',
+  'Hamesha hazir — thanks ka jawab duty se dena parta hai 😄',
+];
 // Roman-Urdu spelling jungle: kya/kia, hal/haal, kaisay/kaise/kese/kaisy...
 const CASUAL_CHAT_RE = /(kya|kia|ky)\s+ha+l|kaisay|kaisy|kaise|kese|kya\s+kar|kia\s+kar|maza|shugal|mazak|bore|kahan ho|kahan aye|zinda|haal chaal|kia scene|kya scene/i;
 
 export function casualReply(question, { leader = false } = {}) {
   const q = String(question ?? '').trim();
-  if (q.length > 120) return null;
-  if (KEYWORD_RE.test(q)) return null; // study content → normal branches
+  if (q.length > 200) return null;
+  const kind = classifyGroupIntent(q);
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   // OWNER RULE: CR/GR casual chat gets respect, never roast
   if (leader) {
-    if (!q) return 'Ji boliye — kya chahiye? Timetable, notes, assignments, sab hazir hai aap ke liye.';
-    if (CASUAL_DISS_RE.test(q)) return 'Ji maazrat — agar mazak tha to qubool hai. Kaam ho to boliye, foran hazir hoon.';
-    if (CASUAL_GREETING_RE.test(q)) return 'Wa alaikum assalam. Aap ka shukriya — hazir hoon, jo poochhna ho boliye.';
-    if (CASUAL_CHAT_RE.test(q)) return 'Main bilkul theek hoon, aap ka shukriya. Aap kaise hain? Kaam ho to foran boliye — hazir hoon.';
-    return null;
-  }
-  if (!q) {
-    return 'Lagta hai sirf tag kiya, baat bhool gaye. Bolo kya chahiye — timetable, notes, assignment? Main poora din hazir hoon.';
-  }
-  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  if (CASUAL_DISS_RE.test(q)) {
-    return pick([
-      'Aray aisi baat na karo — main to tumhara hi helper hoon. Bolo kaam kya hai, foran ho jayega. (Mazak samajh lo, gussa nahi.)',
-      'Aji sharma gaya main — mazak qubool hai. Bolo kaam kya hai, main tumhara helper hoon, foran ho jayega.',
-      'Ye ghalyaare ki zor lagi — samajh gaya mazak hai. Pooch lo jo chahiye, main tumhara helper hoon, hazir hoon.',
-    ]);
-  }
-  if (CASUAL_GREETING_RE.test(q)) {
-    // a SALAAM always gets a walaikum-assalam (never a plain 'hello') —
-    // English greetings get the varied welcome pool.
-    if (/salam|asa?lam|aoa|adaab/i.test(q)) {
-      return pick([
-        'Wa alaikum assalam. Adaab complete — ab kuch pooch bhi lo, warna group me sirf salam hota rahega. Timetable, notes, deadline — sab hazir hai.',
-        'Wa alaikum assalam! Salam ka hisaab poora — ab kaam ki baat karo, kya poochhna hai?',
-      ]);
+    switch (kind) {
+      case 'empty_tag': return 'Ji boliye — kya chahiye? Timetable, notes, assignments, sab hazir hai aap ke liye.';
+      case 'emotional': return 'Ji, agar koi masla ho to batayein — main sun raha hoon. Study ka kaam ho to foran hazir hoon.';
+      case 'thanks': return 'Aap ka shukriya — hazir hoon, jo poochhna ho boliye.';
+      case 'teasing': return 'Ji maazrat — agar mazak tha to qubool hai. Kaam ho to boliye, foran hazir hoon.';
+      case 'greeting': return 'Wa alaikum assalam. Aap ka shukriya — hazir hoon, jo poochhna ho boliye.';
+      case 'chat': return 'Main bilkul theek hoon, aap ka shukriya. Aap kaise hain? Kaam ho to foran boliye — hazir hoon.';
+      default: return null;
     }
-    return pick([
-      'Hello ji! Swagat hai — pooch lo jo poochna tha, main isi waqt hazir hoon.',
-      'Hey! Kya scene hai? Timetable, notes, deadline — jo chahiye bol do.',
-    ]);
   }
-  if (CASUAL_CHAT_RE.test(q)) {
-    const replies = [
-      'Main to theek hoon — poora din tumhari class ka hisaab rakhna parta hai, mera kaam hi ye hai. Tum batao, aaj parhai hui ya WhatsApp hi WhatsApp hai?',
-      'Haal theek hai, bas tumhari deadlines ka intezaar hai. Mazak kar raha hoon — bolo, kya poochhna hai?',
-      'Main masst hoon — class ka data sambhalna hi kaam hai, kabhi kabhi shugal bhi ho jata hai. Tum batao, kya scenario hai aaj ka?',
-      'Theek hoon, aap ke haal poochne ka shukriya — mazak bhi qubool hai. Chalo bolo, kaam kya karna hai?',
-    ];
-    return replies[Math.floor(Math.random() * replies.length)];
+  switch (kind) {
+    case 'empty_tag':
+      return 'Lagta hai sirf tag kiya, baat bhool gaye. Bolo kya chahiye — timetable, notes, assignment? Main poora din hazir hoon.';
+    case 'emotional':
+      // OWNER SPEC 2026-10-13 #4: distress NEVER gets a joke — warm, zero-tease
+      return pick(BANTER_EMOTIONAL_POOL);
+    case 'thanks':
+      return pick(BANTER_THANKS_POOL);
+    case 'teasing':
+      return pick([
+        'Aray aisi baat na karo — main to tumhara hi helper hoon. Bolo kaam kya hai, foran ho jayega. (Mazak samajh lo, gussa nahi.)',
+        'Aji sharma gaya main — mazak qubool hai. Bolo kaam kya hai, main tumhara helper hoon, foran ho jayega.',
+        'Ye ghalyaare ki zor lagi — samajh gaya mazak hai. Pooch lo jo chahiye, main tumhara helper hoon, hazir hoon.',
+        ...BANTER_TEASE_POOL,
+      ]);
+    case 'greeting':
+      // a SALAAM always gets a walaikum-assalam (never a plain 'hello') —
+      // English greetings get the varied welcome pool.
+      if (/salam|asa?lam|aoa|adaab/i.test(q)) {
+        return pick([
+          'Wa alaikum assalam. Adaab complete — ab kuch pooch bhi lo, warna group me sirf salam hota rahega. Timetable, notes, deadline — sab hazir hai.',
+          'Wa alaikum assalam! Salam ka hisaab poora — ab kaam ki baat karo, kya poochhna hai?',
+        ]);
+      }
+      return pick([
+        'Hello ji! Swagat hai — pooch lo jo poochna tha, main isi waqt hazir hoon.',
+        'Hey! Kya scene hai? Timetable, notes, deadline — jo chahiye bol do.',
+      ]);
+    case 'chat': {
+      const replies = [
+        'Main to theek hoon — poora din tumhari class ka hisaab rakhna parta hai, mera kaam hi ye hai. Tum batao, aaj parhai hui ya WhatsApp hi WhatsApp hai?',
+        'Haal theek hai, bas tumhari deadlines ka intezaar hai. Mazak kar raha hoon — bolo, kya poochhna hai?',
+        'Main masst hoon — class ka data sambhalna hi kaam hai, kabhi kabhi shugal bhi ho jata hai. Tum batao, kya scenario hai aaj ka?',
+        'Theek hoon, aap ke haal poochne ka shukriya — mazak bhi qubool hai. Chalo bolo, kaam kya karna hai?',
+        'Full charge bhai 😎 tum sunao, assignment ne zinda chhora ya nahi?',
+      ];
+      return replies[Math.floor(Math.random() * replies.length)];
+    }
+    case 'identity':
+      return IDENTITY_REPLY;
+    default:
+      // academic + nonacademic leftovers are NOT casualReply's job:
+      // study content routes to the normal branches, and the non-academic
+      // leftover is engaged by buildFallbackReply's banter tail.
+      return null;
   }
-  return null;
 }
 
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1088,10 +1170,20 @@ export function buildFallbackReply(question, data, { leader = false } = {}) {
     const subs = (data.subjects ?? []).map((s) => `- ${s.name}${s.code ? ` (${s.code})` : ''}`);
     if (subs.length) return ['*Class subjects*', '', ...subs].join('\n');
   }
+  // OWNER SPEC 2026-10-13 #1-3 (intelligent conversations): the old dry
+  // feature-list card is GONE. A leftover with zero academic words is
+  // conversation — engage it with light banter (never a CR lecture);
+  // only a genuinely academic unknown keeps a SHORT honest CR pointer.
+  const casualKind = classifyGroupIntent(q);
+  if (casualKind === 'nonacademic' && q.length <= 200) {
+    return leader
+      ? BANTER_LEFTOVER_LEADER_POOL[Math.floor(Math.random() * BANTER_LEFTOVER_LEADER_POOL.length)]
+      : BANTER_LEFTOVER_POOL[Math.floor(Math.random() * BANTER_LEFTOVER_POOL.length)];
+  }
   if (leader) {
     return 'Ji ye detail mere paas maujood nahi. Aap portal me check kar lein — ya dobara poochein, main dhund deta hoon. Timetable, notes, assignments sab pooch sakte hain.';
   }
-  return 'Ye mere paas nahi hai — apne CR se poochein, woh guide kar dein ge. Timetable, notes, assignments, teachers, section ki maloomat pooch sakte ho. Main bore nahi hota, poochte raho.';
+  return 'Yaar, iski verified information mere paas nahi hai 😅 CR bhai se confirm kar lo.';
 }
 
 /* ------------------------------------------------------------------ */
@@ -1440,7 +1532,12 @@ export async function handleGroupMessage(payload) {
       // CR AND the reply deflected to the CR → create the real task anyway.
       // Identity questions ("CR kaun hai?") never escalate.
       const deflected = /\bcr se\b[^.]{0,25}\b(confirm|pooch|poocho|check|batao|bata|kar)|\bapne cr se\b/i.test(String(llm?.reply ?? ''));
-      if (llm?.needs_cr || (llm && askCr && !identityAsk && deflected)) {
+      // OWNER SPEC 2026-10-13 #2: the CR guidance is for GENUINE academic
+      // questions only — a joke/greeting/thanks mis-flagged needs_cr by a
+      // weak model never pings the CR (banter categories are never academic)
+      const casualGate = classifyGroupIntent(question);
+      const banterBlocked = casualGate !== 'academic' && casualGate !== 'empty_tag' && !askCr;
+      if ((llm?.needs_cr && !banterBlocked) || (llm && askCr && !identityAsk && deflected)) {
         // OWNER SPEC 2026-10-13 (STRICT teacher-vs-student split): a student-
         // group question NEVER enters the teacher private-DM workflow —
         // no TeacherQuestion task, no private CR message. The configured CR

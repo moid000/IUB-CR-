@@ -661,10 +661,11 @@ test('owner rule: fallback precision — question-type answers, personal-info re
   assert.match(count, /2 students add hain/);
   assert.ok(!/Sara Khan/.test(count), 'count question must not dump all names');
 
-  // unknown question → CR guidance (owner rule: never "check the portal")
+  // OWNER SPEC 2026-10-13: a NON-academic unknown (festival food!) is
+  // conversation — banter engagement, NEVER the CR guidance
   const unknown = buildFallbackReply('festival me kya khana banana chahiye?', FALLBACK_DATA);
-  assert.match(unknown, /CR se poochein/i);
-  assert.ok(!/portal|http/i.test(unknown));
+  assert.ok(!/CR se poochein|CR bhai|portal|http/i.test(unknown), 'casual non-academic never gets CR guidance');
+  assert.match(unknown, /bol|batao|sun raha|kehn/i);
 });
 
 test('owner rule: teacher questions answer ONE teacher, not every teacher/subject (professional precision)', async () => {
@@ -748,14 +749,25 @@ test('owner feature: CR/GR gets RESPECT, students get roast — casualReply lead
   assert.match(casualReply('dafa ho', { leader: true }), /maazrat/i); // polite, never roasted back
   assert.match(casualReply('', { leader: true }), /Ji boliye/);
   // buildFallbackReply catch-all is leader-aware too (never "apne CR se poochein" TO the CR)
-  assert.match(buildFallbackReply('kuch ajeeb', {}, { leader: true }), /aap portal me check kar lein/i);
+  // OWNER SPEC 2026-10-13: 'kuch ajeeb' has zero academic words — it is
+  // CONVERSATION, so both leader and student get natural engagement,
+  // never the old dry feature-list card
+  assert.match(buildFallbackReply('kuch ajeeb', {}, { leader: true }), /Ji boliye|Ji, kya poochhna|sun raha hoon/i);
   assert.match(buildFallbackReply('kisi ka phone number batao', {}, { leader: true }), /portal me verify/i);
-  // students keep the FUNNY tone (pool rotates — all 3 variants are light)
+  // students keep the FUNNY tone (pool rotates — all variants are light)
   const studentHaal = casualReply('kia hal hain', { leader: false });
   assert.ok(studentHaal && !/aap ka shukriya/.test(studentHaal));
-  assert.match(studentHaal, /theek|mast|masst|haal/i);
+  assert.match(studentHaal, /theek|mast|masst|haal|Full charge/i);
   assert.doesNotMatch(studentHaal, /behtar hai tumhari|zinda hoon/i);
-  assert.match(buildFallbackReply('kuch ajeeb', {}, { leader: false }), /apne CR se poochein/);
+  // non-academic leftover → banter engagement, NOT the CR lecture
+  const ajeeb = buildFallbackReply('kuch ajeeb', {}, { leader: false });
+  assert.doesNotMatch(ajeeb, /Ye mere paas nahi hai|bore nahi|CR se poochein|CR bhai se confirm/);
+  assert.match(ajeeb, /sun raha hoon|bol|batao|kehn/i);
+  // a genuinely academic unknown keeps the SHORT honest CR pointer
+  // (owner spec wording — no feature list, no 'bore nahi hota')
+  const acad = buildFallbackReply('library ka fine system kaisa hai campus me', {}, { leader: false });
+  assert.match(acad, /verified information|CR bhai se confirm/);
+  assert.doesNotMatch(acad, /bore nahi|poochte raho|Timetable, notes, assignments, teachers/);
 });
 
 test('owner feature: TAGGED casual chat always gets a reply — casualReply helper', () => {
@@ -763,12 +775,12 @@ test('owner feature: TAGGED casual chat always gets a reply — casualReply help
   assert.match(casualReply('salam doston'), /Wa alaikum assalam/);
   // "dafa ho" style banter → gentle witty comeback, never harsh
   const dafa = casualReply('dafa ho');
-  assert.match(dafa, /helper hoon|mazak/i);
+  assert.match(dafa, /helper hoon|mazak|duty|24\/7|notes kis ne|tolerate|kaam ke|roll number|timetable yaad|beizzati|Bekaar bot|deadlines sambhalna/i);
   assert.doesNotMatch(dafa, /complain|likhwa/); // no threats-as-jokes
   // "kaisay ho" → funny haal reply (even with a question mark)
   const haal = casualReply('kaisay ho?');
   assert.ok(haal);
-  assert.match(haal, /theek|mast|masst|haal/i);
+  assert.match(haal, /theek|mast|masst|haal|Full charge/i);
   assert.doesNotMatch(haal, /behtar hai tumhari|zinda hoon/i); // no mean jabs
   // Roman-Urdu spelling variants the owner actually types (regression:
   // 'kia hal hain' once fell through to the dry catch-all)
@@ -792,13 +804,14 @@ test('owner feature: "@Tri3M kaisay ho" now REPLIES (mention no longer stripped 
   assert.ok(chat, 'casual reply sent');
   assert.ok(chat.params.body.startsWith(`@${STUDENT} `));
   assert.doesNotMatch(chat.params.body, /Ye mere paas nahi hai/); // never the dry catch-all
-  assert.match(chat.params.body, /theek|mast|masst|haal/i);
+  assert.match(chat.params.body, /theek|mast|masst|haal|Full charge/i);
   assert.doesNotMatch(chat.params.body, /zinda hoon|WiFi ka load/i); // no mean jabs
   // and the plain "dafa ho" tag gets the witty comeback
   chatbot.__resetGuards();
   assert.equal(await handleGroupMessage(groupMsg('@Tri3M dafa ho')), true);
   const chat2 = waSent.filter((s) => s.kind === 'chat').at(-1);
-  assert.match(chat2.params.body, /helper hoon/);
+  assert.match(chat2.params.body, /helper hoon|duty|24\/7|notes kis ne|tolerate|kuch kaam ke|roll number|timetable yaad|beizzati|Bekaar bot|deadlines sambhalna/);
+  assert.doesNotMatch(chat2.params.body, /Ye mere paas nahi hai/); // never the dry catch-all
 });
 
 test('owner feature: the section CR/GR gets a RESPECTFUL reply in the group', async () => {
@@ -840,7 +853,7 @@ test('owner feature: the section CR/GR gets a RESPECTFUL reply in the group', as
   geminiResponse = null;
   assert.equal(await handleGroupMessage(groupMsg('@Tri3M kia hal hain', { author: '923007770222' })), true);
   const chat3 = waSent.filter((s) => s.kind === 'chat').at(-1);
-  assert.match(chat3.params.body, /theek|mast|masst/i);
+  assert.match(chat3.params.body, /theek|mast|masst|Full charge/i);
   assert.doesNotMatch(chat3.params.body, /aap ka shukriya/);
 });
 
