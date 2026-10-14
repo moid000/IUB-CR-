@@ -221,7 +221,7 @@ router.post('/ops-replay', async (req, res, next) => {
 router.get('/ops-diagnostics', async (req, res, next) => {
   try {
     assertSweepSecret(req);
-    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section, ChatbotSetting, ChatbotLog } = await import('../models/index.js');
+    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section, ChatbotSetting, ChatbotLog, NoteDeliveryJob } = await import('../models/index.js');
     const mask = (p) => (p ? `…${String(p).slice(-4)}` : null);
     const [sweepBeat, dogBeat, dogRenew, dogErr] = await Promise.all([
       WatchdogState.findOne({ key: 'deadline-sweep:last-run' }).lean(),
@@ -239,7 +239,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
     // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
-    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, recentDirect, botRecent] = await Promise.all([
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, recentDirect, botRecent, recentDeliveryJobs] = await Promise.all([
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
       WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
@@ -258,6 +258,9 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       // last 5 bot answers — live proof a group reply really went out
       ChatbotLog.find({}).sort({ createdAt: -1 }).limit(5)
         .select('createdAt question reply source error sentFiles').lean(),
+      // OWNER SPEC 2026-10-14 Phase 5.2: sanitized delivery-job audit trail —
+      // msg ids, per-file states, durations, retries, provider status
+      NoteDeliveryJob.find({}).sort({ createdAt: -1 }).limit(10).lean(),
     ]);    // LIVE bot identity: what number does the Wasender session ACTUALLY run
     // on? The chatbot's tag matcher uses env gatewayPhone — if these tails
     // differ, every digit-mention tag misses and the bot stays silent.
@@ -301,6 +304,17 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       // bot's LID (digit runs masked to last-4; removed after LID fix lands).
       gatewaySelfDebug: JSON.parse(JSON.stringify(selfProfile ?? {}, (k, v) =>
         typeof v === 'string' ? v.replace(/\d{5,}/g, (m) => `…${m.slice(-4)}`) : v)),
+deliveryJobs: (recentDeliveryJobs ?? []).map((j) => ({
+        id: j.msgId || String(j._id), status: j.status,
+        requester: mask(j.requester), question: String(j.question ?? '').slice(0, 80),
+        createdAt: j.createdAt, latencyMs: j.latencyMs ?? null,
+        files: (j.files ?? []).map((f) => ({
+          state: f.state, attempts: f.attempts,
+          durationMs: f.durationMs ?? null,
+          providerMsgId: f.providerMsgId || null,
+          error: f.error || null,
+        })),
+      })),
       chatbot: {
         // OWNER 2026-10-11: 'msgs off/on' panel toggle state — if this is
         // false the group bot consumes everything SILENTLY, no matter what
