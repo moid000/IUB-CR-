@@ -965,127 +965,37 @@ function isNonAcademicLeftover(q) {
   return !KEYWORD_RE.test(q) && !ACADEMIC_MORE_RE.test(q);
 }
 
-const BANTER_LEFTOVER_POOL = [
-  'Oho bhai, kya scene ho gaya? Batao, sun raha hoon 😄',
-  'Interesting baat hai — chal poora karo, kya kehna chahta hai? 😂',
-  'Aisi baatein group me hi hoti hain — bol bhai, kya chal raha hai? 😄',
-  'Hmm, sun raha hoon zahan. Aage batao — ya phir kaam poochhna tha, woh bhi chalta hai 😂',
-  'Bhai mazak aur kaam dono hazir hain — jo mann kare bolo 😄',
-];
-const BANTER_TEASE_POOL = [
-  'Bhai, tum logon ki duty hai mujhe test karna, aur meri duty hai tumhein tolerate karna 😂',
-  'Bhai, itni beizzati ke baad bhi 24/7 duty kar raha hoon — is se zyada kaam kya karun? 😂',
-  'Aray main kuch kaam ke hi hoon — tum log deadline ki sounchein, main data ki 😄',
-  'Kuch kaam ke nahi? Bhai pura class ka timetable yaad hai mujhe, tumhe apna roll number yaad hai? 😂',
-  'Nalla hoon to phir notes kis ne bheje the subah? Chalo agli baar khud dhoondna 😄',
-  'Bekaar bot ka kaam: tumhari class ki deadlines sambhalna. Free ka hai, shukriya banta hai 😂',
-];
-const BANTER_EMOTIONAL_POOL = [
-  'Oho bhai, kya scene ho gaya? Batao, sun raha hoon — aur agar study ka masla hai to woh to main foran hal kar deta hoon.',
-  'Sun raha hoon bhai. Jab dil heavy ho to ek kaam kar — jo dikh raha hai likh lo, phir dekhna hal ho jata hai. Main hazir hoon.',
-  'Tension mat lo bhai, akele nahi ho — bata kya chal raha hai. Study ka bhar to main utha deta hoon.',
-];
-const BANTER_LEFTOVER_LEADER_POOL = [
-  'Ji boliye — jo kehna tha poora kar lein, sun raha hoon. Kaam ho to foran hazir hoon.',
-  'Ji, kya poochhna tha? Batayein, main hazir hoon.',
-];
+/* OWNER SPEC 2026-10-14 (zero-scripted architecture): the banter pools
+ * are DECOMMISSIONED. Conversational replies ALWAYS come from the model;
+ * when the model is unreachable this single honest notice is a SYSTEM
+ * status message (like a maintenance banner), not a canned personality.
+ * Deterministic DATA answers (timetable, deadlines, notes, roster, CR
+ * escalation, privacy refusals) remain below — those are system operations. */
+const OFFLINE_NOTICE = 'Mera AI system filhaal pause pe hai — thori der baad dobara poochein. Timetable, deadline, notes-list jese data sawal abhi bhi hazir hain.';
+const OFFLINE_NOTICE_LEADER = 'Ji, mera AI system filhaal offline hai — thori der baad dobara poochein. Timetable/deadline/notes-list jese data sawal abhi bhi hazir hain.';
+const OFFLINE_DISTRESS = 'AI system filhaal offline hai — lekin aap akele nahi hain: kisi dost ya CR se baat zaroor karein. Main wapas aa kar baat karunga.';
 const IDENTITY_REPLY = 'Main Tri3M hoon — tumhari hi class ke students ne banaya, class ka AI agent. Timetable, notes, assignments sab mere pass hai, aur shugal bhi chalta hai 😄';
-const BANTER_THANKS_POOL = [
-  'Bas shukriya kaafi hai — agli deadline yaad dilwa dena, barabar honge 😄',
-  'Anytime bhai! Ab parhai wapas chalao warna agli baar notes ki jagah taunt ayenge 😂',
-  'Hamesha hazir — thanks ka jawab duty se dena parta hai 😄',
-];
 // Roman-Urdu spelling jungle: kya/kia, hal/haal, kaisay/kaise/kese/kaisy...
 const CASUAL_CHAT_RE = /(kya|kia|ky)\s+ha+l|kaisay|kaisy|kaise|kese|kya\s+kar|kia\s+kar|maza|shugal|mazak|bore|kahan ho|kahan aye|zinda|haal chaal|kia scene|kya scene/i;
 
-export function casualReply(question, { leader = false, prevReply = null } = {}) {
+export function casualReply(question, { leader = false } = {}) {
   const q = String(question ?? '').trim();
   if (q.length > 200) return null;
   const kind = classifyGroupIntent(q);
-  // OWNER SPEC 2026-10-13 §5 (test H): a canned pool is the OFFLINE net only,
-  // and even it never repeats the exact reply it just sent — re-pick once.
-  const pick = (arr) => {
-    if (!arr.length) return null;
-    const prev = String(prevReply ?? '').trim();
-    if (prev && arr.length > 1) {
-      const fresh = arr.filter((t) => String(t).trim() !== prev);
-      if (fresh.length) return fresh[Math.floor(Math.random() * fresh.length)];
-    }
-    return arr[Math.floor(Math.random() * arr.length)];
-  };
-  // OWNER RULE: CR/GR casual chat gets respect, never roast
-  if (leader) {
-    switch (kind) {
-      case 'empty_tag': return 'Ji boliye — kya chahiye? Timetable, notes, assignments, sab hazir hai aap ke liye.';
-      case 'emotional': return 'Ji, agar koi masla ho to batayein — main sun raha hoon. Study ka kaam ho to foran hazir hoon.';
-      case 'thanks': return 'Aap ka shukriya — hazir hoon, jo poochhna ho boliye.';
-      case 'teasing': return 'Ji maazrat — agar mazak tha to qubool hai. Kaam ho to boliye, foran hazir hoon.';
-      case 'greeting': return 'Wa alaikum assalam. Aap ka shukriya — hazir hoon, jo poochhna ho boliye.';
-      case 'chat': return 'Main bilkul theek hoon, aap ka shukriya. Aap kaise hain? Kaam ho to foran boliye — hazir hoon.';
-      default: return null;
-    }
-  }
-  switch (kind) {
-    case 'empty_tag':
-      return 'Lagta hai sirf tag kiya, baat bhool gaye. Bolo kya chahiye — timetable, notes, assignment? Main poora din hazir hoon.';
-    case 'emotional':
-      // OWNER SPEC 2026-10-13 #4: distress NEVER gets a joke — warm, zero-tease
-      return pick(BANTER_EMOTIONAL_POOL);
-    case 'thanks':
-      return pick(BANTER_THANKS_POOL);
-    case 'teasing':
-      return pick([
-        'Aray aisi baat na karo — main to tumhara hi helper hoon. Bolo kaam kya hai, foran ho jayega. (Mazak samajh lo, gussa nahi.)',
-        'Aji sharma gaya main — mazak qubool hai. Bolo kaam kya hai, main tumhara helper hoon, foran ho jayega.',
-        'Ye ghalyaare ki zor lagi — samajh gaya mazak hai. Pooch lo jo chahiye, main tumhara helper hoon, hazir hoon.',
-        ...BANTER_TEASE_POOL,
-      ]);
-    case 'greeting':
-      // a SALAAM always gets a walaikum-assalam (never a plain 'hello') —
-      // English greetings get the varied welcome pool.
-      if (/salam|asa?lam|aoa|adaab/i.test(q)) {
-        return pick([
-          'Wa alaikum assalam. Adaab complete — ab kuch pooch bhi lo, warna group me sirf salam hota rahega. Timetable, notes, deadline — sab hazir hai.',
-          'Wa alaikum assalam! Salam ka hisaab poora — ab kaam ki baat karo, kya poochhna hai?',
-        ]);
-      }
-      return pick([
-        'Hello ji! Swagat hai — pooch lo jo poochna tha, main isi waqt hazir hoon.',
-        'Hey! Kya scene hai? Timetable, notes, deadline — jo chahiye bol do.',
-      ]);
-    case 'chat': {
-      const replies = [
-        'Main to theek hoon — poora din tumhari class ka hisaab rakhna parta hai, mera kaam hi ye hai. Tum batao, aaj parhai hui ya WhatsApp hi WhatsApp hai?',
-        'Haal theek hai, bas tumhari deadlines ka intezaar hai. Mazak kar raha hoon — bolo, kya poochhna hai?',
-        'Main masst hoon — class ka data sambhalna hi kaam hai, kabhi kabhi shugal bhi ho jata hai. Tum batao, kya scenario hai aaj ka?',
-        'Theek hoon, aap ke haal poochne ka shukriya — mazak bhi qubool hai. Chalo bolo, kaam kya karna hai?',
-        'Full charge bhai 😎 tum sunao, assignment ne zinda chhora ya nahi?',
-      ];
-      return replies[Math.floor(Math.random() * replies.length)];
-    }
-    case 'identity':
-      return IDENTITY_REPLY;
-    default:
-      // academic + nonacademic leftovers are NOT casualReply's job:
-      // study content routes to the normal branches, and the non-academic
-      // leftover is engaged by buildFallbackReply's banter tail.
-      return null;
-  }
+  // ZERO-SCRIPTED (owner spec 2026-10-14): conversational replies ALWAYS come
+  // from the model. Offline casual chat gets the honest system notice — the
+  // witty reply is the MODEL's job and it is offline right now. Distress
+  // keeps a warm safety net (never ignored, never joked at). Academic kinds
+  // fall through to buildFallbackReply so DATA questions still answer.
+  if (kind === 'emotional') return OFFLINE_DISTRESS;
+  if (kind === 'identity') return IDENTITY_REPLY; // factual system identity
+  if (kind === 'empty_tag') return null; // nothing to answer offline
+  if (kind === 'academic') return null; // DATA path handles records answers
+  return leader ? OFFLINE_NOTICE_LEADER : OFFLINE_NOTICE;
 }
 
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/**
- * Which subject is the question about? Matches the subject's full name
- * ("artificial intelligence"), its code ("AI-101") or its abbreviation
- * ("AI" from Artificial Intelligence) — so "AI ka teacher kon hai" pins
- * down exactly one subject instead of listing every teacher.
- */
-/* OWNER SPEC 2026-10-14 Phase 3: normalized subject resolution. The old
- * matcher broke on hyphens ("Object-Oriented Programming notes" vs subject
- * "Object Oriented Programming"), on code formats ("CS101" vs "CS-101"),
- * and had no alias storage. Every subject expands to a normalized alias
- * SET: name + hyphenless name + code variants + acronym + Subject.aliases. */
 export function normalizeSubjectText(str) {
   return String(str ?? '').toLowerCase()
     .replace(/[-_]+/g, ' ')
@@ -1139,13 +1049,6 @@ export function subjectAsked(question, subjects) {
  * the assignment list. Gemini sees the history and continues the joke; the
  * offline net mirrors that with engaged, assignment-aware banter. */
 export const ACADEMIC_BANTER_RE = /\b(assignment|assignment\w*|exam|paper|quiz|test|semester|notes?|parhai|parha+ish|class)\b[^.]{0,20}\b(ne\s+)?(maar|mar|kha|khaa|khatam|barbaad|zinda|chhor|chhod|hazm|kat|khel)/i;
-const BANTER_ACAD_JOKE_POOL = [
-  'Assignment ka nasha hi sab se khatarnaak hai bhai 😂 haan, wo sab ko maar deta hai — lekin main hazir hoon, notes ka ilaaj mere paas hai.',
-  'Haan bhai, assignment ka faxa hi alag hota hai 😄 phir bhi deadline se pehle ek dafa mil lo, warna asli maut wahan hogi.',
-  'RIP meri bhai ki neend 😂 chhodo, jab uthna ho to bolo — notes, solution, sab hazir hai.',
-];
-const BANTER_ACAD_JOKE_LEADER = 'Ji, ye to sab ke sath hota hai — jab kaam ka sahara chahiye ho to main hazir hoon. Notes aur timetable dono mere paas hain.';
-
 export function buildFallbackReply(question, data, { leader = false, prevReply = null } = {}) {
   const q = String(question ?? '').toLowerCase();
   const today = pktToday();
@@ -1176,10 +1079,9 @@ export function buildFallbackReply(question, data, { leader = false, prevReply =
   // never the assignment/notes listing. Checked before the note/assignment
   // branches so "assignment ne maar diya" can never trigger a data dump.
   if (ACADEMIC_BANTER_RE.test(q) && q.length <= 200 && !notesRequestIntent(q, false)) {
-    const pool = leader ? [BANTER_ACAD_JOKE_LEADER] : BANTER_ACAD_JOKE_POOL;
-    const prev = String(prevReply ?? '').trim();
-    const fresh = pool.filter((t) => !prev || String(t).trim() !== prev);
-    return (fresh.length ? fresh : pool)[Math.floor(Math.random() * (fresh.length ? fresh.length : pool.length))];
+    // ZERO-SCRIPTED 2026-10-14: banter (incl. assignment jokes) is the
+    // MODEL's job; offline gets the honest notice, never a data dump.
+    return leader ? OFFLINE_NOTICE_LEADER : OFFLINE_NOTICE;
   }
   if (noteMatch) {
     // OWNER RULE (2026-10-05): no subject named and not an explicit "all"
@@ -1280,9 +1182,7 @@ export function buildFallbackReply(question, data, { leader = false, prevReply =
   // only a genuinely academic unknown keeps a SHORT honest CR pointer.
   const casualKind = classifyGroupIntent(q);
   if (casualKind === 'nonacademic' && q.length <= 200) {
-    return leader
-      ? BANTER_LEFTOVER_LEADER_POOL[Math.floor(Math.random() * BANTER_LEFTOVER_LEADER_POOL.length)]
-      : BANTER_LEFTOVER_POOL[Math.floor(Math.random() * BANTER_LEFTOVER_POOL.length)];
+    return leader ? OFFLINE_NOTICE_LEADER : OFFLINE_NOTICE;
   }
   if (leader) {
     return 'Ji ye detail mere paas maujood nahi. Aap portal me check kar lein — ya dobara poochein, main dhund deta hoon. Timetable, notes, assignments sab pooch sakte hain.';

@@ -287,17 +287,18 @@ test('GM-G: duplicate webhook redelivery answers ONCE; two simultaneous messages
 
 /* ---------- H: variety, offline ---------- */
 
-test('GM-H: repeated greetings/jokes never ship the same canned line twice in a row', async () => {
-  geminiPayload = null; // fully offline — the canned nets are the variation floor
-  let seen = [];
+test('GM-H (zero-scripted 2026-10-14): repeated greetings offline get the SAME honest notice — variety is the model\'s job', async () => {
+  geminiPayload = null; // fully offline — the notice is the honest system floor
+  const replies = new Set();
   for (const q of ['kaisay ho?', 'kya haal hai bhai?', 'kaisay ho aaj?', 'assalam o alaikum']) {
     await sendSeq(groupMsg(q));
     const ans = lastAnswer()?.body ?? '';
     assert.ok(ans, `H: ${q} answered`);
     assert.doesNotMatch(ans, /Ye mere paas nahi|CR se poochein/i, 'H: never the dry card');
-    assert.ok(!seen.includes(ans), `H: "${q}" never repeats the immediately previous canned line`);
-    seen = [ans]; // only the previous reply is guaranteed fresh (adjacent-dup rule)
+    assert.match(ans, /AI system filhaal pause|offline/i, 'H: honest notice, no canned variety theater');
+    replies.add(ans);
   }
+  assert.equal(replies.size, 1, 'H: the offline notice is deterministic');
 });
 
 /* ---------- history scoping: another group NEVER leaks in ---------- */

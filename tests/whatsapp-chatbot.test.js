@@ -669,7 +669,7 @@ test('owner rule: fallback precision — question-type answers, personal-info re
   // conversation — banter engagement, NEVER the CR guidance
   const unknown = buildFallbackReply('festival me kya khana banana chahiye?', FALLBACK_DATA);
   assert.ok(!/CR se poochein|CR bhai|portal|http/i.test(unknown), 'casual non-academic never gets CR guidance');
-  assert.match(unknown, /bol|batao|sun raha|kehn/i);
+  assert.match(unknown, /AI system filhaal pause|offline/i, 'zero-scripted: honest notice, not canned banter');
 });
 
 test('owner rule: teacher questions answer ONE teacher, not every teacher/subject (professional precision)', async () => {
@@ -746,57 +746,42 @@ test('owner mini-game: "class ki phopho kon hai?" → spin lands on Warda and Ar
   assert.equal(log.source, 'fallback');
 });
 
-test('owner feature: CR/GR gets RESPECT, students get roast — casualReply leader mode', () => {
-  assert.doesNotMatch(casualReply('kia hal hain', { leader: true }), /zinda|WiFi/); // never the roast tone
-  assert.match(casualReply('kia hal hain', { leader: true }), /aap ka shukriya|hazir hoon/i);
-  assert.match(casualReply('salam', { leader: true }), /Wa alaikum assalam/);
-  assert.match(casualReply('dafa ho', { leader: true }), /maazrat/i); // polite, never roasted back
-  assert.match(casualReply('', { leader: true }), /Ji boliye/);
-  // buildFallbackReply catch-all is leader-aware too (never "apne CR se poochein" TO the CR)
-  // OWNER SPEC 2026-10-13: 'kuch ajeeb' has zero academic words — it is
-  // CONVERSATION, so both leader and student get natural engagement,
-  // never the old dry feature-list card
-  assert.match(buildFallbackReply('kuch ajeeb', {}, { leader: true }), /Ji boliye|Ji, kya poochhna|sun raha hoon/i);
-  assert.match(buildFallbackReply('kisi ka phone number batao', {}, { leader: true }), /portal me verify/i);
-  // students keep the FUNNY tone (pool rotates — all variants are light)
+test('ZERO-SCRIPTED (owner spec 2026-10-14): offline casual = honest notice, leader keeps respect — casualReply leader mode', () => {
+  // CR/GR offline replies stay respectful (Ji/adab), never the roast tone
+  const leaderHaal = casualReply('kia hal hain', { leader: true });
+  assert.match(leaderHaal, /Ji, .*offline/i, 'leader gets the respectful offline notice');
+  assert.doesNotMatch(leaderHaal, /zinda|WiFi/i, 'never the roast tone');
+  // students get the plain honest notice — no canned personality substitute
   const studentHaal = casualReply('kia hal hain', { leader: false });
-  assert.ok(studentHaal && !/aap ka shukriya/.test(studentHaal));
-  assert.match(studentHaal, /theek|mast|masst|haal|Full charge/i);
-  assert.doesNotMatch(studentHaal, /behtar hai tumhari|zinda hoon/i);
-  // non-academic leftover → banter engagement, NOT the CR lecture
+  assert.match(studentHaal, /AI system filhaal pause|offline/i, 'student gets the honest offline notice');
+  assert.doesNotMatch(studentHaal, /theek|mast|Full charge/i, 'canned haal pools are decommissioned');
+  // a tagged bare mention has nothing to answer offline
+  assert.equal(casualReply('', { leader: true }), null);
+  // non-academic leftover → the honest notice, NEVER the CR lecture
   const ajeeb = buildFallbackReply('kuch ajeeb', {}, { leader: false });
   assert.doesNotMatch(ajeeb, /Ye mere paas nahi hai|bore nahi|CR se poochein|CR bhai se confirm/);
-  assert.match(ajeeb, /sun raha hoon|bol|batao|kehn/i);
+  assert.match(ajeeb, /AI system filhaal pause|offline/i);
+  // personal-data refusal is a DETERMINISTIC security rule and survives
+  assert.match(buildFallbackReply('kisi ka phone number batao', {}, { leader: true }), /portal me verify|personal information/i);
   // a genuinely academic unknown keeps the SHORT honest CR pointer
-  // (owner spec wording — no feature list, no 'bore nahi hota')
   const acad = buildFallbackReply('library ka fine system kaisa hai campus me', {}, { leader: false });
   assert.match(acad, /verified information|CR bhai se confirm/);
-  assert.doesNotMatch(acad, /bore nahi|poochte raho|Timetable, notes, assignments, teachers/);
 });
 
-test('owner feature: TAGGED casual chat always gets a reply — casualReply helper', () => {
-  // greetings
-  assert.match(casualReply('salam doston'), /Wa alaikum assalam/);
-  // "dafa ho" style banter → gentle witty comeback, never harsh
-  const dafa = casualReply('dafa ho');
-  assert.match(dafa, /helper hoon|mazak|duty|24\/7|notes kis ne|tolerate|kaam ke|roll number|timetable yaad|beizzati|Bekaar bot|deadlines sambhalna/i);
-  assert.doesNotMatch(dafa, /complain|likhwa/); // no threats-as-jokes
-  // "kaisay ho" → funny haal reply (even with a question mark)
-  const haal = casualReply('kaisay ho?');
-  assert.ok(haal);
-  assert.match(haal, /theek|mast|masst|haal|Full charge/i);
-  assert.doesNotMatch(haal, /behtar hai tumhari|zinda hoon/i); // no mean jabs
-  // Roman-Urdu spelling variants the owner actually types (regression:
-  // 'kia hal hain' once fell through to the dry catch-all)
-  for (const variant of ['kia hal hain', 'kya haal hai doston', 'kaise ho', 'kia hal', 'kese ho aap']) {
-    assert.ok(casualReply(variant), `casual variant must banter: ${variant}`);
+test('ZERO-SCRIPTED (2026-10-14): TAGGED casual chat always gets the honest offline notice — casualReply helper', () => {
+  // greetings, teasing, thanks, chat — every casual variant gets the notice
+  for (const v of ['salam doston', 'dafa ho', 'kaisay ho?', 'kia hal hain', 'kya haal hai doston', 'kaise ho', 'kese ho aap', 'thanks bhai']) {
+    assert.ok(casualReply(v), `${v} gets a reply`);
+    assert.match(casualReply(v), /AI system filhaal pause|offline|shukriya/i, `${v} -> honest notice, not a canned personality`);
   }
-  // bare tag (empty question after stripping) → witty prompt to ask something
-  assert.match(casualReply(''), /sirf tag/);
-  // study content is NEVER hijacked by the casual branch
+  // distress offline: warm safety net, NEVER a joke (spec §4)
+  assert.doesNotMatch(casualReply('aaj mood off hai'), /mazak|joke/i);
+  assert.match(casualReply('aaj mood off hai'), /akele nahi hain/i);
+  // bare tag: nothing to answer offline
+  assert.equal(casualReply(''), null);
+  // study content is NEVER hijacked by the casual branch — data paths own it
   assert.equal(casualReply('aj ki class timing'), null);
   assert.equal(casualReply('ICT ke notes do'), null);
-  assert.equal(casualReply('kuch ajeeb sa lamba message jo kisi pattern se nahi milta'), null);
 });
 
 test('owner feature: "@Tri3M kaisay ho" now REPLIES (mention no longer stripped before the trigger check)', async () => {
@@ -808,13 +793,14 @@ test('owner feature: "@Tri3M kaisay ho" now REPLIES (mention no longer stripped 
   assert.ok(chat, 'casual reply sent');
   assert.ok(chat.params.body.startsWith(`@${STUDENT} `));
   assert.doesNotMatch(chat.params.body, /Ye mere paas nahi hai/); // never the dry catch-all
-  assert.match(chat.params.body, /theek|mast|masst|haal|Full charge/i);
+  // ZERO-SCRIPTED: with the model down the reply is the honest notice
+  assert.match(chat.params.body, /AI system filhaal pause|offline/i);
   assert.doesNotMatch(chat.params.body, /zinda hoon|WiFi ka load/i); // no mean jabs
   // and the plain "dafa ho" tag gets the witty comeback
   chatbot.__resetGuards();
   assert.equal(await handleGroupMessage(groupMsg('@Tri3M dafa ho')), true);
   const chat2 = waSent.filter((s) => s.kind === 'chat').at(-1);
-  assert.match(chat2.params.body, /helper hoon|duty|24\/7|notes kis ne|tolerate|kuch kaam ke|roll number|timetable yaad|beizzati|Bekaar bot|deadlines sambhalna/);
+  assert.match(chat2.params.body, /AI system filhaal pause|offline/i);
   assert.doesNotMatch(chat2.params.body, /Ye mere paas nahi hai/); // never the dry catch-all
 });
 
@@ -830,7 +816,7 @@ test('owner feature: the section CR/GR gets a RESPECTFUL reply in the group', as
   const chat = waSent.find((s) => s.kind === 'chat');
   assert.ok(chat);
   assert.ok(chat.params.body.startsWith(`@${STUDENT} `));
-  assert.match(chat.params.body, /aap ka shukriya|hazir hoon/i);
+  assert.match(chat.params.body, /Ji, .*offline/i); // respectful (Ji/adab) offline notice
   assert.doesNotMatch(chat.params.body, /zinda hoon|WiFi/);
 
   // Gemini path: the CR/GR respect NOTE reaches the LLM
@@ -849,15 +835,16 @@ test('owner feature: the section CR/GR gets a RESPECTFUL reply in the group', as
   await section.save();
   assert.equal(await handleGroupMessage(groupMsg('salam @Tri3M', { author: '923007770099' })), true);
   const chat2 = waSent.filter((s) => s.kind === 'chat').at(-1);
-  assert.match(chat2.params.body, /Wa alaikum assalam/);
+  assert.match(chat2.params.body, /Ji, .*offline/i); // GR gets the respectful leader notice
   assert.doesNotMatch(chat2.params.body, /sirf salam/);
 
-  // a REGULAR student in the same group still gets the roast tone
+  // a REGULAR student in the same group gets the same honest notice (no
+  // roast offline — zero-scripted: variety is the model's job, not canned)
   chatbot.__resetGuards();
   geminiResponse = null;
   assert.equal(await handleGroupMessage(groupMsg('@Tri3M kia hal hain', { author: '923007770222' })), true);
   const chat3 = waSent.filter((s) => s.kind === 'chat').at(-1);
-  assert.match(chat3.params.body, /theek|mast|masst|Full charge/i);
+  assert.match(chat3.params.body, /AI system filhaal pause|offline/i);
   assert.doesNotMatch(chat3.params.body, /aap ka shukriya/);
 });
 

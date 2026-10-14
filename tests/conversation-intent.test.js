@@ -155,23 +155,23 @@ test('CI-2: "tum pagal ho" offline → witty confident comeback, never the dry c
   assert.ok(!waSent.some((s) => s.kind !== 'chat'), 'no file delivery');
 });
 
-test('CI-3: "tum kuch kaam ke bhi ho?" offline → witty defense, not the academic fallback', async () => {
+test('CI-3 (zero-scripted 2026-10-14): "tum kuch kaam ke bhi ho?" offline → honest notice, never the academic fallback', async () => {
   geminiPayload = null;
   await handleGroupMessage(groupMsg('tum kuch kaam ke bhi ho?'));
   const reply = groupAnswer().at(-1);
   assert.ok(reply, 'reply exists');
   assert.doesNotMatch(reply, /Ye mere paas nahi hai|bore nahi hota|CR se poochein|CR bhai se confirm/i, 'no academic fallback on teasing');
-  assert.match(reply, /duty|24\/7|kaam|timetable yaad|notes kis ne|helper hoon|tolerate/i, 'a confident witty comeback');
+  assert.match(reply, /AI system filhaal pause|offline/i, 'honest offline notice — the witty comeback is the model\'s job');
 });
 
-test('CI-4: greeting + "kya haal hai" offline → natural short banter', async () => {
+test('CI-4 (zero-scripted 2026-10-14): greeting offline → honest notice, never the fallback', async () => {
   geminiPayload = null;
   await handleGroupMessage(groupMsg('Tri3M, kya haal hai?'));
   const reply = groupAnswer().at(-1);
-  assert.match(reply, /theek|mast|masst|haal|Full charge/i, 'a short natural haal reply');
-  assert.doesNotMatch(reply, /Ye mere paas nahi hai|CR/i, 'no fallback, no CR');
+  assert.match(reply, /AI system filhaal pause|offline/i, 'honest notice — natural haal banter is the model\'s job');
+  assert.doesNotMatch(reply, /Ye mere paas nahi hai|CR se poochein/i, 'no fallback, no CR');
   await sendAgain(groupMsg('salam Tri3M'));
-  assert.match(groupAnswer().at(-1), /Wa alaikum assalam/i, 'a salaam always gets the walaikum');
+  assert.match(groupAnswer().at(-1), /AI system filhaal pause|offline/i, 'offline salaam also gets the notice');
 });
 
 test('CI-5: university-unrelated joke offline → engaged naturally', async () => {
@@ -256,16 +256,17 @@ test('CI-10: banter mis-flagged needs_cr by a weak model → NO CR ping, the rep
 
 /* ---------- §5 variety ---------- */
 
-test('CI-11: repeated similar teasing → varied replies (no robotic repetition)', async () => {
+test('CI-11 (zero-scripted 2026-10-14): repeated offline teasing → the SAME honest notice; variety is the model\'s job', async () => {
   geminiPayload = null;
   const seen = new Set();
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 4; i++) {
     await sendAgain(groupMsg('tum pagal ho'));
     const reply = groupAnswer().at(-1);
     assert.ok(reply, `reply ${i} exists`);
+    assert.match(reply, /AI system filhaal pause|offline/i, 'notice, not a canned comeback');
     seen.add(reply);
   }
-  assert.ok(seen.size >= 2, `pool rotates across sends (got ${seen.size} distinct)`);
+  assert.equal(seen.size, 1, 'the offline notice is deterministic — no canned-variety theater');
 });
 
 /* ---------- §6 existing rules preserved ---------- */
