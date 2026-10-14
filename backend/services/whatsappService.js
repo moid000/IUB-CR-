@@ -38,7 +38,6 @@ export const getLidFromPhone = (phone) => impl().getLidFromPhone?.(phone) ?? nul
  * gap so batch paths (sweep retries, broadcasts, teacher ack + CR ping)
  * never trip it. UltraMsg paces itself (sendDelayMax) — untouched. */
 let lastSendAt = 0;
-let sendChain = Promise.resolve();
 /* OWNER LIVE FIX (2026-10-11 night, "CR ko notify karne mein issue aa raha
  * hai"): Vercel serverless starts a FRESH module per invocation, so the
  * in-memory lastSendAt resets to 0 — a CR ping in a new invocation fired
@@ -56,17 +55,49 @@ async function durableFloor() {
     return val;
   } catch { return 0; }
 }
-function paced(fn) {
-  if (impl() !== wasender || !env.whatsapp.sendSpacingMs) return fn();
-  const run = sendChain.then(async () => {
-    const floor = Math.max(lastSendAt, await durableFloor());
-    const wait = floor + env.whatsapp.sendSpacingMs - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    try { return await fn(); } finally { lastSendAt = Date.now(); }
-  });
-  sendChain = run.then(() => {}, () => {});
-  return run;
+/* OWNER SPEC 2026-10-14 (fast delivery): the old single-Promise chain
+ * serialized EVERY send behind ALL pending ones — a chatbot reply queued
+ * behind a 10-file broadcast (10 x 5.2s) plus CR pings is exactly the
+ * "file aane me 1-4 minute lagte hain" complaint. Now a real QUEUE with
+ * priority: interactive sends (chatbot replies + files, front:true) jump
+ * ahead of backlog items; the 5.2s provider spacing floor applies to
+ * every send identically, so Account Protection still holds — only the
+ * ORDER changes, never the rate. */
+let sendQueue = [];
+let pumping = false;
+async function pumpQueue() {
+  if (pumping) return;
+  pumping = true;
+  try {
+    while (sendQueue.length) {
+      const item = sendQueue.shift();
+      const floor = Math.max(lastSendAt, await durableFloor());
+      const wait = floor + env.whatsapp.sendSpacingMs - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      try { item.resolve(await item.fn()); } catch (err) { item.reject(err); }
+      finally { lastSendAt = Date.now(); }
+    }
+  } finally { pumping = false; }
 }
+function paced(fn, { front = false } = {}) {
+  if (impl() !== wasender || !env.whatsapp.sendSpacingMs) return fn();
+  return new Promise((resolve, reject) => {
+    if (front) sendQueue.unshift({ fn, resolve, reject });
+    else sendQueue.push({ fn, resolve, reject });
+    pumpQueue();
+  });
+}
+
+/* Interactive (student-facing chatbot) sends get QUEUE PRIORITY — never
+ * head-of-line-blocked behind broadcast/backlog bursts. Rate limit
+ * unchanged. */
+export const sendInteractiveText = (to, body, mentioned) => paced(() => impl().sendText(to, body, mentioned), { front: true });
+export const sendInteractiveMedia = (kind, to, url, filename, caption) => paced(() => {
+  if (kind === 'image') return impl().sendImage(to, url, caption);
+  if (kind === 'audio') return impl().sendAudio(to, url);
+  if (kind === 'video') return impl().sendVideo(to, url, caption);
+  return impl().sendDocument(to, url, filename, caption);
+}, { front: true });
 
 export const sendText = (to, body, mentioned) => paced(() => impl().sendText(to, body, mentioned));
 export const sendImage = (to, url, caption) => paced(() => impl().sendImage(to, url, caption));

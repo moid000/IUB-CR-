@@ -15,6 +15,7 @@ export { default as AttendanceRecord } from './AttendanceRecord.js';
 export { default as AttendanceDevice } from './AttendanceDevice.js';
 export { default as FingerprintBinding } from './FingerprintBinding.js';
 export { default as DeviceScanEvent } from './DeviceScanEvent.js';
+export { default as NoteDeliveryJob } from './NoteDeliveryJob.js';
 export { default as Assessment } from './Assessment.js';
 export { default as Mark } from './Mark.js';
 export { default as Notification } from './Notification.js';

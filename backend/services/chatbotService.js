@@ -1,9 +1,9 @@
-import { Section, Subject, Note, Assignment, Timetable, User, Teacher, Announcement, ChatbotLog, ChatbotSetting } from '../models/index.js';
+import { Section, Subject, Note, Assignment, Timetable, User, Teacher, Announcement, ChatbotLog, ChatbotSetting, NoteDeliveryJob } from '../models/index.js';
 import { recordVoiceDiag } from '../models/VoiceDiag.js';
 import { env } from '../config/env.js';
 import { normalizePhone, samePhone } from './phoneUtils.js';
 import {
-  isConfigured, sendText, sendImage, sendDocument, sendAudio, sendVideo,
+  isConfigured, sendText, sendInteractiveText, sendInteractiveMedia,
   getLidFromPhone,
 } from './whatsappService.js';
 
@@ -47,7 +47,8 @@ const GROUP_SUFFIX = '@g.us';
 const GROUP_COOLDOWN_MS = 5_000;   // min gap between two bot replies in one group (owner: 8s felt slow)
 const GROUP_HOURLY_CAP = 25;       // max replies per group per hour
 const DAILY_CAP = 220;            // global Gemini calls per PKT day (buffer under 250)
-const MAX_FILES_PER_REPLY = 3;    // WhatsApp: a question may pull at most 3 files
+const MAX_FILES_PER_REPLY = 8;    // OWNER SPEC 2026-10-14 §3.9: never silently stop at 3;
+                                  // 8 per batch + honest overflow line (spacing makes 8 ≈ 42s)
 const MESSAGE_MAX_AGE_MS = 3 * 60_000; // ignore messages older than 3 minutes (replays)
 const GEMINI_TIMEOUT_MS = 6_000; // per attempt — serverless budgets are tight
 const GEMINI_TOTAL_BUDGET_MS = 6_500; // whole chain must finish inside this
@@ -385,7 +386,7 @@ async function buildContextFresh(sectionId) {
       .populate('subject', 'name').select('date startTime endTime room teacherConfirmation.status')
       .sort({ date: 1, startTime: 1 }).limit(15).lean(),
     Note.find({ section: sectionId, status: 'published' }).populate('subject', 'name')
-      .select('title subject createdAt attachments.url attachments.originalName').sort({ createdAt: -1 }).limit(12).lean(),
+      .select('title subject createdAt attachments.url attachments.originalName').sort({ createdAt: -1 }).limit(60).lean(), // OWNER SPEC 2026-10-14 §3: discovery lists ALL subjects having notes, not the first 12
     Assignment.find({ section: sectionId, status: 'published' }).populate('subject', 'name')
       .select('title subject deadline').sort({ deadline: 1 }).limit(8).lean(),
     // class roster — NAMES + roll numbers ONLY, never phone/email (owner rule)
@@ -721,10 +722,13 @@ export function resolveSubjectFollowUp(question, lastLog, data) {
   if (!lastLog?.reply) return null;
   const askedNotes = /kis subject ke notes chahiye\??/i.test(lastLog.reply);
   const askedAssign = /kis subject ki assignment chahiye\??/i.test(lastLog.reply);
-  if (!askedNotes && !askedAssign) return null;
+  // OWNER SPEC 2026-10-14 §3.4: a bare subject right after an AVAILABILITY
+  // listing ("In ke notes available hain: ...") is a delivery pick too
+  const listedNotes = /notes available hain/i.test(lastLog.reply);
+  if (!askedNotes && !askedAssign && !listedNotes) return null;
   const subj = subjectAsked(question, data.subjects ?? []);
   if (!subj) return null;
-  if (askedNotes) {
+  if (askedNotes || listedNotes) {
     const list = (data.noteFileIndex ?? []).filter((n) => n.subject === subj.name);
     if (!list.length) return { reply: `Is waqt ${subj.name} ke published notes nahi mile.`, titles: [] };
     const lines = list.slice(0, 6).map((n) => `- ${n.title}`);
@@ -742,6 +746,16 @@ export function resolvePick(question, lastLog, dataJson) {
   if (!offered.length) return null;
   const q = String(question ?? '').toLowerCase();
   if (q.length > 90) return null; // a full new question, not a short pick
+  // OWNER SPEC 2026-10-14 §3.4/E: after a listing, "ye sab bhej do" is an
+  // explicit delivery of EVERYTHING just offered — all titles, once.
+  if (/\b(sab|sare|saare|saray|sary|all|poore|poori)\b/.test(q) && /\b(bhej|bhejo|send|nikal|nikalo|de\s?do|dedo|share|mila\s?do)\b/.test(q)) {
+    const all = offered.map((t) => pickResult(t, dataJson)).filter(Boolean);
+    if (all.length) {
+      const titles = [...new Set(all.flatMap((r) => r.titles ?? []))];
+      if (titles.length) return { reply: `Ho gaya — ${titles.length} notes bhej raha hoon.`, titles };
+      return { reply: all[0].reply, titles: [] };
+    }
+  }
   const ordinals = [['pehla', 0], ['pehli', 0], ['first', 0], ['dusra', 1], ['doosra', 1], ['second', 1], ['teesra', 2], ['teensra', 2], ['third', 2], ['chautha', 3], ['chotha', 3]];
   const pickWord = /(\s|^)(ye|yeh|wo|woh|pehla|pehli|dusra|doosra|teesra|chautha|last|akhri|aakhri|wahi|same)\s+wala?s?(\s|$)/.test(q);
   if (pickWord) {
@@ -819,7 +833,9 @@ export function resolveLastNotes(question, dataJson) {
 /* ------------------------------------------------------------------ */
 const NOTES_MATERIAL_RE = /\b(notes?|note|slides?|handouts?|lectures?|study\s?material|materials?|pdf|ppt)\b/i;
 const NOTES_ACTION_RE = /\b(bhej|bhejo|bhejna|chahiye|chahie|chahye|send|share|dena|dijiye|dedo|de\s?do|mila|nikal|nikalo|batao|hain|hai|karo|kardo|krdo|kro|mile)\b/i;
-const PICK_FOLLOWUP_RE = /\b(ye|yeh|wo|woh|pehla|pehli|pehle|dusra|doosra|teesra|teensra|chautha|last|akhri|aakhri|wahi|same|haan|han|ji)\b/;
+// OWNER SPEC 2026-10-14 §3.4: after an active offer, a BARE delivery verb
+// ("bhej do", "send kar do") is a follow-up, not a new unclear message.
+const PICK_FOLLOWUP_RE = /\b(ye|yeh|wo|woh|pehla|pehli|pehle|dusra|doosra|teesra|teensra|chautha|last|akhri|aakhri|wahi|same|haan|han|ji|bhej|bhejo|bhejna|send|nikal|nikalo|dedo|de\s?do|mila\s?do|share)\b/;
 // §2 correction scope: only a DELIVERY ask (bhej do / chahiye) forces the
 // direct send — "kaun se hain?" listing questions keep the model's list.
 const NOTES_DELIVERY_RE = /\b(bhej|bhejo|bhejna|chahiye|chahie|chahye|send|share|dena|dijiye|dedo|de\s?do|mila\s?do|nikal|nikalo)\b/i;
@@ -880,9 +896,13 @@ export function resolveDirectNotes(question, dataJson) {
   const top = withFiles.slice(0, MAX_FILES_PER_REPLY);
   const titles = top.map((n) => n.title);
   const label = subj?.name ?? subjects[0] ?? '';
+  // OWNER SPEC 2026-10-14 §3.9: truncation is NEVER silent — the student
+  // hears exactly how many files exist and that the rest are one ask away
+  const overflow = withFiles.length > top.length
+    ? `\n(${withFiles.length} notes hain — pehle ${top.length} bhej raha hoon, baqi maang lena)` : '';
   const reply = titles.length === 1
     ? `Ye raha *${titles[0]}* — parh lo.`
-    : [`*Notes${label ? ` — ${label}` : ''}*`, '', ...titles.map((t) => `- ${t}`)].join('\n');
+    : [`*Notes${label ? ` — ${label}` : ''}*`, '', ...titles.map((t) => `- ${t}`)].join('\n') + overflow;
   return { reply, titles };
 }
 
@@ -1061,15 +1081,54 @@ const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * ("AI" from Artificial Intelligence) — so "AI ka teacher kon hai" pins
  * down exactly one subject instead of listing every teacher.
  */
+/* OWNER SPEC 2026-10-14 Phase 3: normalized subject resolution. The old
+ * matcher broke on hyphens ("Object-Oriented Programming notes" vs subject
+ * "Object Oriented Programming"), on code formats ("CS101" vs "CS-101"),
+ * and had no alias storage. Every subject expands to a normalized alias
+ * SET: name + hyphenless name + code variants + acronym + Subject.aliases. */
+export function normalizeSubjectText(str) {
+  return String(str ?? '').toLowerCase()
+    .replace(/[-_]+/g, ' ')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+export function subjectAliasKeys(s) {
+  const name = normalizeSubjectText(s.name);
+  const keys = new Set();
+  const push = (k) => { const v = String(k ?? '').trim(); if (v.length >= 2) keys.add(v); };
+  push(name);
+  push(name.replace(/ /g, '')); // "objectorientedprogramming"
+  const code = normalizeSubjectText(s.code).replace(/ /g, '');
+  push(code);                    // cs101
+  push(normalizeSubjectText(s.code)); // cs 101
+  const abbr = name.split(' ').filter(Boolean).map((w) => w[0]).join('');
+  if (abbr.length >= 2) push(abbr); // oop, ai, pf
+  for (const a of s.aliases ?? []) push(normalizeSubjectText(a));
+  return keys;
+}
 export function subjectAsked(question, subjects) {
-  const q = String(question ?? '').toLowerCase();
+  const q = normalizeSubjectText(question);
+  const compactQ = q.replace(/ /g, '');
   for (const s of subjects) {
-    const name = String(s.name ?? '').toLowerCase().trim();
-    const code = String(s.code ?? '').toLowerCase().trim();
-    const abbr = name.split(/[^a-z0-9]+/).filter(Boolean).map((w) => w[0]).join('');
-    if (name.length > 1 && q.includes(name)) return s;
-    if (code && new RegExp(`\\b${escapeRe(code)}\\b`).test(q)) return s;
-    if (abbr.length >= 2 && new RegExp(`\\b${escapeRe(abbr)}\\b`).test(q)) return s;
+    const keys = subjectAliasKeys(s);
+    const words = normalizeSubjectText(s.name).split(' ').filter((w) => w.length > 1);
+    // full normalized name (hyphen/spacing-insensitive) as token phrase
+    const nameJoined = normalizeSubjectText(s.name);
+    if (nameJoined.length > 1 && q.includes(nameJoined)) return s;
+    for (const k of keys) {
+      if (new RegExp(`(?:^| )${escapeRe(k)}(?: |$)`).test(q)) return s; // word-boundary alias
+      if (k.length >= 4 && compactQ.includes(k.replace(/ /g, ''))) return s; // compact match for long aliases
+    }
+    // word-set fallback: every significant name word present ("programming fundamentals")
+    if (words.length >= 2 && words.every((w) => q.includes(w))) return s;
+    // single-word name PREFIX ("isl" -> "Islamiat"): a >=3-char standalone
+    // query token that the (single-word) subject name starts with
+    if (words.length === 1) {
+      const name = words[0];
+      const tokens = q.split(' ').filter(Boolean);
+      if (tokens.some((t) => t.length >= 3 && name.startsWith(t) && t !== 'ke' && t !== 'ki' && t !== 'ka')) return s;
+    }
   }
   return null;
 }
@@ -1264,24 +1323,86 @@ export function pickNotesForDelivery(titles, notes) {
   return picked;
 }
 
-async function deliverFiles(groupId, picked) {
-  let sent = 0;
-  let first = true;
-  for (const { note, file } of picked) {
+/* ------------------------------------------------------------------ */
+/* OWNER SPEC 2026-10-14 — ONE REQUEST = ONE DELIVERY JOB               */
+/* Central backend action gate: notes files leave the system ONLY as a */
+/* persisted NoteDeliveryJob created by this function, and ONLY from    */
+/* the intent-gated notes path in handleGroupMessage. AI text alone    */
+/* can never send a file. Idempotent per inbound msgId: a webhook       */
+/* retry finds the existing job and never double-sends.                */
+/* ------------------------------------------------------------------ */
+export async function createNotesDeliveryJob({ sectionId, groupId, requester, requesterName, msgId, question, picked }) {
+  const files = picked
+    .slice(0, MAX_FILES_PER_REPLY)
+    .map(({ note, file }) => ({
+      noteId: note._id, fileId: String(file.id ?? file.url ?? '').slice(0, 64),
+      title: String(note.title ?? '').slice(0, 160),
+      filename: String(file.originalName ?? '').slice(0, 200),
+      url: file.url, mimeType: file.mimeType,
+      // OWNER SPEC 2026-10-14 Phase 4.8: stable per-file idempotency key —
+      // webhook retries, model retries and job re-runs can never duplicate it
+      sendKey: `${String(msgId ?? '').slice(0, 100)}:${file.url}`,
+      state: 'pending',
+    }));
+  if (!files.length) return null;
+  try {
+    return await NoteDeliveryJob.create({
+      section: sectionId, groupId,
+      requester: String(requester ?? '').slice(0, 24),
+      requesterName: String(requesterName ?? '').slice(0, 80),
+      msgId: String(msgId ?? '').slice(0, 100) || undefined,
+      question: String(question ?? '').slice(0, 400),
+      files, status: 'pending',
+    });
+  } catch (err) {
+    if (err?.code === 11000) return null; // same msgId already has a job — replay safe
+    console.error('[chatbot] delivery job create failed:', err.message);
+    return null;
+  }
+}
+
+/** Runs (or safely re-runs) a job: only files still pending/failed send —
+ * a file already 'sent' is never re-submitted (idempotent retries, spec
+ * §4). Per-file provider acceptance + timing recorded. Interactive sends
+ * use queue PRIORITY so a student never waits behind a broadcast backlog. */
+export async function runDeliveryJob(job, groupId, requester) {
+  job.status = 'processing';
+  await job.save();
+  let sent = 0; let failed = 0; let first = true;
+  for (const f of job.files) {
+    if (f.state === 'sent') { sent += 1; first = false; continue; }
+    if (f.attempts >= 2) { if (f.state === 'failed') failed += 1; continue; }
+    f.attempts += 1; f.state = 'sending';
+    const t0 = Date.now();
     try {
-      const kind = classifyMime(file.mimeType);
-      const caption = first ? `📎 ${note.title}` : undefined;
-      if (kind === 'image') await sendImage(groupId, file.url, caption);
-      else if (kind === 'audio') await sendAudio(groupId, file.url);
-      else if (kind === 'video') await sendVideo(groupId, file.url, caption);
-      else await sendDocument(groupId, file.url, file.originalName, caption);
-      first = false;
-      sent += 1;
+      const kind = classifyMime(f.mimeType);
+      const caption = first ? `📎 ${f.title}` : undefined;
+      const res = await sendInteractiveMedia(kind, groupId, f.url, f.filename, caption);
+      f.state = 'sent';
+      f.providerAccepted = !!(res?.sent ?? res?.success ?? true);
+      f.providerMsgId = String(res?.id ?? res?.data?.id ?? res?.messageId ?? '').slice(0, 100);
+      f.sentAt = new Date(); f.durationMs = Date.now() - t0; f.error = undefined;
+      sent += 1; first = false;
     } catch (err) {
-      console.error('[chatbot] file delivery failed:', err.message);
+      f.state = 'failed';
+      f.error = String(err?.message ?? 'send failed').slice(0, 160);
+      failed += 1;
+      console.error('[chatbot] file delivery failed:', f.error);
     }
   }
-  return sent;
+  job.status = sent ? 'complete' : 'failed';
+  job.latencyMs = Date.now() - new Date(job.createdAt).getTime();
+  await job.save();
+  // HONEST completion: only on partial/full failure, never falsely claims
+  // success (spec §4.10/§6.6); duplicate completions impossible — the job
+  // is terminal here and a new request creates a NEW job.
+  if (failed) {
+    const line = sent
+      ? `${sent} notes bhej diye; ${failed} file(s) nahi bhej paya — thori der baad dobara maang lena 🙏`
+      : 'Maazrat — files nahi bhej pa raha. Thori der baad dobara maang lena 🙏';
+    try { await sendInteractiveText(groupId, requester ? `@${requester} ${line}` : line); } catch { /* completion line is best-effort */ }
+  }
+  return { sent, failed };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1710,14 +1831,31 @@ export async function handleGroupMessage(payload) {
       sendTitles = [];
     }
     const picked = sendTitles.length ? pickNotesForDelivery(sendTitles, ctx.notes) : [];
+    // OWNER SPEC 2026-10-14 (unsolicited-notes fix): files go out ONLY as a
+    // persisted delivery job created by the central gate — one request =
+    // one job, msgId-idempotent, per-file states. AI text alone never
+    // triggers a send; webhook retries replay the SAME job, not a second one.
+    let deliveryJob = null;
+    if (picked.length) {
+      deliveryJob = await createNotesDeliveryJob({
+        sectionId: section._id, groupId, requester: author,
+        requesterName: String(data?.pushName ?? data?.senderName ?? '').slice(0, 80),
+        msgId: data.id, question, picked,
+      });
+      if (!deliveryJob) await traceGroup(data.id, 'delivery-job-dup', { titles: sendTitles.length });
+    }
     // OWNER SPEC 2026-10-13: the CR mention is a REAL WhatsApp mention —
     // digits in the body + the CR's JID in the provider's mentions array
     // (plain '@CR' text would not tag anyone)
     const mentionList = [asker, crMentionDigits].filter(Boolean);
-    const [, sentFiles] = await Promise.all([
-      sendText(groupId, `${prefix}${String(answer).slice(0, 1150)}`, mentionList),
-      deliverFiles(groupId, picked),
+    // interactive sends use QUEUE PRIORITY (front) — the student's reply and
+    // files jump ahead of broadcast backlogs; the 5.2s provider spacing
+    // floor still applies to every send (rate unchanged, order improved).
+    const [jobResult] = await Promise.all([
+      deliveryJob ? runDeliveryJob(deliveryJob, groupId, asker) : Promise.resolve(null),
+      sendInteractiveText(groupId, `${prefix}${String(answer).slice(0, 1150)}`, mentionList),
     ]);
+    const sentFiles = jobResult?.sent ?? 0;
     recordSpend(groupId);
 
     // audit trail — best-effort, never blocks the reply

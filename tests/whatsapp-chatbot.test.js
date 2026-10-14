@@ -337,14 +337,18 @@ test('notes request with send_note_titles → real files delivered (max 3, never
   assert.match(doc.params.filename, /intro\.pdf/);
 });
 
-test('pickNotesForDelivery caps at 3 files and matches titles tolerantly', () => {
+test('pickNotesForDelivery delivers every matching file and matches titles tolerantly (owner spec 2026-10-14: no silent 3-file stop)', () => {
   const notes = [
     { title: 'A Note', attachments: [{ url: 'u1', mimeType: 'application/pdf' }, { url: 'u2', mimeType: 'application/pdf' }] },
     { title: 'B Note', attachments: [{ url: 'u3', mimeType: 'application/pdf' }, { url: 'u4', mimeType: 'application/pdf' }] },
   ];
   const picked = pickNotesForDelivery(['a note', 'b note'], notes);
-  assert.equal(picked.length, 3); // MAX_FILES_PER_REPLY
+  assert.equal(picked.length, 4, 'ALL matching files identified, none silently dropped');
   assert.equal(picked[0].note.title, 'A Note');
+  // the cap is a bounded-concurrency guard (8), not a 3-file wall
+  const many = { title: 'C Note', attachments: Array.from({ length: 12 }, (_, i) => ({ url: `u${i}`, mimeType: 'application/pdf' })) };
+  const capped = pickNotesForDelivery(['c note'], [many]);
+  assert.equal(capped.length, 8, 'MAX_FILES_PER_REPLY = 8 bounded batch');
 });
 
 test('unlinked group → consumed but silent (privacy)', async () => {

@@ -10,6 +10,10 @@ const { ObjectId } = Schema.Types;
 const subjectSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
+    // OWNER SPEC 2026-10-14 Phase 3: student-facing aliases/abbreviations
+    // ("OOP", "Object-Oriented", "ISL") — optional, CR-managed; the runtime
+    // resolver also generates name/code/acronym keys automatically.
+    aliases: { type: [String], trim: true, default: [] },
     code: { type: String, required: true, uppercase: true, trim: true },
     teacherName: { type: String, trim: true },
     creditHours: { type: Number, min: 0.5, default: null },
