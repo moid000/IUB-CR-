@@ -56,6 +56,10 @@ if (typeof window !== 'undefined' && !window.__tri3mInstallPrompt) {
 // reload-looping forever.
 window.addEventListener('vite:preloadError', (event) => {
   event.preventDefault();
+  // CLIENT-ERROR BEACON (2026-10-14): a preload failure that never reaches
+  // a React boundary is reported too — kind 'preload'.
+  try { import('./pages/ErrorBoundary.jsx').then(({ reportClientError }) =>
+    reportClientError('preload', event?.payload ?? new Error('vite:preloadError'))); } catch { /* best-effort */ }
   try {
     const key = 'tri3m.chunkReloadAt';
     const last = Number(sessionStorage.getItem(key) || 0);

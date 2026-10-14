@@ -3,6 +3,33 @@ import { useLocation } from 'react-router-dom';
 import { Button } from '../components/ui/Button.jsx';
 
 /**
+ * CLIENT-ERROR BEACON (2026-10-14 owner incident): the Administration page
+ * hit the "This page couldn't load" card on his device while no server-side
+ * reproduction existed — the actual error was invisible to everyone. Both
+ * boundaries now POST the sanitized crash head to /api/client-error
+ * (fire-and-forget keepalive; capped fields; no tokens/PII) so the real
+ * error can be read via ops-diagnostics and the root cause actually fixed.
+ */
+export function reportClientError(kind, error, info) {
+  try {
+    const head = (v, n = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+    const body = JSON.stringify({
+      kind,
+      message: head(error?.message ?? error),
+      stack: head(error?.stack),
+      componentStack: head(info?.componentStack),
+      path: head(window.location.pathname + window.location.hash, 200),
+    });
+    fetch('/api/client-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true, // survives page teardown
+    }).catch(() => {});
+  } catch { /* never let telemetry break error handling */ }
+}
+
+/**
  * Detects a browser module-loading failure — NOT a real app bug. Every page
  * is `lazy()`-loaded (App.jsx), so after we deploy a new build, any tab that
  * was already open still references the OLD chunk filenames; those files no
@@ -61,6 +88,7 @@ export class ErrorBoundary extends Component {
   componentDidCatch(error, info) {
     // Surface in the browser console for debugging; never shown to users.
     console.error('[Tri3M] render error:', error, info?.componentStack);
+    reportClientError('root', error, info);
     if (this.state.autoReloading) window.location.reload();
   }
   render() {
@@ -118,6 +146,7 @@ export class PageErrorBoundary extends Component {
   }
   componentDidCatch(error, info) {
     console.error('[Tri3M] page render error:', error, info?.componentStack);
+    reportClientError('page', error, info);
     if (this.state.autoReloading) window.location.reload();
   }
   render() {

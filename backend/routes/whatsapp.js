@@ -221,7 +221,7 @@ router.post('/ops-replay', async (req, res, next) => {
 router.get('/ops-diagnostics', async (req, res, next) => {
   try {
     assertSweepSecret(req);
-    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section, ChatbotSetting, ChatbotLog, NoteDeliveryJob } = await import('../models/index.js');
+    const { WatchdogState, TeacherQuestion, TeacherMaterial, OutboxMessage, Timetable, WhatsAppEvent, Section, ChatbotSetting, ChatbotLog, NoteDeliveryJob, ClientError } = await import('../models/index.js');
     const mask = (p) => (p ? `…${String(p).slice(-4)}` : null);
     const [sweepBeat, dogBeat, dogRenew, dogErr] = await Promise.all([
       WatchdogState.findOne({ key: 'deadline-sweep:last-run' }).lean(),
@@ -261,7 +261,13 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       // OWNER SPEC 2026-10-14 Phase 5.2: sanitized delivery-job audit trail —
       // msg ids, per-file states, durations, retries, provider status
       NoteDeliveryJob.find({}).sort({ createdAt: -1 }).limit(10).lean(),
-    ]);    // LIVE bot identity: what number does the Wasender session ACTUALLY run
+    ]);
+    // CLIENT-ERROR BEACON (2026-10-14): recent browser render-crash
+    // reports from the frontend error boundaries — the exact error head
+    // from the owner's device, readable remotely via ops-diagnostics.
+    const clientErrors = await ClientError.find({}).sort({ at: -1 }).limit(10)
+      .select('kind message stackHead componentHead path at').lean();
+    // LIVE bot identity: what number does the Wasender session ACTUALLY run
     // on? The chatbot's tag matcher uses env gatewayPhone — if these tails
     // differ, every digit-mention tag misses and the bot stays silent.
     let gatewaySelfTail = null;
@@ -356,6 +362,8 @@ deliveryJobs: (recentDeliveryJobs ?? []).map((j) => ({
         lastSentAt: lastSentRow[0]?.sentAt ?? null,
         sendSpacingMs: env.whatsapp.sendSpacingMs ?? null,
       },
+      clientErrors: clientErrors.map((e) => ({ at: e.at, kind: e.kind, path: e.path,
+        message: e.message, stackHead: e.stackHead, componentHead: e.componentHead })),
     } });
   } catch (err) { next(err); }
 });
