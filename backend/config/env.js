@@ -62,9 +62,12 @@ export const env = {
     // quota dies almost daily by midday. GOOGLE_API_KEYS is a comma-
     // separated POOL of extra free AI Studio keys — every Gemini chain
     // (group bot, teacher agent, voice transcription) rotates to the next
-    // key when one hits 429 quota. Falls back to the single key.
-    googleApiKeyPool: (process.env.GOOGLE_API_KEYS ?? process.env.GOOGLE_API_KEY ?? '')
-      .split(',').map((k) => k.trim()).filter(Boolean),
+    // key when one hits 429 quota. The ORIGINAL GOOGLE_API_KEY stays in
+    // the pool too (dedup) so its quota is never wasted; fresh keys run
+    // first so a half-burned original can recover its daily quota.
+    googleApiKeyPool: [...(process.env.GOOGLE_API_KEYS ?? '').split(',').map((k) => k.trim()).filter(Boolean),
+      ...((process.env.GOOGLE_API_KEY ?? '').split(',').map((k) => k.trim()).filter(Boolean))]
+      .filter((k, i, arr) => arr.indexOf(k) === i),
     model: process.env.CHATBOT_GEMINI_MODEL || 'gemini-3.8-flash', // 2.5-flash was retired by Google (404 for new users)
     // OpenAI Whisper — voice notes in the class group. Without the key
     // voice notes are consumed silently (feature simply never fires).
