@@ -23,6 +23,11 @@ const chatbotSettingSchema = new Schema(
     // Panel value wins over the OPENAI_API_KEY env var. Stored here, NEVER
     // returned by any API (only openaiKeyConfigured/openaiKeySource flags).
     openaiApiKey: { type: String, default: '' },
+    // OWNER SPEC 2026-10-14 (AI-pause fix): durable circuit breaker — when
+    // EVERY model in the Gemini chain fails (quota/503 outage), the chain
+    // is skipped until this instant. Never blocks the deterministic data
+    // paths (timetable/deadlines/notes) which keep answering from the DB.
+    aiOutageUntil: { type: Date, default: null },
   },
   { timestamps: true },
 );

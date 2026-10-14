@@ -1341,6 +1341,48 @@ export function __resetGuards() {
 /* live source of truth; the env var is only the boot default. Never     */
 /* throws — DB issues fall back to the env setting.                     */
 /* ------------------------------------------------------------------ */
+/* OWNER SPEC 2026-10-14 (AI-pause critical fix) - CIRCUIT BREAKER.
+ * Live root cause of the repeated pause-notice: NOT a routing bug - the
+ * WHOLE Gemini chain dies together (primary+backup 429 quota, lites 503),
+ * and each message then burned 6-8 failing HTTP calls (~15-20s) before
+ * the honest notice. Breaker: after a full-chain failure, skip the chain
+ * entirely for a cooldown window (env AI_OUTAGE_COOLDOWN_MS, default
+ * 10 min) - replies are instant and honest, the provider is not
+ * hammered, and data features are unaffected (they never call the LLM).
+ * The first message after the window retries the chain; success clears
+ * the breaker. */
+const AI_OUTAGE_COOLDOWN_MS = (() => {
+  const n = Number(process.env.AI_OUTAGE_COOLDOWN_MS);
+  return Number.isFinite(n) && n >= 30_000 ? n : 10 * 60_000;
+})();
+
+async function getAiOutageUntil() {
+  try {
+    const d = await ChatbotSetting.findOne({ key: 'global' }).select('aiOutageUntil').lean();
+    return d?.aiOutageUntil ? new Date(d.aiOutageUntil).getTime() : 0;
+  } catch { return 0; }
+}
+
+async function markAiOutage() {
+  try {
+    await ChatbotSetting.updateOne(
+      { key: 'global' },
+      {
+        $set: { aiOutageUntil: new Date(Date.now() + AI_OUTAGE_COOLDOWN_MS) },
+        // the row may not exist yet (fresh install / panel never touched):
+        // if the bot is answering, the runtime switch IS on — a breaker
+        // side-effect must NEVER flip the master switch off.
+        $setOnInsert: { enabled: true },
+      },
+      { upsert: true },
+    );
+  } catch { /* breaker is best-effort; the chain failure alone is fine */ }
+}
+
+async function clearAiOutage() {
+  try { await ChatbotSetting.updateOne({ key: 'global' }, { $unset: { aiOutageUntil: 1 } }); } catch { /* fine */ }
+}
+
 async function resolveRuntimeSetting() {
   try {
     // The Gemini key always comes from the server environment (GOOGLE_API_KEY);
@@ -1589,8 +1631,18 @@ export async function handleGroupMessage(payload) {
       answer = game;
       source = 'fallback';
     } else if (setting.apiKey) {
-      let llm = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader,
-        diag: (info) => { llmFail = info; } });
+      // breaker: during a proven provider outage the chain is skipped
+      // instantly - honest offline handling, no 15-20s hammering wait
+      let llm = null;
+      const outageUntil = await getAiOutageUntil();
+      if (outageUntil > Date.now()) {
+        await traceGroup(data.id, 'ai-outage-cooldown', { until: new Date(outageUntil).toISOString() });
+      } else {
+        llm = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader,
+          diag: (info) => { llmFail = info; } });
+        if (llm) await clearAiOutage(); // recovered - next message goes straight to the model
+        else await markAiOutage(); // full-chain failure proven - open the breaker
+      }
       // OWNER UPGRADE 2026-10-12 §5 (diversity safeguard): a verbatim repeat
       // of the previous bot reply gets ONE regeneration with an explicit
       // ban. A legitimately identical factual answer (same question asked

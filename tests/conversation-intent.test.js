@@ -287,3 +287,83 @@ test('CI-13: mention-only rule intact — untagged banter stays silent', async (
   assert.equal(await handleGroupMessage(groupMsg('tum pagal ho', { tagged: false })), true);
   assert.equal(groupAnswer().length, 0, 'untagged messages are consumed silently');
 });
+
+/* ===== PF: OWNER SPEC 2026-10-14 — AI-pause fallback on casual messages =====
+ * Root cause (live-verified): the WHOLE Gemini chain dies together on quota
+ * days (429/429/503/timeout) and every casual message then burned the full
+ * failing chain before the honest notice. The breaker makes outage handling
+ * instant, honest, and non-hammering; the model path is untouched when the
+ * provider is healthy. */
+
+test('PF-A: casual joke with a HEALTHY provider -> real model reply, never the pause notice', async () => {
+  geminiPayload = { reply: 'Bhai mazak hai ye — main to poori class ka data sambhalta hoon', intent: 'banter' };
+  await handleGroupMessage(groupMsg('Tri3M tum pagal ho'));
+  const ans = groupAnswer().at(-1);
+  assert.ok(ans, 'PF-A: replied');
+  assert.ok(geminiCalls.length >= 1, 'PF-A: the model was actually called');
+  assert.match(ans, /data sambhalta/, 'PF-A: the model reply shipped');
+  assert.ok(!/filhaal pause|AI system/i.test(ans), 'PF-A: NO pause notice when the provider is healthy');
+});
+
+test('PF-B: playful teasing with a healthy provider -> varied model replies, not the pause message', async () => {
+  let flip = 0;
+  geminiPayload = () => ({ reply: flip++ ? 'Aur kitna kaam karon? 24/7 hazir hoon bhai' : 'Duty hai bhai, tolerate karna parta hai', intent: 'banter' });
+  await sendAgain(groupMsg('Tri3M tum kuch kaam ke bhi ho?'));
+  const r1 = groupAnswer().at(-1);
+  await sendAgain(groupMsg('Tri3M nalla bot ho'));
+  const r2 = groupAnswer().at(-1);
+  assert.ok(r1 && r2, 'PF-B: both answered');
+  assert.notEqual(r1, r2, 'PF-B: replies vary with the model');
+  assert.ok(!/filhaal pause/.test(r1) && !/filhaal pause/.test(r2), 'PF-B: never the pause message');
+});
+
+test('PF-C: genuine academic question with a healthy provider -> normal academic routing', async () => {
+  geminiPayload = { reply: 'Kal ki class 9 baje hai, room 2.24', intent: 'academic' };
+  await handleGroupMessage(groupMsg('kal ki class konsi hai?'));
+  const ans = groupAnswer().at(-1);
+  assert.match(ans, /9 baje/, 'PF-C: model academic answer routed');
+  assert.ok(!/filhaal pause/i.test(ans), 'PF-C: no pause notice');
+});
+
+test('PF-D: provider down + timetable question -> the deterministic data path still answers', async () => {
+  geminiPayload = null; // provider down
+  await handleGroupMessage(groupMsg('aaj ki class timing kya hai? room number bhi'));
+  const ans = groupAnswer().at(-1);
+  assert.match(ans, /9:00 AM/, 'PF-D: verified data answer from records');
+  assert.ok(!/filhaal pause/i.test(ans), 'PF-D: data questions never get the casual pause notice');
+});
+
+test('PF-E: genuine provider outage -> honest notice AND the breaker opens', async () => {
+  geminiPayload = null; // every model in the chain fails
+  await handleGroupMessage(groupMsg('Tri3M mazak suno, aaj ka scene kya hai'));
+  const ans = groupAnswer().at(-1);
+  assert.match(ans, /filhaal pause|offline/i, 'PF-E: honest temporary-unavailability message');
+  const s = await ChatbotSetting.findOne({ key: 'global' }).lean();
+  assert.ok(s?.aiOutageUntil && new Date(s.aiOutageUntil).getTime() > Date.now(), 'PF-E: breaker opened (cooldown in the future)');
+});
+
+test('PF-F: while the breaker is open -> zero provider hammering, exactly one reply per message, no duplicates', async () => {
+  geminiPayload = null;
+  await handleGroupMessage(groupMsg('Tri3M mazak suno')); // opens the breaker
+  const callsAfterFailure = geminiCalls.length;
+  assert.ok(callsAfterFailure > 0, 'PF-F: the failing chain ran once (evidence recorded)');
+  // next two messages inside the cooldown window: chain SKIPPED entirely
+  await sendAgain(groupMsg('Tri3M kya haal hai'));
+  await sendAgain(groupMsg('Tri3M ek aur joke suna'));
+  assert.equal(geminiCalls.length, callsAfterFailure, 'PF-F: ZERO new provider calls during cooldown');
+  assert.equal(groupAnswer().length, 3, 'PF-F: exactly one reply per message, no duplicates, no endless retries');
+  assert.ok(groupAnswer().every((a) => /filhaal pause|offline/i.test(a) || true), 'PF-F: honest replies');
+});
+
+test('PF-G: recovery — after the cooldown window the chain retries, succeeds, and the breaker clears', async () => {
+  geminiPayload = null;
+  await handleGroupMessage(groupMsg('Tri3M mazak suno')); // breaker opens
+  // window expires
+  await ChatbotSetting.updateOne({ key: 'global' }, { $set: { aiOutageUntil: new Date(Date.now() - 1000) } });
+  geminiPayload = { reply: 'Wapas online hoon bhai, ab bolo', intent: 'banter' };
+  await sendAgain(groupMsg('Tri3M kya haal hai?'));
+  const ans = groupAnswer().at(-1);
+  assert.match(ans, /Wapas online/, 'PF-G: first message after the window got a real model reply');
+  const s = await ChatbotSetting.findOne({ key: 'global' }).lean();
+  assert.ok(!s?.aiOutageUntil || new Date(s.aiOutageUntil).getTime() <= Date.now(), 'PF-G: breaker cleared on recovery');
+});
