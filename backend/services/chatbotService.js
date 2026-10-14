@@ -262,11 +262,13 @@ function guessVoiceMime(res, url) {
 const VOICE_TRANSCRIBE_PROMPT = 'Transcribe this WhatsApp voice note exactly as spoken, word for word. Keep the spoken language and script as spoken (Urdu speech in Urdu script, English in English, Roman Urdu as Roman Urdu). Output ONLY the transcript text — no labels, no quotes, no explanations.';
 
 async function transcribeWithGemini(bytes, mimeType) {
-  const key = env.chatbot.googleApiKey;
-  if (!key) return null;
+  const keys = (env.chatbot.googleApiKeyPool?.length
+    ? env.chatbot.googleApiKeyPool
+    : [env.chatbot.googleApiKey].filter(Boolean));
+  if (!keys.length) return null;
   const models = [env.chatbot.model, ...BACKUP_MODELS.filter((m) => m !== env.chatbot.model)];
   const b64 = Buffer.from(bytes).toString('base64');
-  for (const model of models) {
+  for (const key of keys) for (const model of models) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
       const res = await fetch(url, {
@@ -566,8 +568,14 @@ function sanitizePromptText(value) {
 }
 
 export async function askGemini({ question, data, apiKey, memory = null, leader = false, banReply = null, diag = null }) {
-  const key = apiKey || env.chatbot.googleApiKey;
-  if (!key) return null;
+  // OWNER AVAILABILITY FIX 2026-10-14: GOOGLE_API_KEYS pool — when one
+  // free key hits 429 quota, the chain rotates to the next key (429 is a
+  // QUOTA death for that key today, so no same-key backoff is wasted).
+  const keys = (apiKey ? String(apiKey).split(',').map((k) => k.trim()).filter(Boolean)
+    : (env.chatbot.googleApiKeyPool?.length
+      ? env.chatbot.googleApiKeyPool
+      : [env.chatbot.googleApiKey].filter(Boolean))).filter(Boolean);
+  if (!keys.length) return null;
 
   // LIVE EVIDENCE 2026-10-13: gemini-flash-lite-latest 400s
   // ("Request contains an invalid argument") on thinkingConfig — lite
@@ -615,24 +623,30 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
   let memoryDropped = false;
 
   const runPass = async (useMemory) => {
-    for (const model of models) {
-      if (Date.now() > deadline) break; // never exceed the serverless budget
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-      const payload = buildPayload(useMemory, model);
-      let out = await geminiCall(url, payload, deadline);
-      if (out.ok && out.parsed) return out.parsed;
-      fails.push({ model: model.slice(0, 40), status: out.status ?? null,
-        textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null,
-        ...(useMemory ? {} : { noMemory: true }) });
-      // one retry with a short backoff on transient errors (5xx/429/network)
-      if (out.retryable && Date.now() + 1500 < deadline) {
-        await new Promise((r) => setTimeout(r, 1200));
-        out = await geminiCall(url, payload, deadline);
+    for (const key of keys) {
+      for (const model of models) {
+        if (Date.now() > deadline) break; // never exceed the serverless budget
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+        const payload = buildPayload(useMemory, model);
+        let out = await geminiCall(url, payload, deadline);
         if (out.ok && out.parsed) return out.parsed;
-        fails.push({ model: model.slice(0, 40), status: out.status ?? null,
-          textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null, retried: true });
+        fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
+          textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null,
+          ...(useMemory ? {} : { noMemory: true }) });
+        // 429 = this key's QUOTA is dead — do not waste a backoff retry on
+        // it; rotate to the next key in the pool immediately.
+        if (out.status === 429) break;
+        // one retry with a short backoff on transient errors (5xx/network)
+        if (out.retryable && Date.now() + 1500 < deadline) {
+          await new Promise((r) => setTimeout(r, 1200));
+          out = await geminiCall(url, payload, deadline);
+          if (out.ok && out.parsed) return out.parsed;
+          fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
+            textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null, retried: true });
+          if (out.status === 429) break;
+        }
+        // still failing → next backup model (e.g. primary is overloaded 503)
       }
-      // still failing → next backup model (e.g. primary is overloaded 503)
     }
     return null;
   };
@@ -1389,9 +1403,11 @@ async function resolveRuntimeSetting() {
     // The Gemini key always comes from the server environment (GOOGLE_API_KEY);
     // only the ON/OFF switch is stored in the DB.
     const doc = await ChatbotSetting.findOne({ key: 'global' }).lean();
-    if (doc) return { enabled: doc.enabled === true, apiKey: env.chatbot.googleApiKey };
+    if (doc) return { enabled: doc.enabled === true,
+      apiKey: (env.chatbot.googleApiKeyPool?.length ? env.chatbot.googleApiKeyPool.join(',') : env.chatbot.googleApiKey) };
   } catch { /* fall through to the env default */ }
-  return { enabled: env.chatbot.enabled, apiKey: env.chatbot.googleApiKey, source: 'env' };
+  return { enabled: env.chatbot.enabled, source: 'env',
+    apiKey: (env.chatbot.googleApiKeyPool?.length ? env.chatbot.googleApiKeyPool.join(',') : env.chatbot.googleApiKey) };
 }
 
 /* ------------------------------------------------------------------ */

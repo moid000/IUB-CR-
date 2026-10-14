@@ -554,7 +554,7 @@ function buildTeacherChatFacts({ teacher, section, department, semester, subject
  * multi-turn, answer-only-what-was-asked — NEVER a keyword/FAQ/YES-NO-only
  * bot. Full spec in the conversation history; distilled into the prompt. */
 async function chatReplyWithGemini(body, facts, { unclear = false, history = [], escalation = false, general = false } = {}) {
-  const key = env.chatbot?.googleApiKey;
+  const key = env.chatbot?.googleApiKeyPool?.[0] ?? env.chatbot?.googleApiKey;
   if (!key) return null;
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
   const transcript = history.length
@@ -1376,15 +1376,19 @@ const CLASSIFIER_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 
 /** POST generateContent to each model in turn; returns the parsed JSON object
  * or null when every model is down/unparseable. NEVER throws. */
 async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
-  const key = env.chatbot?.googleApiKey ?? '';
-  for (const model of models) {
+  // OWNER AVAILABILITY FIX 2026-10-14: GOOGLE_API_KEYS pool — rotate to the
+  // next key when this key's quota (429) is dead.
+  const keys = (env.chatbot?.googleApiKeyPool?.length
+    ? env.chatbot.googleApiKeyPool
+    : [env.chatbot?.googleApiKey ?? ''].filter(Boolean));
+  for (const key of keys) for (const model of models) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
         { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!res.ok) continue; // 503 / 404 / overload → next model
+      if (!res.ok) { if (res.status === 429) break; continue; } // 429 → next KEY; 503/404 → next model
       const json = await res.json();
       const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
       try { return JSON.parse(raw) ?? null; } catch { continue; }
@@ -1397,7 +1401,7 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
 /** Gemini classifier: returns 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR', or null when the API
  * is unreachable (no key, network, timeout, bad response). NEVER throws. */
 async function classifyReplyWithGemini(body) {
-  const key = env.chatbot?.googleApiKey;
+  const key = env.chatbot?.googleApiKeyPool?.[0] ?? env.chatbot?.googleApiKey;
   if (!key) return null;
   // tests stay deterministic: Gemini is opt-in via ALLOW_TEST_GEMINI=1 and a
   // mocked generativelanguage fetch — production always calls the real API.

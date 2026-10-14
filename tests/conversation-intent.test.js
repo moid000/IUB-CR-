@@ -30,6 +30,7 @@ process.env.ULTRAMSG_GATEWAY_PHONE = '923001234567';
 process.env.ULTRAMSG_WEBHOOK_SECRET = 'whsec-test';
 process.env.WHATSAPP_CHATBOT_ENABLED = 'true';
 process.env.GOOGLE_API_KEY = 'test-gemini-key';
+process.env.GOOGLE_API_KEYS = 'test-gemini-key,test-gemini-key-backup';
 
 const { default: mongoose } = await import('mongoose');
 const models = await import('../backend/models/index.js');
@@ -50,6 +51,7 @@ const CR_PHONE = '923005555000';
 const waSent = [];
 const geminiCalls = [];
 let geminiPayload = null; // canned {reply,intent,needs_cr,send_note_titles} object, or () => object
+const quotaDeadKeys = new Set(); // keys whose quota is dead (429) — PF-H rotation
 const geminiEnvelope = () => {
   const p = typeof geminiPayload === 'function' ? geminiPayload() : geminiPayload;
   if (!p) return null;
@@ -65,6 +67,9 @@ globalThis.fetch = async (url, opts) => {
     return new Response(JSON.stringify({ sent: true }), { status: 200 });
   }
   if (u.includes('generativelanguage.googleapis.com')) {
+    if ([...quotaDeadKeys].some((k) => u.endsWith(`key=${k}`))) {
+      return new Response(JSON.stringify({ error: { message: 'Resource has been exhausted (quota)' } }), { status: 429 });
+    }
     const body = JSON.parse(opts.body);
     geminiCalls.push({ body });
     const resp = geminiEnvelope();
@@ -75,7 +80,7 @@ globalThis.fetch = async (url, opts) => {
 };
 
 test.afterEach(async () => {
-  waSent.length = 0; geminiCalls.length = 0; geminiPayload = null;
+  waSent.length = 0; geminiCalls.length = 0; geminiPayload = null; quotaDeadKeys.clear();
   chatbot.__resetGuards();
   await Promise.all([ChatbotSetting.deleteMany({}), ChatbotLog.deleteMany({}), TeacherQuestion.deleteMany({})]);
 });
@@ -366,4 +371,18 @@ test('PF-G: recovery — after the cooldown window the chain retries, succeeds, 
   assert.match(ans, /Wapas online/, 'PF-G: first message after the window got a real model reply');
   const s = await ChatbotSetting.findOne({ key: 'global' }).lean();
   assert.ok(!s?.aiOutageUntil || new Date(s.aiOutageUntil).getTime() <= Date.now(), 'PF-G: breaker cleared on recovery');
+});
+
+
+test('PF-H (2026-10-14 availability fix): one key quota-dead (429) -> rotation to the NEXT key answers; breaker stays closed', async () => {
+  quotaDeadKeys.add('test-gemini-key'); // first key exhausted for the day
+  geminiPayload = { reply: 'Backup key se aa gaya jawab, chalata hoon', intent: 'banter' };
+  await handleGroupMessage(groupMsg('Tri3M tum pagal ho bot'));
+  const ans = groupAnswer().at(-1);
+  assert.ok(ans, 'PF-H: replied');
+  assert.match(ans, /Backup key se/, 'PF-H: the SECOND key served the reply');
+  assert.ok(!/filhaal pause/i.test(ans), 'PF-H: no pause notice — rotation recovered the chain');
+  const row = await ChatbotSetting.findOne({ key: 'global' }).lean();
+  assert.ok(!row?.aiOutageUntil || new Date(row.aiOutageUntil).getTime() <= Date.now(),
+    'PF-H: chain did NOT fully fail — breaker was never opened');
 });

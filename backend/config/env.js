@@ -58,6 +58,13 @@ export const env = {
   chatbot: {
     enabled: (process.env.WHATSAPP_CHATBOT_ENABLED || '').trim().toLowerCase() === 'true',
     googleApiKey: process.env.GOOGLE_API_KEY,
+    // OWNER AVAILABILITY FIX 2026-10-14 (AI-pause follow-up): the free-tier
+    // quota dies almost daily by midday. GOOGLE_API_KEYS is a comma-
+    // separated POOL of extra free AI Studio keys — every Gemini chain
+    // (group bot, teacher agent, voice transcription) rotates to the next
+    // key when one hits 429 quota. Falls back to the single key.
+    googleApiKeyPool: (process.env.GOOGLE_API_KEYS ?? process.env.GOOGLE_API_KEY ?? '')
+      .split(',').map((k) => k.trim()).filter(Boolean),
     model: process.env.CHATBOT_GEMINI_MODEL || 'gemini-3.8-flash', // 2.5-flash was retired by Google (404 for new users)
     // OpenAI Whisper — voice notes in the class group. Without the key
     // voice notes are consumed silently (feature simply never fires).
