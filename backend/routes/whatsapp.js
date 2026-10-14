@@ -7,6 +7,10 @@ import { runWatchdog } from '../services/ultramsgWatchdogService.js';
 import { dispatchPendingTeacherConfirmations, handleTeacherReply } from '../services/teacherConfirmationService.js';
 // OWNER FEATURE (2026-10-04): short teacher reminder ~20 min before their class
 import { runClassReminderSweep } from '../services/classReminderService.js';
+// OWNER SPEC (2026-10-14): self-hosted crash-beacon watch — same ping, zero
+// new infrastructure. Emails the owner when the frontend beacon records a
+// new client error; must never block the deadline sweep.
+import { runBeaconWatch } from '../services/beaconWatchService.js';
 // OWNER RELIABILITY SPEC (2026-10-09): every teacher attachment owns a
 // persisted task — the 5-min ping also resumes crashed uploads, retries CR
 // notifications (never re-uploading) and recovers pending CR questions.
@@ -75,11 +79,16 @@ const handle = async (req, res, next) => {
       console.error('[class reminder sweep]', err.message);
       return { error: true };
     });
+    // Crash-beacon watch rides the same ping (owner spec 2026-10-14).
+    const beaconWatch = await runBeaconWatch().catch((err) => {
+      console.error('[beacon watch]', err.message);
+      return { error: true };
+    });
     // RELIABILITY SWEEPS (owner spec 2026-10-09): crash-recovery + retries.
     const [materialReliability, questionReliability, outbox] = await Promise.allSettled([
       runTeacherMaterialSweep(), runTeacherQuestionSweep(), retryOutbox(),
     ]);
-    res.json({ success: true, data: { ...report, teacherConfirmations, classReminders,
+    res.json({ success: true, data: { ...report, teacherConfirmations, classReminders, beaconWatch,
       materialReliability: materialReliability.status === 'fulfilled' ? materialReliability.value : { error: true },
       questionReliability: questionReliability.status === 'fulfilled' ? questionReliability.value : { error: true },
       outbox: outbox.status === 'fulfilled' ? outbox.value : { error: true } } });
