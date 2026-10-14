@@ -636,6 +636,10 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
         // 429 = this key's QUOTA is dead — do not waste a backoff retry on
         // it; rotate to the next key in the pool immediately.
         if (out.status === 429) break;
+        // 2026-10-14 live evidence: a key Google itself calls INVALID
+        // (400 'API key not valid') is dead for EVERY model — skip its
+        // remaining models and rotate to the next key immediately.
+        if (out.status === 400 && /api key not valid/i.test(out.textHead ?? '')) break;
         // one retry with a short backoff on transient errors (5xx/network)
         if (out.retryable && Date.now() + 1500 < deadline) {
           await new Promise((r) => setTimeout(r, 1200));

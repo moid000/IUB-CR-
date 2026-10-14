@@ -1388,7 +1388,11 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
         { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!res.ok) { if (res.status === 429) break; continue; } // 429 → next KEY; 503/404 → next model
+      if (!res.ok) { // 429 quota / 400 invalid-key → next KEY; 503/404 → next model
+        let msg = '';
+        try { msg = String((await res.json())?.error?.message ?? ''); } catch { /* unreadable */ }
+        if (res.status === 429 || (res.status === 400 && /api key not valid/i.test(msg))) break;
+        continue; }
       const json = await res.json();
       const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
       try { return JSON.parse(raw) ?? null; } catch { continue; }
