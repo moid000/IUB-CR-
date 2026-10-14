@@ -65,11 +65,15 @@ export const adminApi = {
     // Tri3M WhatsApp group chatbot master switch (Administration section).
     // Never returns the Gemini key — only whether one is configured.
     get: () => api.get('/api/admin/chatbot'),
-    update: (body) => api.put('/api/admin/chatbot', body), // { enabled?, apiKey? }
+    update: (body) => api.put('/api/admin/chatbot', body), // { enabled?, apiKey?, geminiKeys?, openaiKey? }
+  },
   experience: {
     // Teacher-agent learning examples (Administration page).
+    // TOP-LEVEL (fix 2026-10-14): this block was accidentally nested inside
+    // 'chatbot', so adminApi.experience.get() crashed the whole Administration
+    // page on every device ('Cannot read properties of undefined (reading get)')
+    // — caught live by the client-error beacon at AdministrationPage mount.
     get: () => api.get('/api/admin/experience'),
     refresh: () => api.post('/api/admin/experience/refresh'),
-  },
   },
 };
