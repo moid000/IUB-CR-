@@ -1280,7 +1280,8 @@ export async function runDeliveryJob(job, groupId, requester) {
       const res = await sendInteractiveMedia(kind, groupId, f.url, f.filename, caption);
       f.state = 'sent';
       f.providerAccepted = !!(res?.sent ?? res?.success ?? true);
-      f.providerMsgId = String(res?.id ?? res?.data?.id ?? res?.messageId ?? '').slice(0, 100);
+      // Wasender facade returns { sent, msgId } — record the provider's own id
+      f.providerMsgId = String(res?.msgId ?? res?.id ?? res?.data?.id ?? res?.messageId ?? '').slice(0, 100);
       f.sentAt = new Date(); f.durationMs = Date.now() - t0; f.error = undefined;
       sent += 1; first = false;
     } catch (err) {

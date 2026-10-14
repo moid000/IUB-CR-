@@ -58,7 +58,7 @@ globalThis.fetch = async (url, opts) => {
       return new Response(JSON.stringify({ error: 'provider media fetch failed' }), { status: 500 });
     }
     waSent.push({ kind: u.match(/\/messages\/(\w+)$/)?.[1] ?? '?', params });
-    return new Response(JSON.stringify({ sent: true, id: 'wamid.TEST' }), { status: 200 });
+    return new Response(JSON.stringify({ sent: true, msgId: 'wamid.TEST' }), { status: 200 });
   }
   if (u.includes('generativelanguage.googleapis.com')) {
     geminiCalls.push({ body: JSON.parse(opts.body) });
