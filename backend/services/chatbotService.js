@@ -262,9 +262,8 @@ function guessVoiceMime(res, url) {
 const VOICE_TRANSCRIBE_PROMPT = 'Transcribe this WhatsApp voice note exactly as spoken, word for word. Keep the spoken language and script as spoken (Urdu speech in Urdu script, English in English, Roman Urdu as Roman Urdu). Output ONLY the transcript text — no labels, no quotes, no explanations.';
 
 async function transcribeWithGemini(bytes, mimeType) {
-  const keys = (env.chatbot.googleApiKeyPool?.length
-    ? env.chatbot.googleApiKeyPool
-    : [env.chatbot.googleApiKey].filter(Boolean));
+  // OWNER QUOTA-POOL FIX 2026-10-14: panel keys first, then env pool.
+  const keys = await runtimeKeyPool();
   if (!keys.length) return null;
   const models = [env.chatbot.model, ...BACKUP_MODELS.filter((m) => m !== env.chatbot.model)];
   const b64 = Buffer.from(bytes).toString('base64');
@@ -283,7 +282,10 @@ async function transcribeWithGemini(bytes, mimeType) {
           generationConfig: { temperature: 0.1, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
         }),
       });
-      if (!res.ok) continue; // 4xx/5xx → next model in the chain
+      if (!res.ok) { // 429 quota / 400 invalid-key → next KEY; other → next model
+        if (res.status === 429 || res.status === 400) break;
+        continue;
+      }
       const json = await res.json();
       const text = String(json?.candidates?.[0]?.content?.parts?.map((p) => p?.text ?? '').join('') ?? '').trim();
       if (text) return text;
@@ -1402,13 +1404,35 @@ async function clearAiOutage() {
   try { await ChatbotSetting.updateOne({ key: 'global' }, { $unset: { aiOutageUntil: 1 } }); } catch { /* fine */ }
 }
 
+/** OWNER QUOTA-POOL FIX 2026-10-14: the panel now stores a POOL of extra
+ * free AI Studio keys (ChatbotSetting.geminiKeys). Panel keys run BEFORE
+ * the env keys so fresh quota is always used first; dedupe keeps a
+ * half-burned env key from being hit twice. NEVER exposes key values.
+ * Shared by the group chain, the teacher agent and voice transcription. */
+export async function runtimeKeyPool() {
+  const docKeys = [];
+  try {
+    const doc = await ChatbotSetting.findOne({ key: 'global' }).select('geminiKeys').lean();
+    for (const k of doc?.geminiKeys ?? []) {
+      const v = String(k ?? '').trim();
+      if (v) docKeys.push(v);
+    }
+  } catch { /* DB hiccup → the env pool still answers */ }
+  return [...docKeys, ...(env.chatbot.googleApiKeyPool ?? [])]
+    .filter((k, i, arr) => arr.indexOf(k) === i);
+}
+
 async function resolveRuntimeSetting() {
   try {
-    // The Gemini key always comes from the server environment (GOOGLE_API_KEY);
-    // only the ON/OFF switch is stored in the DB.
+    // ON/OFF switch + the panel-managed key pool live in the DB; the env
+    // pool (GOOGLE_API_KEYS/GOOGLE_API_KEY) is merged in as fallback.
     const doc = await ChatbotSetting.findOne({ key: 'global' }).lean();
-    if (doc) return { enabled: doc.enabled === true,
-      apiKey: (env.chatbot.googleApiKeyPool?.length ? env.chatbot.googleApiKeyPool.join(',') : env.chatbot.googleApiKey) };
+    if (doc) {
+      const docKeys = (doc.geminiKeys ?? []).map((k) => String(k ?? '').trim()).filter(Boolean);
+      return { enabled: doc.enabled === true,
+        apiKey: [...docKeys, ...(env.chatbot.googleApiKeyPool ?? [])]
+          .filter((k, i, arr) => arr.indexOf(k) === i).join(',') };
+    }
   } catch { /* fall through to the env default */ }
   return { enabled: env.chatbot.enabled, source: 'env',
     apiKey: (env.chatbot.googleApiKeyPool?.length ? env.chatbot.googleApiKeyPool.join(',') : env.chatbot.googleApiKey) };

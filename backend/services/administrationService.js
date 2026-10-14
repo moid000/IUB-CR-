@@ -248,7 +248,19 @@ export async function getChatbotSetting() {
     apiKeyConfigured: envKey,
     apiKeySource: envKey ? 'env' : 'none',
     ...openaiKeyFlags(doc),
+    ...geminiKeysFlags(doc),
     updatedAt: doc?.updatedAt ?? null,
+  };
+}
+
+/** OWNER QUOTA-POOL FIX 2026-10-14: masked flags for the panel-managed
+ * Gemini key pool — counts + last-4 tails only, values never leave. */
+function geminiKeysFlags(doc) {
+  const keys = (doc?.geminiKeys ?? []).map((k) => String(k ?? '').trim()).filter(Boolean);
+  return {
+    geminiKeysCount: keys.length,
+    geminiKeysMasked: keys.map((k) => `…${k.slice(-4)}`),
+    apiKeyPoolCount: keys.length + (envGoogleKey() ? 1 : 0),
   };
 }
 
@@ -256,10 +268,10 @@ export async function getChatbotSetting() {
  * 'enabled' (boolean) and/or 'openaiApiKey' ('' clears, 'sk-…' sets).
  * Neither field is ever echoed back — only configuration flags. */
 export async function updateChatbotSetting(req) {
-  const { enabled, openaiApiKey } = req.body ?? {};
+  const { enabled, openaiApiKey, geminiKeys } = req.body ?? {};
 
-  if (enabled === undefined && openaiApiKey === undefined) {
-    throw new ApiError(400, 'Nothing to update: provide "enabled" and/or "openaiApiKey"');
+  if (enabled === undefined && openaiApiKey === undefined && geminiKeys === undefined) {
+    throw new ApiError(400, 'Nothing to update: provide "enabled", "openaiApiKey" and/or "geminiKeys"');
   }
   if (enabled !== undefined && typeof enabled !== 'boolean') {
     throw new ApiError(400, '"enabled" must be true or false');
@@ -275,9 +287,30 @@ export async function updateChatbotSetting(req) {
     throw new ApiError(400, 'OpenAI key looks too short');
   }
 
+  // OWNER QUOTA-POOL FIX 2026-10-14: 'geminiKeys' is a comma-separated
+  // string of free AI Studio keys ('' CLEARS the pool). Every entry must
+  // be a real AIza-prefixed key — the chat-path keys kept arriving
+  // encrypted/invalid, so the panel is the ONLY trusted entry point.
+  let parsedGeminiKeys;
+  if (geminiKeys !== undefined) {
+    if (typeof geminiKeys !== 'string') {
+      throw new ApiError(400, '"geminiKeys" must be a string (comma-separated)');
+    }
+    const raw = geminiKeys.trim();
+    parsedGeminiKeys = raw
+      ? [...new Set(raw.split(/[,\n;]+/).map((k) => k.trim()).filter(Boolean))]
+      : [];
+    parsedGeminiKeys.forEach((k, i) => {
+      if (!/^AIza[A-Za-z0-9_-]{20,}$/.test(k)) {
+        throw new ApiError(400, `Key #${i + 1} (…${k.slice(-4)}) is not a valid Google AI Studio key — real keys start with "AIza"`);
+      }
+    });
+  }
+
   const set = { key: CHATBOT_SETTING_KEY };
   if (enabled !== undefined) set.enabled = enabled;
   if (trimmedKey !== undefined) set.openaiApiKey = trimmedKey;
+  if (parsedGeminiKeys !== undefined) set.geminiKeys = parsedGeminiKeys;
 
   // First-ever save with no 'enabled' in the body must INHERIT the live env
   // state (WHATSAAP_CHATBOT_ENABLED) — a key-only update never flips the switch.
@@ -293,7 +326,7 @@ export async function updateChatbotSetting(req) {
 
   await auditFromReq(req, {
     action: 'admin.chatbot-setting-updated', entityType: 'chatbot', entityId: doc._id,
-    after: { enabled: doc.enabled, openaiKeySet: Boolean(doc.openaiApiKey) },
+    after: { enabled: doc.enabled, openaiKeySet: Boolean(doc.openaiApiKey), geminiKeysCount: (doc.geminiKeys ?? []).length },
   });
 
   const envKey = Boolean(envGoogleKey());
@@ -302,6 +335,7 @@ export async function updateChatbotSetting(req) {
     apiKeyConfigured: envKey,
     apiKeySource: envKey ? 'env' : 'none',
     ...openaiKeyFlags(doc),
+    ...geminiKeysFlags(doc),
     updatedAt: doc.updatedAt,
   };
 }

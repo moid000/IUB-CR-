@@ -41,6 +41,7 @@ export default function AdministrationPage() {
   // Tri3M WhatsApp chatbot master switch state
   const [bot, setBot] = useState({ enabled: false, apiKeyConfigured: false, apiKeySource: 'none' });
   const [openaiKeyInput, setOpenaiKeyInput] = useState('');
+  const [geminiKeysInput, setGeminiKeysInput] = useState('');
   const [botBusy, setBotBusy] = useState(false);
   const [botError, setBotError] = useState(null);
 
@@ -67,6 +68,9 @@ export default function AdministrationPage() {
         apiKeySource: botData.apiKeySource ?? 'none',
         openaiKeyConfigured: botData.openaiKeyConfigured === true,
         openaiKeySource: botData.openaiKeySource ?? 'none',
+        geminiKeysCount: botData.geminiKeysCount ?? 0,
+        geminiKeysMasked: botData.geminiKeysMasked ?? [],
+        apiKeyPoolCount: botData.apiKeyPoolCount ?? 0,
       });
     }
   }, [botData]);
@@ -81,7 +85,29 @@ export default function AdministrationPage() {
         apiKeySource: res.apiKeySource ?? 'none',
         openaiKeyConfigured: res.openaiKeyConfigured === true,
         openaiKeySource: res.openaiKeySource ?? 'none',
+        geminiKeysCount: res.geminiKeysCount ?? 0,
+        geminiKeysMasked: res.geminiKeysMasked ?? [],
+        apiKeyPoolCount: res.apiKeyPoolCount ?? 0,
       });
+      setBotSaved(true);
+    } catch (err) {
+      setBotError(err);
+    } finally {
+      setBotBusy(false);
+    }
+  };
+
+  // Save the Gemini QUOTA POOL — free AI Studio keys pasted by the owner;
+  // every chain rotates to the next key when one hits its daily 429 quota.
+  const saveGeminiKeys = async (e) => {
+    e.preventDefault();
+    if (!geminiKeysInput.trim()) return;
+    setBotBusy(true); setBotError(null); setBotSaved(false);
+    try {
+      const res = await adminApi.chatbot.update({ geminiKeys: geminiKeysInput.trim() });
+      setBot((b) => ({ ...b, geminiKeysCount: res.geminiKeysCount ?? 0,
+        geminiKeysMasked: res.geminiKeysMasked ?? [], apiKeyPoolCount: res.apiKeyPoolCount ?? 0 }));
+      setGeminiKeysInput('');
       setBotSaved(true);
     } catch (err) {
       setBotError(err);
@@ -259,10 +285,12 @@ export default function AdministrationPage() {
                     {botBusy ? 'Saving…' : bot.enabled ? 'Turn bot OFF' : 'Turn bot ON'}
                   </Button>
                   <p className="text-xs text-slate-400">
-                    Gemini key:{' '}
-                    {bot.apiKeyConfigured
-                      ? 'configured on the server'
-                      : 'not set — the bot will use built-in answers only'}
+                    Gemini keys:{' '}
+                    {bot.apiKeyPoolCount
+                      ? `${bot.apiKeyPoolCount} in rotation (${bot.geminiKeysCount} from panel + server fallback)`
+                      : bot.apiKeyConfigured
+                        ? '1 on the server'
+                        : 'not set — the bot will use built-in answers only'}
                   </p>
                   <p className="w-full text-xs text-slate-400">
                     OpenAI (voice) key:{' '}
@@ -286,6 +314,25 @@ export default function AdministrationPage() {
                   </div>
                   <Button type="submit" variant="secondary" disabled={botBusy || !openaiKeyInput.trim()}>
                     Save voice key
+                  </Button>
+                </form>
+
+                <form onSubmit={saveGeminiKeys} className="mt-4 flex flex-wrap items-end gap-3">
+                  <div className="w-full sm:w-96">
+                    <Input
+                      label="Gemini API keys (quota pool)" id="gemini-key-pool" type="password"
+                      placeholder={bot.geminiKeysCount ? `•••••••• (${bot.geminiKeysCount} saved — paste to replace)` : 'AIza…,AIza…,AIza…'}
+                      value={geminiKeysInput} onChange={(e) => setGeminiKeysInput(e.target.value)}
+                      autoComplete="off"
+                    />
+                    <p className="mt-1 text-xs text-slate-400">
+                      Free Google AI Studio keys, comma-separated. When one key's daily quota runs out (429),
+                      the bot automatically rotates to the next — keeps AI replies alive all day.
+                      {bot.geminiKeysMasked?.length ? ` Saved: ${bot.geminiKeysMasked.join(', ')}.` : ''}
+                    </p>
+                  </div>
+                  <Button type="submit" variant="secondary" disabled={botBusy || !geminiKeysInput.trim()}>
+                    Save Gemini keys
                   </Button>
                 </form>
               </div>

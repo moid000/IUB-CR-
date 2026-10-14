@@ -1138,6 +1138,59 @@ test('chatbot switch: non-boolean enabled is rejected', async () => {
   assert.equal(put.status, 400);
 });
 
+/* -------- OWNER QUOTA-POOL FIX 2026-10-14: panel-managed Gemini keys -------- */
+test('chatbot panel: comma-separated Gemini keys save + run FIRST; values never echoed', async () => {
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ geminiKeys: 'AIzaPanelPoolKeyAAAAAAAAAAAAAAAA1,AIzaPanelPoolKeyBBBBBBBBBBBBBBBB2' }),
+  });
+  assert.equal(put.status, 200);
+  const json = await put.json();
+  assert.equal(json.data.geminiKeysCount, 2);
+  assert.equal(json.data.apiKeyPoolCount, 3); // 2 panel + 1 env
+  assert.ok(!JSON.stringify(json).includes('AIzaPanelPoolKey'), 'PUT never echoes key values');
+
+  const get = await fetch(`${BASE}/api/admin/chatbot`, { headers: { cookie: adminCookie } });
+  const gj = await get.json();
+  assert.equal(gj.data.geminiKeysCount, 2);
+  assert.ok(!JSON.stringify(gj).includes('AIzaPanelPoolKey'), 'GET never returns key values');
+
+  // Same test (afterEach wipes ChatbotSetting): the panel keys must be the
+  // PRIMARY the group chain dials before the env fallback key.
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Aaj 9:00 AM - ICT\"}' }] } }] };
+  const consumed = await handleGroupMessage(groupMsg('aj timetable kya hai?'));
+  assert.equal(consumed, true);
+  assert.ok(geminiCalls.length >= 1);
+  assert.match(geminiCalls[0].url, /key=AIzaPanelPoolKeyAAAAAAAAAAAAAAAA1/, 'panel key is the primary');
+});
+
+test('chatbot panel: non-AIza key is rejected with a clear error', async () => {
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ geminiKeys: 'Ab8REncryptedPlaceholderValue' }),
+  });
+  assert.equal(put.status, 400);
+  const body = await put.text();
+  assert.match(body, /AIza/, 'error names the expected key shape');
+});
+
+test('chatbot panel: empty string clears the pool — env key becomes primary again', async () => {
+  const put = await fetch(`${BASE}/api/admin/chatbot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', cookie: adminCookie },
+    body: JSON.stringify({ geminiKeys: '' }),
+  });
+  assert.equal(put.status, 200);
+  assert.equal((await put.json()).data.geminiKeysCount, 0);
+
+  geminiResponse = { candidates: [{ content: { parts: [{ text: '{\"reply\":\"Aaj 9:00 AM - ICT\"}' }] } }] };
+  const consumed = await handleGroupMessage(groupMsg('aj timetable kya hai?'));
+  assert.equal(consumed, true);
+  assert.match(geminiCalls.at(-1).url, /key=test-gemini-key/, 'env key is primary again');
+});
+
 test('voice key (owner fix 2026-10-08): panel-saved OpenAI key wins over env, used by Whisper, never leaked', async () => {
   // the switch's current state must be untouched by a key-only update
   const before = await (await fetch(`${BASE}/api/admin/chatbot`, { headers: { cookie: adminCookie } })).json();

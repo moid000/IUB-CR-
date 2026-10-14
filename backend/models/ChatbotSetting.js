@@ -10,9 +10,12 @@ const { Schema } = mongoose;
  * the WHATSAPP_CHATBOT_ENABLED env var (default OFF), so a fresh deploy is
  * always silent until the owner explicitly turns it on.
  *
- * The Gemini API key is NOT stored here - it lives only in the server
- * environment (GOOGLE_API_KEY), set by the developer. The panel exposes a
- * single control: the ON/OFF switch.
+ * OWNER QUOTA-POOL FIX 2026-10-14: the panel can now store a POOL of extra
+ * free Gemini AI Studio keys (geminiKeys) — the owner pastes them comma-
+ * separated in the Administration card. Every Gemini chain rotates to the
+ * next key when one hits 429 quota. Values are NEVER returned by any API
+ * (only geminiKeysCount + masked tails). The server env GOOGLE_API_KEY
+ * stays in the pool as the final fallback.
  *
  */
 const chatbotSettingSchema = new Schema(
@@ -23,6 +26,9 @@ const chatbotSettingSchema = new Schema(
     // Panel value wins over the OPENAI_API_KEY env var. Stored here, NEVER
     // returned by any API (only openaiKeyConfigured/openaiKeySource flags).
     openaiApiKey: { type: String, default: '' },
+    // OWNER QUOTA-POOL FIX 2026-10-14: panel-pasted free AI Studio keys.
+    // Run BEFORE env keys (fresh quota first); every chain rotates on 429.
+    geminiKeys: { type: [String], default: [] },
     // OWNER SPEC 2026-10-14 (AI-pause fix): durable circuit breaker — when
     // EVERY model in the Gemini chain fails (quota/503 outage), the chain
     // is skipped until this instant. Never blocks the deterministic data

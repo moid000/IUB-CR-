@@ -4,7 +4,7 @@ import { env } from '../config/env.js';
 import { isConfigured, sendText, sendTracked, sendCrTracked } from './whatsappService.js';
 import { createNotification } from './notificationService.js';
 // OWNER night #8: teacher VOICE NOTES reuse the group bot's Whisper helper
-import { transcribeVoice } from './chatbotService.js';
+import { transcribeVoice, runtimeKeyPool } from './chatbotService.js';
 import { recordVoiceDiag } from '../models/VoiceDiag.js';
 // OWNER MASTER UPGRADE (2026-10-08) — teacher FILE attachments pipeline
 import { handleTeacherFile, handleMaterialApprovalIntent } from './teacherMaterialService.js';
@@ -554,7 +554,8 @@ function buildTeacherChatFacts({ teacher, section, department, semester, subject
  * multi-turn, answer-only-what-was-asked — NEVER a keyword/FAQ/YES-NO-only
  * bot. Full spec in the conversation history; distilled into the prompt. */
 async function chatReplyWithGemini(body, facts, { unclear = false, history = [], escalation = false, general = false } = {}) {
-  const key = env.chatbot?.googleApiKeyPool?.[0] ?? env.chatbot?.googleApiKey;
+  // OWNER QUOTA-POOL FIX 2026-10-14: panel keys first, then env pool.
+  const key = (await runtimeKeyPool())[0] ?? null;
   if (!key) return null;
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_GEMINI !== '1') return null;
   const transcript = history.length
@@ -1378,9 +1379,8 @@ const CLASSIFIER_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 
 async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
   // OWNER AVAILABILITY FIX 2026-10-14: GOOGLE_API_KEYS pool — rotate to the
   // next key when this key's quota (429) is dead.
-  const keys = (env.chatbot?.googleApiKeyPool?.length
-    ? env.chatbot.googleApiKeyPool
-    : [env.chatbot?.googleApiKey ?? ''].filter(Boolean));
+  // OWNER QUOTA-POOL FIX 2026-10-14: panel keys first, then env pool.
+  const keys = await runtimeKeyPool();
   for (const key of keys) for (const model of models) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -1405,7 +1405,8 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
 /** Gemini classifier: returns 'YES' | 'NO' | 'QUESTION' | 'UNCLEAR', or null when the API
  * is unreachable (no key, network, timeout, bad response). NEVER throws. */
 async function classifyReplyWithGemini(body) {
-  const key = env.chatbot?.googleApiKeyPool?.[0] ?? env.chatbot?.googleApiKey;
+  // OWNER QUOTA-POOL FIX 2026-10-14: panel keys first, then env pool.
+  const key = (await runtimeKeyPool())[0] ?? null;
   if (!key) return null;
   // tests stay deterministic: Gemini is opt-in via ALLOW_TEST_GEMINI=1 and a
   // mocked generativelanguage fetch — production always calls the real API.
