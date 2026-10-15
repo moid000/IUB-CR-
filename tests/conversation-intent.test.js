@@ -28,6 +28,9 @@ process.env.ULTRAMSG_API_URL = 'https://ultramsg.test.local';
 // PF-I (2026-10-15 AI-pause incident): shrink the chain budget so the
 // budget-reserve regression runs in ~2s instead of 8s.
 process.env.GEMINI_TOTAL_BUDGET_MS = '3000';
+// OWNER FEATURE 2026-10-15 (Groq fallback): fake free-tier key — the harness
+// mocks api.groq.com, so this never leaves the test box.
+process.env.GROQ_API_KEY = 'gsk_test_groq_key_1234567890abcdef';
 process.env.ULTRAMSG_INSTANCE_NUMBER = '+92 300 0000000';
 process.env.ULTRAMSG_GATEWAY_PHONE = '923001234567';
 process.env.ULTRAMSG_WEBHOOK_SECRET = 'whsec-test';
@@ -56,6 +59,8 @@ const geminiCalls = [];
 let geminiPayload = null; // canned {reply,intent,needs_cr,send_note_titles} object, or () => object
 // PF-I (2026-10-15): per-model behavior overrides — {status, hang:true}
 let geminiModelBehavior = null;
+// PF-J/K (2026-10-15 Groq fallback): canned Groq reply (null = Groq down)
+let groqPayload = null;
 const geminiAttemptedModels = []; // every model the chain actually CALLED (PF-I)
 const quotaDeadKeys = new Set(); // keys whose quota is dead (429) — PF-H rotation
 const geminiEnvelope = () => {
@@ -71,6 +76,11 @@ globalThis.fetch = async (url, opts) => {
     const params = Object.fromEntries(new URLSearchParams(opts.body));
     waSent.push({ kind: u.match(/\/messages\/(\w+)$/)?.[1] ?? '?', params });
     return new Response(JSON.stringify({ sent: true }), { status: 200 });
+  }
+  if (u.includes('api.groq.com')) {
+    geminiAttemptedModels.push(`groq:${JSON.parse(opts.body).model}`);
+    if (!groqPayload) return new Response(JSON.stringify({ error: { message: 'mock groq unavailable' } }), { status: 500 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(groqPayload) } }] }), { status: 200 });
   }
   if (u.includes('generativelanguage.googleapis.com')) {
     if ([...quotaDeadKeys].some((k) => u.endsWith(`key=${k}`))) {
@@ -99,7 +109,7 @@ globalThis.fetch = async (url, opts) => {
 };
 
 test.afterEach(async () => {
-  waSent.length = 0; geminiCalls.length = 0; geminiPayload = null; quotaDeadKeys.clear(); geminiModelBehavior = null; geminiAttemptedModels.length = 0;
+  waSent.length = 0; geminiCalls.length = 0; geminiPayload = null; quotaDeadKeys.clear(); geminiModelBehavior = null; geminiAttemptedModels.length = 0; groqPayload = null;
   chatbot.__resetGuards();
   await Promise.all([ChatbotSetting.deleteMany({}), ChatbotLog.deleteMany({}), TeacherQuestion.deleteMany({})]);
 });
@@ -435,4 +445,67 @@ test('PF-I: overloaded primaries + one slow backup -> the FAST backup still answ
   assert.ok(!row?.aiOutageUntil || new Date(row.aiOutageUntil).getTime() <= Date.now(),
     'PF-I: chain SUCCEEDED — breaker was never opened');
   assert.ok(durMs < 8_000, 'PF-I: bounded time — no serverless hammering');
+});
+
+/* ===== PF-J/K/L: OWNER FEATURE 2026-10-15 — GROQ FREE-TIER FALLBACK =====
+ * Gemini stays PRIMARY; when the whole Gemini chain dies (daily quota /
+ * throttling) the SAME prompt runs on Groq's free Llama models — same JSON
+ * contract, same personality. The breaker opens for GEMINI only: during the
+ * cooldown window the bot still answers via Groq. The honest notice ships
+ * ONLY when BOTH providers are dead. */
+
+test('PF-J: Gemini fully dead + Groq alive -> real Groq reply with the same JSON contract, never the pause notice', async () => {
+  geminiPayload = null; // every Gemini call 500s — full-chain death
+  groqPayload = { reply: 'Groq se aa raha hoon, Gemini ki chutti hai', intent: 'banter', send_note_titles: [], needs_cr: false };
+  await handleGroupMessage(groupMsg('Tri3M mazaq sunao'));
+  const ans = groupAnswer().at(-1);
+  assert.ok(ans, 'PF-J: replied');
+  assert.match(ans, /Groq se/, 'PF-J: the GROQ model served the reply');
+  assert.ok(!/filhaal pause|AI system/i.test(ans), 'PF-J: NO pause notice — Groq covered the outage');
+  assert.ok(geminiAttemptedModels.some((m) => m.startsWith('groq:')), 'PF-J: Groq was actually called');
+  const row = await ChatbotSetting.findOne({ key: 'global' }).lean();
+  assert.ok(row?.aiOutageUntil && new Date(row.aiOutageUntil).getTime() > Date.now(),
+    'PF-J: breaker opened for GEMINI (next message skips the dead chain fast)');
+});
+
+test('PF-K: DURING the breaker cooldown + Groq alive -> still a real reply, never the notice', async () => {
+  // message 1: both providers dead -> notice + breaker opens
+  geminiPayload = null; groqPayload = null;
+  await handleGroupMessage(groupMsg('Tri3M mazak sunao, mood off hai'));
+  assert.match(groupAnswer().at(-1), /filhaal pause|AI system/i, 'PF-K setup: notice when both dead');
+  // message 2: still inside the cooldown window — Groq recovered
+  groqPayload = { reply: 'Cooldown mein bhi hazir hoon, Gemini ja raha hai aaram se', intent: 'banter', send_note_titles: [], needs_cr: false };
+  await sendAgain(groupMsg('Tri3M ek aur chutti wala mazaq'));
+  const ans = groupAnswer().at(-1);
+  assert.match(ans, /Cooldown mein bhi/, 'PF-K: Groq answered DURING the gemini cooldown');
+  assert.ok(!/filhaal pause|AI system/i.test(ans), 'PF-K: no notice while Groq lives');
+  const row = await ChatbotSetting.findOne({ key: 'global' }).lean();
+  assert.ok(row?.aiOutageUntil && new Date(row.aiOutageUntil).getTime() > Date.now(),
+    'PF-K: the gemini breaker stayed open (groq success must not clear it)');
+});
+
+test('PF-L: BOTH providers dead -> honest notice, and the group trace carries the evidence', async () => {
+  geminiPayload = null; groqPayload = null;
+  await handleGroupMessage(groupMsg('Tri3M kuch batao'));
+  const ans = groupAnswer().at(-1);
+  assert.match(ans, /filhaal pause|AI system/i, 'PF-L: honest notice when both free tiers are dead');
+  const log = await ChatbotLog.findOne({}).sort({ createdAt: -1 }).lean();
+  assert.equal(log?.source, 'fallback', 'PF-L: logged as fallback, never a fabricated AI reply');
+});
+
+test('PF-M (unit): geminiToOpenAi maps the teacher payload shape for Groq — system + roles preserved', async () => {
+  const { geminiToOpenAi } = await import('../backend/services/groqService.js');
+  const msgs = geminiToOpenAi({
+    systemInstruction: { parts: [{ text: 'SYS RULES: Return ONLY JSON.' }] },
+    contents: [
+      { role: 'user', parts: [{ text: 'FACTS here' }] },
+      { role: 'model', parts: [{ text: 'Understood.' }] },
+      { role: 'user', parts: [{ text: 'Teacher asks: kaun ho?' }] },
+    ],
+    generationConfig: { responseMimeType: 'application/json' },
+  });
+  assert.deepEqual(msgs.map((m) => m.role), ['system', 'user', 'assistant', 'user'],
+    'PF-M: roles map to the OpenAI contract');
+  assert.match(msgs[0].content, /SYS RULES/, 'PF-M: system prompt preserved verbatim');
+  assert.match(msgs[3].content, /kaun ho/, 'PF-M: the teacher turn preserved verbatim');
 });

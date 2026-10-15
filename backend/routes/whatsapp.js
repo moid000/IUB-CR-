@@ -255,7 +255,7 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(15).lean(),
       Section.find({ 'whatsappGroup.id': { $ne: null } }).select('name whatsappGroup.id whatsappGroup.name').lean(),
-      ChatbotSetting.findOne({ key: 'global' }).select('enabled updatedAt geminiKeys aiOutageUntil').lean(),
+      ChatbotSetting.findOne({ key: 'global' }).select('enabled updatedAt geminiKeys aiOutageUntil groqApiKey').lean(),
       // OWNER MANDATE 2026-10-11 (repair evidence): 24h inbound mix by chat
       // type + message type — proves whether DIRECT (teacher 1:1) and MEDIA
       // events reach the webhook at all.
@@ -350,6 +350,8 @@ deliveryJobs: (recentDeliveryJobs ?? []).map((j) => ({
         // OWNER FIX 2026-10-15: breaker state must be VISIBLE — a stuck
         // outage window must never be a guess again.
         aiOutageUntil: chatbotDoc?.aiOutageUntil ?? null,
+        groqKeyConfigured: Boolean(String(chatbotDoc?.groqApiKey ?? '').trim()),
+        groqKeyMasked: String(chatbotDoc?.groqApiKey ?? '').trim() ? `…${String(chatbotDoc.groqApiKey).slice(-4)}` : null,
         tagMatcherSelfTail: String(env.whatsapp?.gatewayPhone ?? '').replace(/\D/g, '').slice(-8) || null,
         // BOT LID TAIL (2026-10-11): group picker-mentions reference the bot
         // by LID, not phone — compare this tail against the mentionTails

@@ -1403,6 +1403,14 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
     } catch { continue; } // timeout / network → next model
     finally { clearTimeout(timer); }
   }
+  // OWNER FEATURE 2026-10-15 (24/7 uptime): every Gemini key/model failed →
+  // SAME payload on Groq's free Llama models (geminiToOpenAi preserves the
+  // exact system prompt + JSON contract). Never throws; null when no key.
+  try {
+    const { groqFromGeminiPayload } = await import('./groqService.js');
+    const groqParsed = await groqFromGeminiPayload(payload, timeoutMs);
+    if (groqParsed) return groqParsed;
+  } catch { /* keep the honest local fallbacks */ }
   return null;
 }
 

@@ -249,12 +249,18 @@ export async function getChatbotSetting() {
     apiKeySource: envKey ? 'env' : 'none',
     ...openaiKeyFlags(doc),
     ...geminiKeysFlags(doc),
+    ...groqKeyFlags(doc),
     updatedAt: doc?.updatedAt ?? null,
   };
 }
 
 /** OWNER QUOTA-POOL FIX 2026-10-14: masked flags for the panel-managed
  * Gemini key pool — counts + last-4 tails only, values never leave. */
+function groqKeyFlags(doc) {
+  const k = String(doc?.groqApiKey ?? '').trim();
+  return { groqKeyConfigured: Boolean(k), groqKeyMasked: k ? `…${k.slice(-4)}` : null };
+}
+
 function geminiKeysFlags(doc) {
   const keys = (doc?.geminiKeys ?? []).map((k) => String(k ?? '').trim()).filter(Boolean);
   return {
@@ -268,10 +274,10 @@ function geminiKeysFlags(doc) {
  * 'enabled' (boolean) and/or 'openaiApiKey' ('' clears, 'sk-…' sets).
  * Neither field is ever echoed back — only configuration flags. */
 export async function updateChatbotSetting(req) {
-  const { enabled, openaiApiKey, geminiKeys } = req.body ?? {};
+  const { enabled, openaiApiKey, geminiKeys, groqApiKey } = req.body ?? {};
 
-  if (enabled === undefined && openaiApiKey === undefined && geminiKeys === undefined) {
-    throw new ApiError(400, 'Nothing to update: provide "enabled", "openaiApiKey" and/or "geminiKeys"');
+  if (enabled === undefined && openaiApiKey === undefined && geminiKeys === undefined && groqApiKey === undefined) {
+    throw new ApiError(400, 'Nothing to update: provide "enabled", "openaiApiKey", "geminiKeys" and/or "groqApiKey"');
   }
   if (enabled !== undefined && typeof enabled !== 'boolean') {
     throw new ApiError(400, '"enabled" must be true or false');
@@ -307,10 +313,22 @@ export async function updateChatbotSetting(req) {
     });
   }
 
+  // OWNER FEATURE 2026-10-15: optional Groq fallback key ('' CLEARS it).
+  const trimmedGroqKey = groqApiKey === undefined ? undefined : String(groqApiKey).trim();
+  if (trimmedGroqKey) {
+    if (!/^gsk_[A-Za-z0-9]{20,}$/.test(trimmedGroqKey)) {
+      throw new ApiError(400, 'Groq keys start with "gsk_"');
+    }
+    if (trimmedGroqKey.length < 30) {
+      throw new ApiError(400, 'Groq key looks too short');
+    }
+  }
+
   const set = { key: CHATBOT_SETTING_KEY };
   if (enabled !== undefined) set.enabled = enabled;
   if (trimmedKey !== undefined) set.openaiApiKey = trimmedKey;
   if (parsedGeminiKeys !== undefined) set.geminiKeys = parsedGeminiKeys;
+  if (trimmedGroqKey !== undefined) set.groqApiKey = trimmedGroqKey;
 
   // First-ever save with no 'enabled' in the body must INHERIT the live env
   // state (WHATSAAP_CHATBOT_ENABLED) — a key-only update never flips the switch.
@@ -336,6 +354,7 @@ export async function updateChatbotSetting(req) {
     apiKeySource: envKey ? 'env' : 'none',
     ...openaiKeyFlags(doc),
     ...geminiKeysFlags(doc),
+    ...groqKeyFlags(doc),
     updatedAt: doc.updatedAt,
   };
 }

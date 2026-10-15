@@ -577,6 +577,53 @@ function sanitizePromptText(value) {
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
 }
 
+  // OWNER FEATURE 2026-10-15 (Groq fallback): single source of truth for
+  // the student turn — Gemini (buildPayload) and Groq (askGroqGroup) send the
+  // EXACT same words, so the personality never changes with the provider.
+  const buildStudentTurnText = (withMemory, question, leader, banReply) => `${withMemory?.prevReply
+            ? `MEMORY — context of THIS group's chat (use it; never pretend it never happened):${withMemory.summary ? `\nEarlier conversation (summary): ${sanitizePromptText(withMemory.summary)}` : ''}
+${(withMemory.history ?? []).map((h) => `Student${h.by ? ' …' + String(h.by).replace(/\D/g, '').slice(-4) : ''}: ${sanitizePromptText(h.q)}\nTri3M: ${sanitizePromptText(h.a)}`).join('\n---\n')}
+Titles you offered: ${JSON.stringify((withMemory.offeredTitles ?? []).map(sanitizePromptText))}. If the student's new message refers to one of them ("ye wala", "dusra wala", "last wala", a title fragment), resolve it to the EXACT title and fill "send_note_titles" with it.
+DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies — do NOT reuse their openings, punchlines or emoji. Vary wording and structure in the new reply.\n\n`
+            : ''}Student asks: ${question}${leader ? "\n\nNOTE: the asker is this class's CR/GR (class representative) — speak with FULL RESPECT (aap, adab), never roast or tease THEM, and answer completely." : ''}${banReply ? `\n\nSYSTEM (diversity): your previous reply in this group was EXACTLY the text below. Do NOT send it again — vary the opening, punchline, structure and emoji.\nPREVIOUS REPLY: ${sanitizePromptText(banReply).slice(0, 300)}` : ''}`;
+
+
+/**
+ * OWNER FEATURE 2026-10-15 (24/7 uptime): GROQ FALLBACK for the group bot.
+ * Gemini stays PRIMARY; when the whole Gemini chain dies (daily quota /
+ * datacenter throttling) the SAME system prompt, class data and memory run
+ * on Groq's free Llama models — same JSON contract, same personality.
+ * Bounded (~6s per model, single pass, no retry storms). Returns null when
+ * no key is configured or Groq is unreachable — callers keep their honest
+ * offline fallbacks. NEVER throws.
+ */
+export async function askGroqGroup({ question, data, memory = null, leader = false, banReply = null }) {
+  const { runtimeGroqKey, groqChat } = await import('./groqService.js');
+  const key = await runtimeGroqKey();
+  if (!key) return null;
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: `CLASS DATA (JSON):\n${JSON.stringify(data)}` },
+    { role: 'assistant', content: 'Understood. I will answer only from this data, in the student\'s own language.' },
+    { role: 'user', content: buildStudentTurnText(memory, question, leader, banReply) },
+  ];
+  try {
+    const parsed = await groqChat({ key, messages, jsonMode: true, temperature: 0.5,
+      maxTokens: 900, timeoutMs: 6_000 });
+
+    // CONTRACT NORMALIZATION (live-evidence-proof): Llama fills the same JSON
+    // contract, but a missing/odd-typed field must never crash the pipeline
+    // downstream (send_note_titles.length etc.).
+    if (!parsed || typeof parsed.reply !== 'string' || !parsed.reply.trim()) return null;
+    return {
+      reply: parsed.reply,
+      send_note_titles: Array.isArray(parsed.send_note_titles) ? parsed.send_note_titles : [],
+      intent: typeof parsed.intent === 'string' ? parsed.intent : 'ambiguous',
+      needs_cr: Boolean(parsed.needs_cr),
+    };
+  } catch { return null; }
+}
+
 export async function askGemini({ question, data, apiKey, memory = null, leader = false, banReply = null, diag = null }) {
   // OWNER AVAILABILITY FIX 2026-10-14: GOOGLE_API_KEYS pool — when one
   // free key hits 429 quota, the chain rotates to the next key (429 is a
@@ -598,13 +645,7 @@ export async function askGemini({ question, data, apiKey, memory = null, leader 
       {
         role: 'user',
         parts: [{
-          text: `${withMemory?.prevReply
-            ? `MEMORY — context of THIS group's chat (use it; never pretend it never happened):${withMemory.summary ? `\nEarlier conversation (summary): ${sanitizePromptText(withMemory.summary)}` : ''}
-${(withMemory.history ?? []).map((h) => `Student${h.by ? ' …' + String(h.by).replace(/\D/g, '').slice(-4) : ''}: ${sanitizePromptText(h.q)}\nTri3M: ${sanitizePromptText(h.a)}`).join('\n---\n')}
-Titles you offered: ${JSON.stringify((withMemory.offeredTitles ?? []).map(sanitizePromptText))}. If the student's new message refers to one of them ("ye wala", "dusra wala", "last wala", a title fragment), resolve it to the EXACT title and fill "send_note_titles" with it.
-DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies — do NOT reuse their openings, punchlines or emoji. Vary wording and structure in the new reply.\n\n`
-            : ''}Student asks: ${question}${leader ? "\n\nNOTE: the asker is this class's CR/GR (class representative) — speak with FULL RESPECT (aap, adab), never roast or tease THEM, and answer completely." : ''}${banReply ? `\n\nSYSTEM (diversity): your previous reply in this group was EXACTLY the text below. Do NOT send it again — vary the opening, punchline, structure and emoji.\nPREVIOUS REPLY: ${sanitizePromptText(banReply).slice(0, 300)}` : ''}`,
-        }],
+          text: buildStudentTurnText(withMemory, question, leader, banReply),        }],
       },
     ],
     generationConfig: {
@@ -1718,11 +1759,22 @@ export async function handleGroupMessage(payload) {
       const outageUntil = await getAiOutageUntil();
       if (outageUntil > Date.now()) {
         await traceGroup(data.id, 'ai-outage-cooldown', { until: new Date(outageUntil).toISOString() });
+        // OWNER FEATURE 2026-10-15 (Groq fallback): the breaker exists to stop
+        // hammering GEMINI — Groq is a different provider with its own free
+        // quota, so during the window the bot still answers via Groq. Only
+        // when Groq is dead too does the honest notice go out.
+        llm = await askGroqGroup({ question, data: dataJson, memory, leader: askerIsLeader });
+        if (llm) source = 'groq';
       } else {
         llm = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader,
           diag: (info) => { llmFail = info; } });
         if (llm) await clearAiOutage(); // recovered - next message goes straight to the model
-        else await markAiOutage(); // full-chain failure proven - open the breaker
+        else {
+          await markAiOutage(); // full-chain failure proven - open the breaker
+          // OWNER FEATURE 2026-10-15: Gemini dead -> Groq BEFORE the notice.
+          llm = await askGroqGroup({ question, data: dataJson, memory, leader: askerIsLeader });
+          if (llm) source = 'groq';
+        }
       }
       // OWNER UPGRADE 2026-10-12 §5 (diversity safeguard): a verbatim repeat
       // of the previous bot reply gets ONE regeneration with an explicit
@@ -1730,7 +1782,9 @@ export async function handleGroupMessage(payload) {
       // again) survives the retry and is still sent — never a blank.
       if (llm && memory?.prevReply && llm.reply.trim() === String(memory.prevReply).trim()) {
         await traceGroup(data.id, 'repeat-answer', {});
-        const retry = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader, banReply: memory.prevReply });
+        const retry = source === 'groq'
+          ? await askGroqGroup({ question, data: dataJson, memory, leader: askerIsLeader, banReply: memory.prevReply })
+          : await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader, banReply: memory.prevReply });
         if (retry) llm = retry;
       }
       // OWNER FIX 2026-10-13 (live evidence, backup models): lite models deflect

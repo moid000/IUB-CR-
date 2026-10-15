@@ -29,6 +29,11 @@ const chatbotSettingSchema = new Schema(
     // OWNER QUOTA-POOL FIX 2026-10-14: panel-pasted free AI Studio keys.
     // Run BEFORE env keys (fresh quota first); every chain rotates on 429.
     geminiKeys: { type: [String], default: [] },
+    // OWNER FEATURE 2026-10-15 (24/7 uptime): OPTIONAL Groq free-tier key —
+    // when the whole Gemini chain dies (quota/throttling) the same prompts
+    // run on Groq so the bot never pauses while free capacity exists.
+    // Stored here, NEVER returned by any API (present flag + masked tail).
+    groqApiKey: { type: String, default: '' },
     // OWNER SPEC 2026-10-14 (AI-pause fix): durable circuit breaker — when
     // EVERY model in the Gemini chain fails (quota/503 outage), the chain
     // is skipped until this instant. Never blocks the deterministic data

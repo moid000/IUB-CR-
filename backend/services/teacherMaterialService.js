@@ -52,6 +52,11 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
       try { return JSON.parse(raw) ?? null; } catch { continue; }
     } catch { continue; } finally { clearTimeout(timer); }
   }
+  try {
+    const { groqFromGeminiPayload } = await import('./groqService.js');
+    const groqParsed = await groqFromGeminiPayload(payload, timeoutMs);
+    if (groqParsed) return groqParsed;
+  } catch { /* classification falls back to Gemini keywords */ }
   return null;
 }
 

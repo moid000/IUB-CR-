@@ -42,6 +42,7 @@ export default function AdministrationPage() {
   const [bot, setBot] = useState({ enabled: false, apiKeyConfigured: false, apiKeySource: 'none' });
   const [openaiKeyInput, setOpenaiKeyInput] = useState('');
   const [geminiKeysInput, setGeminiKeysInput] = useState('');
+  const [groqKeyInput, setGroqKeyInput] = useState('');
   const [botBusy, setBotBusy] = useState(false);
   const [botError, setBotError] = useState(null);
 
@@ -70,6 +71,8 @@ export default function AdministrationPage() {
         openaiKeySource: botData.openaiKeySource ?? 'none',
         geminiKeysCount: botData.geminiKeysCount ?? 0,
         geminiKeysMasked: botData.geminiKeysMasked ?? [],
+        groqKeyConfigured: botData.groqKeyConfigured ?? false,
+        groqKeyMasked: botData.groqKeyMasked ?? null,
         apiKeyPoolCount: botData.apiKeyPoolCount ?? 0,
       });
     }
@@ -97,6 +100,26 @@ export default function AdministrationPage() {
     }
   };
 
+  // OWNER FEATURE 2026-10-15 (24/7 uptime): save the OPTIONAL Groq fallback
+  // key — when every Gemini key/model dies (quota or throttling) the same
+  // prompts run on Groq's free Llama models so the bot never pauses.
+  const saveGroqKey = async (e) => {
+    e.preventDefault();
+    if (!groqKeyInput.trim()) return;
+    setBotBusy(true); setBotError(null); setBotSaved(false);
+    try {
+      const res = await adminApi.chatbot.update({ groqApiKey: groqKeyInput.trim() });
+      setBot((b) => ({ ...b, groqKeyConfigured: res.groqKeyConfigured ?? false,
+        groqKeyMasked: res.groqKeyMasked ?? null }));
+      setGroqKeyInput('');
+      setBotSaved(true);
+    } catch (err) {
+      setBotError(err);
+    } finally {
+      setBotBusy(false);
+    }
+  };
+
   // Save the Gemini QUOTA POOL — free AI Studio keys pasted by the owner;
   // every chain rotates to the next key when one hits its daily 429 quota.
   const saveGeminiKeys = async (e) => {
@@ -106,7 +129,8 @@ export default function AdministrationPage() {
     try {
       const res = await adminApi.chatbot.update({ geminiKeys: geminiKeysInput.trim() });
       setBot((b) => ({ ...b, geminiKeysCount: res.geminiKeysCount ?? 0,
-        geminiKeysMasked: res.geminiKeysMasked ?? [], apiKeyPoolCount: res.apiKeyPoolCount ?? 0 }));
+        geminiKeysMasked: res.geminiKeysMasked ?? [], apiKeyPoolCount: res.apiKeyPoolCount ?? 0,
+        groqKeyConfigured: res.groqKeyConfigured ?? false, groqKeyMasked: res.groqKeyMasked ?? null }));
       setGeminiKeysInput('');
       setBotSaved(true);
     } catch (err) {
@@ -333,6 +357,25 @@ export default function AdministrationPage() {
                   </div>
                   <Button type="submit" variant="secondary" disabled={botBusy || !geminiKeysInput.trim()}>
                     Save Gemini keys
+                  </Button>
+                </form>
+
+                <form onSubmit={saveGroqKey} className="mt-4 flex flex-wrap items-end gap-3">
+                  <div className="w-full sm:w-96">
+                    <Input
+                      label="Groq API key (optional 24/7 fallback)" id="groq-key" type="password"
+                      placeholder={bot.groqKeyConfigured ? `•••••••• (${bot.groqKeyMasked} saved — paste to replace)` : 'gsk_…'}
+                      value={groqKeyInput} onChange={(e) => setGroqKeyInput(e.target.value)}
+                      autoComplete="off"
+                    />
+                    <p className="mt-1 text-xs text-slate-400">
+                      Optional: free key from console.groq.com. When Gemini's quota/throttling kills every Google
+                      model, the bot answers via Groq's free Llama models with the same personality — no pause.
+                      {bot.groqKeyConfigured ? ` Saved: ${bot.groqKeyMasked}.` : ' Until added, quota days still pause AI replies.'}
+                    </p>
+                  </div>
+                  <Button type="submit" variant="secondary" disabled={botBusy || !groqKeyInput.trim()}>
+                    Save Groq key
                   </Button>
                 </form>
               </div>
