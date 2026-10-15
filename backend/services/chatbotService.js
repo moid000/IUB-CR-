@@ -57,7 +57,7 @@ const GEMINI_TIMEOUT_MS = 6_000; // per attempt — serverless budgets are tight
 // NEW per-model reserve (below) keeps fast backups reachable.
 const GEMINI_TOTAL_BUDGET_MS = (() => {
   const n = Number(process.env.GEMINI_TOTAL_BUDGET_MS);
-  return Number.isFinite(n) && n >= 1_000 ? n : 8_000;
+  return Number.isFinite(n) && n >= 1_000 ? n : 10_000;
 })(); // whole chain must finish inside this (tests shrink it for speed)
 
 /* In-memory guard state. Vercel serverless may run several instances, so
@@ -642,10 +642,18 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
         // evidence: two 503 primaries + a 7.3s flash-lite-latest starved
         // gemini-3.1-flash-lite (200 OK in 485ms!) entirely -> the chain
         // reported "failure" -> breaker -> pause notice on every message.
-        const callDeadline = Math.min(deadline, deadline - (models.length - 1 - mi) * 1_100);
+        const callDeadline = Math.min(deadline, deadline - (models.length - 1 - mi) * 1_500);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
         const payload = buildPayload(useMemory, model);
-        let out = await geminiCall(url, payload, callDeadline);
+        // OWNER FIX 2026-10-15 (live follow-up): a non-last model is capped
+        // at 4s per attempt — live evidence: flash-lite-latest (200 OK) took
+        // 5.9-7.3s under today's Google load and starved 3.1-flash-lite
+        // (200 OK in 1.19s with the SAME full-size payload). The LAST model
+        // always gets everything that remains.
+        const attemptDeadline = mi === models.length - 1
+          ? callDeadline
+          : Math.min(callDeadline, Date.now() + 4_000);
+        let out = await geminiCall(url, payload, attemptDeadline);
         if (out.ok && out.parsed) return out.parsed;
         fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
           textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null,
@@ -663,7 +671,7 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
         // that lasts minutes. Network/timeout retries keep a longer one.
         if (out.retryable && Date.now() + 400 < callDeadline) {
           await new Promise((r) => setTimeout(r, out.status === 503 ? 250 : 900));
-          out = await geminiCall(url, payload, callDeadline);
+          out = await geminiCall(url, payload, attemptDeadline);
           if (out.ok && out.parsed) return out.parsed;
           fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
             textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null, retried: true });
@@ -682,7 +690,11 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
   // WITH memory is retried once WITHOUT it — the student still gets a real
   // Gemini answer (single-turn) instead of the keyword fallback.
   let parsed = await runPass(memory);
-  if (!parsed && memory) {
+  // OWNER FIX 2026-10-15 (live evidence): the without-memory retry exists for
+  // the 2026-10-13 memory-400 self-heal. On a 503/timeout chain it doubled
+  // the burn and still failed. Run pass 2 ONLY when pass 1 saw a 400 — the
+  // memory-plausible error — never on pure provider overload.
+  if (!parsed && memory && fails.some((f) => f.status === 400)) {
     memoryDropped = true;
     parsed = await runPass(null);
   }
