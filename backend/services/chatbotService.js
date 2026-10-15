@@ -289,8 +289,9 @@ async function transcribeWithGemini(bytes, mimeType) {
           generationConfig: { temperature: 0.1, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
         }),
       });
-      if (!res.ok) { // 429 quota / 400 invalid-key → next KEY; other → next model
-        if (res.status === 429 || res.status === 400) break;
+      if (!res.ok) { // 503/404/429 → next MODEL (429 is often per-model —
+        // OWNER FIX 2026-10-15 live evidence); 400 → next KEY.
+        if (res.status === 400) break;
         continue;
       }
       const json = await res.json();
@@ -658,9 +659,14 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
         fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
           textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null,
           ...(useMemory ? {} : { noMemory: true }) });
-        // 429 = this key's QUOTA is dead — do not waste a backoff retry on
-        // it; rotate to the next key in the pool immediately.
-        if (out.status === 429) break;
+        // OWNER FIX 2026-10-15 (live evidence): 429 is often a PER-MODEL
+        // rate limit, not account quota — flash-latest 429'd while
+        // 3.1-flash-lite on the SAME key answered 200 in 1.19s. Breaking the
+        // model loop here skipped every healthy backup. A 429 now just moves
+        // to the NEXT MODEL; if the key's account quota is genuinely dead,
+        // every model 429s and the loop exhausts naturally (still no backoff
+        // retry on a 429).
+        if (out.status === 429) continue;
         // 2026-10-14 live evidence: a key Google itself calls INVALID
         // (400 'API key not valid') is dead for EVERY model — skip its
         // remaining models and rotate to the next key immediately.
@@ -675,7 +681,7 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
           if (out.ok && out.parsed) return out.parsed;
           fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
             textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null, retried: true });
-          if (out.status === 429) break;
+          if (out.status === 429) continue;
         }
         // still failing → next backup model (e.g. primary is overloaded 503)
       }

@@ -1388,10 +1388,14 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
         { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!res.ok) { // 429 quota / 400 invalid-key → next KEY; 503/404 → next model
+      if (!res.ok) { // 503/404/429 → next MODEL; 400 invalid-key → next KEY
         let msg = '';
         try { msg = String((await res.json())?.error?.message ?? ''); } catch { /* unreadable */ }
-        if (res.status === 429 || (res.status === 400 && /api key not valid/i.test(msg))) break;
+        // OWNER FIX 2026-10-15 (live evidence): 429 is often a PER-MODEL rate
+        // limit — flash-latest 429'd while 3.1-flash-lite on the same key
+        // answered 200. Only a Google-confirmed INVALID key skips to the next
+        // key; a 429 moves to the next model.
+        if (res.status === 400 && /api key not valid/i.test(msg)) break;
         continue; }
       const json = await res.json();
       const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
