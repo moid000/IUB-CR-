@@ -24,8 +24,11 @@ const chatbotLogSchema = new Schema(
     // titles this reply listed/offered (notes + assignments) — lets the
     // NEXT message resolve a pick like "ye wala / dusra wala" (owner feature)
     offeredTitles: { type: [String], default: [] },
-    // where the answer came from: 'gemini' (LLM) or 'fallback' (keyword router)
-    source: { type: String, enum: ['gemini', 'fallback', 'error'], default: 'gemini' },
+    // where the answer came from: 'gemini' (LLM), 'groq' (free-tier fallback
+    // LLM) or 'fallback' (keyword router). OWNER FIX 2026-10-15: 'groq' was
+    // missing from the enum, so every Groq-sourced answer SENT fine but the
+    // audit log write threw (log-failed) — ops evidence went stale.
+    source: { type: String, enum: ['gemini', 'groq', 'fallback', 'error'], default: 'gemini' },
     error: { type: String, trim: true, maxlength: 300 },
     latencyMs: { type: Number, default: 0 },
   },

@@ -597,7 +597,7 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
  * no key is configured or Groq is unreachable — callers keep their honest
  * offline fallbacks. NEVER throws.
  */
-export async function askGroqGroup({ question, data, memory = null, leader = false, banReply = null }) {
+export async function askGroqGroup({ question, data, memory = null, leader = false, banReply = null, onFail = null }) {
   const { runtimeGroqKey, groqChat } = await import('./groqService.js');
   const key = await runtimeGroqKey();
   if (!key) return null;
@@ -609,7 +609,7 @@ export async function askGroqGroup({ question, data, memory = null, leader = fal
   ];
   try {
     const parsed = await groqChat({ key, messages, jsonMode: true, temperature: 0.5,
-      maxTokens: 900, timeoutMs: 6_000 });
+      maxTokens: 900, timeoutMs: 6_000, diag: onFail });
 
     // CONTRACT NORMALIZATION (live-evidence-proof): Llama fills the same JSON
     // contract, but a missing/odd-typed field must never crash the pipeline
@@ -1757,14 +1757,17 @@ export async function handleGroupMessage(payload) {
       // instantly - honest offline handling, no 15-20s hammering wait
       let llm = null;
       const outageUntil = await getAiOutageUntil();
+      let groqFails = [];
+      const groqFail = (f) => { groqFails.push(f); };
       if (outageUntil > Date.now()) {
         await traceGroup(data.id, 'ai-outage-cooldown', { until: new Date(outageUntil).toISOString() });
         // OWNER FEATURE 2026-10-15 (Groq fallback): the breaker exists to stop
         // hammering GEMINI — Groq is a different provider with its own free
         // quota, so during the window the bot still answers via Groq. Only
         // when Groq is dead too does the honest notice go out.
-        llm = await askGroqGroup({ question, data: dataJson, memory, leader: askerIsLeader });
+        llm = await askGroqGroup({ question, data: dataJson, memory, leader: askerIsLeader, onFail: groqFail });
         if (llm) source = 'groq';
+        else if (groqFails.length) await traceGroup(data.id, 'groq-fail', { fails: groqFails });
       } else {
         llm = await askGemini({ question, data: dataJson, apiKey: setting.apiKey, memory, leader: askerIsLeader,
           diag: (info) => { llmFail = info; } });
@@ -1772,8 +1775,9 @@ export async function handleGroupMessage(payload) {
         else {
           await markAiOutage(); // full-chain failure proven - open the breaker
           // OWNER FEATURE 2026-10-15: Gemini dead -> Groq BEFORE the notice.
-          llm = await askGroqGroup({ question, data: dataJson, memory, leader: askerIsLeader });
+          llm = await askGroqGroup({ question, data: dataJson, memory, leader: askerIsLeader, onFail: groqFail });
           if (llm) source = 'groq';
+          else if (groqFails.length) await traceGroup(data.id, 'groq-fail', { fails: groqFails });
         }
       }
       // OWNER UPGRADE 2026-10-12 §5 (diversity safeguard): a verbatim repeat

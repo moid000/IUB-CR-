@@ -15,8 +15,11 @@
  */
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-// llama-3.3-70b: best quality free model; 8b-instant: fast quota headroom.
-const GROQ_MODELS = (process.env.GROQ_MODELS || 'llama-3.3-70b-versatile,llama-3.1-8b-instant')
+// OWNER FIX 2026-10-15 (live E2E): llama-3.3-70b-versatile + llama-3.1-8b-instant
+// became ENTERPRISE-ONLY on 2026-08-16 — free/developer keys get 404 on them,
+// which silently killed the whole fallback during the live Groq E2E test.
+// Free-tier text models now: GPT-OSS 120B (quality) + GPT-OSS 20B (fast headroom).
+const GROQ_MODELS = (process.env.GROQ_MODELS || 'openai/gpt-oss-120b,openai/gpt-oss-20b')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
 /** Tolerant JSON parse — mirrors parseGeminiJson (fences, embedded JSON). */
@@ -50,7 +53,7 @@ export async function runtimeGroqKey() {
  * @returns parsed JSON when jsonMode, raw text string otherwise, or null.
  */
 export async function groqChat({ key, messages, jsonMode = true, temperature = 0.5,
-  maxTokens = 900, timeoutMs = 6_000, models = GROQ_MODELS }) {
+  maxTokens = 900, timeoutMs = 6_000, models = GROQ_MODELS, diag = null }) {
   if (!key) return null;
   for (const model of models) {
     const controller = new AbortController();
@@ -70,14 +73,17 @@ export async function groqChat({ key, messages, jsonMode = true, temperature = 0
       });
       // 429 quota / 4xx key / 5xx → next model. Groq free tier 429s are
       // per-model just like Google — the next model may still be alive.
-      if (!res.ok) continue;
+      // diag records WHY each model failed (ops evidence — the 2026-08-16
+      // llama retirement was invisible for hours because failures were silent).
+      if (!res.ok) { try { diag?.({ model, status: res.status }); } catch { } continue; }
       const json = await res.json();
       const text = String(json?.choices?.[0]?.message?.content ?? '').trim();
-      if (!text) continue;
+      if (!text) { try { diag?.({ model, status: 'empty' }); } catch { } continue; }
       if (!jsonMode) return text;
       const parsed = parseLooseJson(text);
       if (parsed) return parsed;
-    } catch { /* timeout/network → next model */ } finally { clearTimeout(timer); }
+      try { diag?.({ model, status: 'unparseable' }); } catch { }
+    } catch { try { diag?.({ model, status: 'timeout' }); } catch { } /* timeout/network → next model */ } finally { clearTimeout(timer); }
   }
   return null;
 }
