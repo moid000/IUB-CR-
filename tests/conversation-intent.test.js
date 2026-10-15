@@ -25,6 +25,9 @@ process.env.ADMIN_PASSWORD = 'AdminPass123!456';
 process.env.ULTRAMSG_INSTANCE_ID = 'instance123';
 process.env.ULTRAMSG_TOKEN = 'fake-token';
 process.env.ULTRAMSG_API_URL = 'https://ultramsg.test.local';
+// PF-I (2026-10-15 AI-pause incident): shrink the chain budget so the
+// budget-reserve regression runs in ~2s instead of 8s.
+process.env.GEMINI_TOTAL_BUDGET_MS = '3000';
 process.env.ULTRAMSG_INSTANCE_NUMBER = '+92 300 0000000';
 process.env.ULTRAMSG_GATEWAY_PHONE = '923001234567';
 process.env.ULTRAMSG_WEBHOOK_SECRET = 'whsec-test';
@@ -51,6 +54,9 @@ const CR_PHONE = '923005555000';
 const waSent = [];
 const geminiCalls = [];
 let geminiPayload = null; // canned {reply,intent,needs_cr,send_note_titles} object, or () => object
+// PF-I (2026-10-15): per-model behavior overrides — {status, hang:true}
+let geminiModelBehavior = null;
+const geminiAttemptedModels = []; // every model the chain actually CALLED (PF-I)
 const quotaDeadKeys = new Set(); // keys whose quota is dead (429) — PF-H rotation
 const geminiEnvelope = () => {
   const p = typeof geminiPayload === 'function' ? geminiPayload() : geminiPayload;
@@ -70,6 +76,19 @@ globalThis.fetch = async (url, opts) => {
     if ([...quotaDeadKeys].some((k) => u.endsWith(`key=${k}`))) {
       return new Response(JSON.stringify({ error: { message: 'Resource has been exhausted (quota)' } }), { status: 429 });
     }
+    const model = u.match(/models\/([^:]+):generateContent/)?.[1] ?? '';
+    geminiAttemptedModels.push(model);
+    const behave = geminiModelBehavior?.[model] ?? geminiModelBehavior?.['*'];
+    if (behave?.hang) {
+      // never resolves on its own — only the caller's abort signal ends it
+      return new Promise((_, reject) => opts?.signal?.addEventListener('abort', () =>
+        reject(new DOMException('aborted', 'AbortError'))));
+    }
+    if (behave?.status) {
+      return new Response(JSON.stringify({ error: { code: behave.status,
+        message: behave.status === 503 ? 'This model is currently experiencing high demand.' : 'err',
+        status: behave.status === 503 ? 'UNAVAILABLE' : 'ERROR' } }), { status: behave.status });
+    }
     const body = JSON.parse(opts.body);
     geminiCalls.push({ body });
     const resp = geminiEnvelope();
@@ -80,7 +99,7 @@ globalThis.fetch = async (url, opts) => {
 };
 
 test.afterEach(async () => {
-  waSent.length = 0; geminiCalls.length = 0; geminiPayload = null; quotaDeadKeys.clear();
+  waSent.length = 0; geminiCalls.length = 0; geminiPayload = null; quotaDeadKeys.clear(); geminiModelBehavior = null; geminiAttemptedModels.length = 0;
   chatbot.__resetGuards();
   await Promise.all([ChatbotSetting.deleteMany({}), ChatbotLog.deleteMany({}), TeacherQuestion.deleteMany({})]);
 });
@@ -385,4 +404,35 @@ test('PF-H (2026-10-14 availability fix): one key quota-dead (429) -> rotation t
   const row = await ChatbotSetting.findOne({ key: 'global' }).lean();
   assert.ok(!row?.aiOutageUntil || new Date(row.aiOutageUntil).getTime() <= Date.now(),
     'PF-H: chain did NOT fully fail — breaker was never opened');
+});
+
+/* PF-I (2026-10-15 AI-pause incident): LIVE root cause — two 503 primaries
+ * + one slow backup starved the FAST healthy backup (3.1-flash-lite 200 OK
+ * in 485ms) so the whole chain "failed" -> breaker -> pause notice on every
+ * group message. The per-model time RESERVE must guarantee the remaining
+ * backups still get their turn. */
+test('PF-I: overloaded primaries + one slow backup -> the FAST backup still answers, never the pause notice', async () => {
+  // exactly today's live production shape (live-verified 17:50 PKT):
+  geminiModelBehavior = {
+    'gemini-3.8-flash': { status: 503 },       // primary: Google 503 high demand
+    'gemini-flash-latest': { status: 503 },    // backup 1: 503
+    'gemini-flash-lite-latest': { hang: true }, // backup 2: 7.3s under load — must be aborted
+    'gemini-3.1-flash-lite': null,              // backup 3: healthy, answers instantly
+  };
+  geminiPayload = { reply: 'Chal raha hoon bhai, budget reserve ne bacha liya', intent: 'banter' };
+  const t0 = Date.now();
+  await handleGroupMessage(groupMsg('Tri3M mazaq kar'));
+  const ans = groupAnswer().at(-1);
+  const durMs = Date.now() - t0;
+  assert.ok(ans, 'PF-I: replied');
+  assert.match(ans, /budget reserve/, 'PF-I: the HEALTHY backup model served the reply');
+  assert.ok(!/filhaal pause|AI system/i.test(ans), 'PF-I: NO pause notice — a healthy model existed');
+  assert.ok(geminiAttemptedModels.includes('gemini-3.1-flash-lite'),
+    `PF-I: the chain walked past the dead models to the fast backup (attempted: ${geminiAttemptedModels.join(',')})`);
+  assert.ok(geminiAttemptedModels.includes('gemini-flash-lite-latest'),
+    'PF-I: the slow backup WAS attempted (then aborted by the reserve)');
+  const row = await ChatbotSetting.findOne({ key: 'global' }).lean();
+  assert.ok(!row?.aiOutageUntil || new Date(row.aiOutageUntil).getTime() <= Date.now(),
+    'PF-I: chain SUCCEEDED — breaker was never opened');
+  assert.ok(durMs < 8_000, 'PF-I: bounded time — no serverless hammering');
 });

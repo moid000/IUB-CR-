@@ -248,14 +248,14 @@ router.get('/ops-diagnostics', async (req, res, next) => {
     const awaitingClasses = await Timetable.countDocuments({ status: 'active', 'teacherConfirmation.status': 'awaiting' });
     // WASENDER 2026-10-11 (owner spec item 9): webhook + outbound health
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
-    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, recentDirect, botRecent, recentDeliveryJobs] = await Promise.all([
+    const [lastEvent, inbound24h, redeliveries24h, lastSentRow, recentEvents, linkedGroups, chatbotDoc, byType24h, lastDirect, recentDirect, botRecent, recentDeliveryJobs, botTraces] = await Promise.all([
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(1).lean(),
       WhatsAppEvent.countDocuments({ at: { $gte: dayAgo } }),
       WhatsAppEvent.countDocuments({ redelivery: true, at: { $gte: dayAgo } }),
       OutboxMessage.find({ status: 'sent', sentAt: { $ne: null } }).sort({ sentAt: -1 }).limit(1).lean(),
       WhatsAppEvent.find({}).sort({ at: -1 }).limit(15).lean(),
       Section.find({ 'whatsappGroup.id': { $ne: null } }).select('name whatsappGroup.id whatsappGroup.name').lean(),
-      ChatbotSetting.findOne({ key: 'global' }).select('enabled updatedAt geminiKeys').lean(),
+      ChatbotSetting.findOne({ key: 'global' }).select('enabled updatedAt geminiKeys aiOutageUntil').lean(),
       // OWNER MANDATE 2026-10-11 (repair evidence): 24h inbound mix by chat
       // type + message type — proves whether DIRECT (teacher 1:1) and MEDIA
       // events reach the webhook at all.
@@ -270,6 +270,11 @@ router.get('/ops-diagnostics', async (req, res, next) => {
       // OWNER SPEC 2026-10-14 Phase 5.2: sanitized delivery-job audit trail —
       // msg ids, per-file states, durations, retries, provider status
       NoteDeliveryJob.find({}).sort({ createdAt: -1 }).limit(10).lean(),
+      // OWNER FIX 2026-10-15: recent group-bot trace verdicts (with the
+      // sanitized llmFail evidence) — breaker/cooldown and per-model
+      // failures become visible in ops-diagnostics.
+      WhatsAppEvent.find({ 'groupTrace.why': { $exists: true } })
+        .sort({ updatedAt: -1 }).limit(4).select('at groupTrace').lean(),
     ]);
     // CLIENT-ERROR BEACON (2026-10-14): recent browser render-crash
     // reports from the frontend error boundaries — the exact error head
@@ -342,6 +347,9 @@ deliveryJobs: (recentDeliveryJobs ?? []).map((j) => ({
         // count + masked tails only, values NEVER leave the server.
         geminiKeysCount: (chatbotDoc?.geminiKeys ?? []).length,
         geminiKeysMasked: (chatbotDoc?.geminiKeys ?? []).map((k) => `…${String(k).slice(-4)}`),
+        // OWNER FIX 2026-10-15: breaker state must be VISIBLE — a stuck
+        // outage window must never be a guess again.
+        aiOutageUntil: chatbotDoc?.aiOutageUntil ?? null,
         tagMatcherSelfTail: String(env.whatsapp?.gatewayPhone ?? '').replace(/\D/g, '').slice(-8) || null,
         // BOT LID TAIL (2026-10-11): group picker-mentions reference the bot
         // by LID, not phone — compare this tail against the mentionTails
@@ -361,6 +369,9 @@ deliveryJobs: (recentDeliveryJobs ?? []).map((j) => ({
         byType24h: byType24h.map((r) => ({ kind: `${r._id.t}/${r._id.m}`, count: r.n })),
         botRecent: botRecent.map((b) => ({ at: b.createdAt, q: (b.question ?? '').slice(0, 120),
           a: (b.reply ?? '').slice(0, 160), source: b.source, error: b.error ?? null, sentFiles: b.sentFiles ?? 0 })),
+        botTraces: (botTraces ?? []).map((e) => ({ at: e.groupTrace?.at ?? e.at, why: e.groupTrace?.why,
+          llmFail: e.groupTrace?.llmFail ? { memoryDropped: e.groupTrace.llmFail.memoryDropped === true,
+            fails: (e.groupTrace.llmFail.fails ?? []).map((f) => ({ model: f.model, status: f.status ?? null, finish: f.finish ?? null })) } : undefined })),
         linkedGroups: linkedGroups.map((sec) => ({ section: sec.name, groupId: sec.whatsappGroup?.id?.slice(-14), groupName: sec.whatsappGroup?.name })),
         recentEvents: recentEvents.map((e) => ({ at: e.at, chatType: e.chatType, msgType: e.msgType,
           redelivery: Boolean(e.redelivery), from: String(e.from ?? '').slice(-22), author: String(e.author ?? '').slice(-14),

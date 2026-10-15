@@ -51,7 +51,14 @@ const MAX_FILES_PER_REPLY = 8;    // OWNER SPEC 2026-10-14 §3.9: never silently
                                   // 8 per batch + honest overflow line (spacing makes 8 ≈ 42s)
 const MESSAGE_MAX_AGE_MS = 3 * 60_000; // ignore messages older than 3 minutes (replays)
 const GEMINI_TIMEOUT_MS = 6_000; // per attempt — serverless budgets are tight
-const GEMINI_TOTAL_BUDGET_MS = 6_500; // whole chain must finish inside this
+// OWNER FIX 2026-10-15 (AI-pause incident): raised 6.5s -> 8s. The vercel.json
+// api function has maxDuration 60, and event-id idempotency already makes
+// Wasender redeliveries harmless, so the chain gets more headroom while a
+// NEW per-model reserve (below) keeps fast backups reachable.
+const GEMINI_TOTAL_BUDGET_MS = (() => {
+  const n = Number(process.env.GEMINI_TOTAL_BUDGET_MS);
+  return Number.isFinite(n) && n >= 1_000 ? n : 8_000;
+})(); // whole chain must finish inside this (tests shrink it for speed)
 
 /* In-memory guard state. Vercel serverless may run several instances, so
  * these caps are approximate (each instance counts for itself) — combined
@@ -626,11 +633,19 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
 
   const runPass = async (useMemory) => {
     for (const key of keys) {
-      for (const model of models) {
+      for (let mi = 0; mi < models.length; mi++) {
+        const model = models[mi];
         if (Date.now() > deadline) break; // never exceed the serverless budget
+        // OWNER FIX 2026-10-15 (AI-pause incident): reserve ~1.1s for EVERY
+        // backup model still after this one, so one slow/overloaded model
+        // can never eat the budget the fast healthy backups need. Live
+        // evidence: two 503 primaries + a 7.3s flash-lite-latest starved
+        // gemini-3.1-flash-lite (200 OK in 485ms!) entirely -> the chain
+        // reported "failure" -> breaker -> pause notice on every message.
+        const callDeadline = Math.min(deadline, deadline - (models.length - 1 - mi) * 1_100);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
         const payload = buildPayload(useMemory, model);
-        let out = await geminiCall(url, payload, deadline);
+        let out = await geminiCall(url, payload, callDeadline);
         if (out.ok && out.parsed) return out.parsed;
         fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
           textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null,
@@ -643,9 +658,12 @@ DIVERSITY CHECK (rule 15): the Tri3M lines above are your OWN recent replies —
         // remaining models and rotate to the next key immediately.
         if (out.status === 400 && /api key not valid/i.test(out.textHead ?? '')) break;
         // one retry with a short backoff on transient errors (5xx/network)
-        if (out.retryable && Date.now() + 1500 < deadline) {
-          await new Promise((r) => setTimeout(r, 1200));
-          out = await geminiCall(url, payload, deadline);
+        // OWNER FIX 2026-10-15: 503 overload gets a SHORT backoff — a 1.2s
+        // sleep per 503 burned the chain budget without clearing a spike
+        // that lasts minutes. Network/timeout retries keep a longer one.
+        if (out.retryable && Date.now() + 400 < callDeadline) {
+          await new Promise((r) => setTimeout(r, out.status === 503 ? 250 : 900));
+          out = await geminiCall(url, payload, callDeadline);
           if (out.ok && out.parsed) return out.parsed;
           fails.push({ model: model.slice(0, 40), key: `…${String(key).slice(-4)}`, status: out.status ?? null,
             textHead: (out.textHead || '').slice(0, 240), finish: out.finish ?? null, retried: true });
