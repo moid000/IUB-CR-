@@ -372,6 +372,11 @@ deliveryJobs: (recentDeliveryJobs ?? []).map((j) => ({
         botRecent: botRecent.map((b) => ({ at: b.createdAt, q: (b.question ?? '').slice(0, 120),
           a: (b.reply ?? '').slice(0, 160), source: b.source, error: b.error ?? null, sentFiles: b.sentFiles ?? 0 })),
         botTraces: (botTraces ?? []).map((e) => ({ at: e.groupTrace?.at ?? e.at, why: e.groupTrace?.why,
+          // OWNER REGRESSION FIX 2026-10-16: exception/log-failed/groq-fail
+          // evidence was computed but dropped by this projection — ops could
+          // see THAT the pipeline threw, never WHY.
+          msg: (e.groupTrace?.msg ?? undefined),
+          fails: (e.groupTrace?.fails ?? undefined),
           llmFail: e.groupTrace?.llmFail ? { memoryDropped: e.groupTrace.llmFail.memoryDropped === true,
             fails: (e.groupTrace.llmFail.fails ?? []).map((f) => ({ model: f.model, status: f.status ?? null, finish: f.finish ?? null })) } : undefined })),
         linkedGroups: linkedGroups.map((sec) => ({ section: sec.name, groupId: sec.whatsappGroup?.id?.slice(-14), groupName: sec.whatsappGroup?.name })),

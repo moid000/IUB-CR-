@@ -603,6 +603,11 @@ export async function askGroqGroup({ question, data, memory = null, leader = fal
   if (!key) return null;
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
+    // OWNER REGRESSION FIX 2026-10-16: GPT-OSS on Groq served emoji-laden,
+    // dry, off-personality replies ("Is waqt AI ke published notes..." for an
+    // OOP ask, generic clarifications for banter). Same SYSTEM_PROMPT, but a
+    // short reinforcement keeps the fallback indistinguishable from Gemini.
+    { role: 'system', content: 'REMINDER — follow the system rules exactly: same witty, SHORT, natural student tone as the class bot. NO emojis ever. Never invent or rename note titles; fill send_note_titles with EXACT titles from the data only. If the data has no answer, say so plainly and point to the CR. Never name a subject the student did not ask about.' },
     { role: 'user', content: `CLASS DATA (JSON):\n${JSON.stringify(data)}` },
     { role: 'assistant', content: 'Understood. I will answer only from this data, in the student\'s own language.' },
     { role: 'user', content: buildStudentTurnText(memory, question, leader, banReply) },
@@ -1120,15 +1125,24 @@ export function subjectAsked(question, subjects) {
   for (const s of subjects) {
     const keys = subjectAliasKeys(s);
     const words = normalizeSubjectText(s.name).split(' ').filter((w) => w.length > 1);
-    // full normalized name (hyphen/spacing-insensitive) as token phrase
+    // OWNER REGRESSION FIX 2026-10-16 (live E2E): the old substring test
+    // q.includes(nameJoined) made a 2-char subject named "AI" match almost
+    // EVERY Roman Urdu message ("bhai", "hai", "kaisay" all contain "ai"),
+    // so every notes/subject ask resolved to the wrong subject. The full
+    // name must now appear as a WORD-BOUNDARY phrase ("artificial
+    // intelligence" in "bhai artificial intelligence ke notes"), and short
+    // single-word names need an exact standalone token.
     const nameJoined = normalizeSubjectText(s.name);
-    if (nameJoined.length > 1 && q.includes(nameJoined)) return s;
+    const phraseRe = new RegExp(`(?:^| )${nameJoined.split(' ').map(escapeRe).join(' ')}(?: |$)`);
+    if (nameJoined.length > 1 && phraseRe.test(q)) return s;
     for (const k of keys) {
       if (new RegExp(`(?:^| )${escapeRe(k)}(?: |$)`).test(q)) return s; // word-boundary alias
       if (k.length >= 4 && compactQ.includes(k.replace(/ /g, ''))) return s; // compact match for long aliases
     }
-    // word-set fallback: every significant name word present ("programming fundamentals")
-    if (words.length >= 2 && words.every((w) => q.includes(w))) return s;
+    // word-set fallback: every significant name word present as a STANDALONE
+    // word ("programming fundamentals") — substring presence bred the same
+    // short-name false positives as the phrase check above.
+    if (words.length >= 2 && words.every((w) => new RegExp(`(?:^| )${escapeRe(w)}(?: |$)`).test(q))) return s;
     // single-word name PREFIX ("isl" -> "Islamiat"): a >=3-char standalone
     // query token that the (single-word) subject name starts with
     if (words.length === 1) {
