@@ -839,7 +839,9 @@ export function resolveSubjectFollowUp(question, lastLog, data) {
   const lastQ = String(lastLog.question ?? '').toLowerCase();
   const askedNoteish = /note|assignment/.test(lastQ) && !(lastLog.sentFiles > 0);
   if (!askedNotes && !askedAssign && !listedNotes && !askedNoteish) return null;
-  const subj = subjectAsked(question, data.subjects ?? []);
+  // OWNER FIX 2026-10-17: notes resolution prefers the notes-bearing match
+  // (duplicate 'AI' record must not shadow 'Artificial Intelligence')
+  const subj = subjectAskedForNotes(question, data.subjects ?? [], data.noteFileIndex ?? []);
   if (!subj) return null;
   if (askedNotes || listedNotes || (askedNoteish && !/assignment/.test(lastQ))) {
     const list = (data.noteFileIndex ?? []).filter((n) => n.subject === subj.name);
@@ -977,7 +979,9 @@ export function resolveDirectNotes(question, dataJson) {
   if (!noteIdx.length) {
     return { reply: 'Filhaal kisi subject ke published notes available nahi hain 😅 CR se confirm kar lein.', titles: [] };
   }
-  const subj = subjectAsked(q, dataJson.subjects ?? []);
+  // OWNER FIX 2026-10-17: notes resolution prefers the notes-bearing match
+  // (duplicate 'AI' record must not shadow 'Artificial Intelligence')
+  const subj = subjectAskedForNotes(q, dataJson.subjects ?? [], noteIdx);
   let list = noteIdx;
   if (subj) list = noteIdx.filter((n) => n.subject === subj.name);
   const subjects = [...new Set(list.map((n) => n.subject).filter(Boolean))];
@@ -1140,10 +1144,8 @@ export function subjectAliasKeys(s) {
   for (const a of s.aliases ?? []) push(normalizeSubjectText(a));
   return keys;
 }
-export function subjectAsked(question, subjects) {
-  const q = normalizeSubjectText(question);
-  const compactQ = q.replace(/ /g, '');
-  for (const s of subjects) {
+function subjectMatchesAsk(s, q, compactQ) {
+  {
     const keys = subjectAliasKeys(s);
     const words = normalizeSubjectText(s.name).split(' ').filter((w) => w.length > 1);
     // OWNER REGRESSION FIX 2026-10-16 (live E2E): the old substring test
@@ -1171,6 +1173,37 @@ export function subjectAsked(question, subjects) {
       const tokens = q.split(' ').filter(Boolean);
       if (tokens.some((t) => t.length >= 3 && name.startsWith(t) && t !== 'ke' && t !== 'ki' && t !== 'ka')) return s;
     }
+  }
+  return null;
+}
+
+/** OWNER FIX 2026-10-17 (duplicate subject records, live evidence): subject
+ * aliases can legitimately match MORE THAN ONE subject — the DB carries a
+ * short duplicate 'AI' record next to the real 'Artificial Intelligence'
+ * (which holds the notes). subjectAsked returns the FIRST match, so
+ * "AI ke notes" resolved to the empty duplicate and the student got
+ * "Is waqt AI ke published notes nahi mile" while real AI notes existed.
+ * For NOTES resolution only: prefer a match that actually HAS notes; keep
+ * the first match (honest no-notes line) when none do; genuinely ambiguous
+ * multi-note matches stay ambiguous. Non-notes flows (teachers etc.) keep
+ * using plain subjectAsked — unchanged. */
+export function subjectAskedForNotes(question, subjects, noteIdx) {
+  const q = normalizeSubjectText(question);
+  const compactQ = q.replace(/ /g, '');
+  const matches = [];
+  for (const s of subjects) if (subjectMatchesAsk(s, q, compactQ)) matches.push(s);
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+  const withNotes = matches.filter((s) => (noteIdx ?? []).some((n) => n.subject === s.name && n.hasFiles !== false));
+  if (withNotes.length === 1) return withNotes[0];
+  return matches[0]; // no notes anywhere (or 2+ with notes) — original behavior
+}
+
+export function subjectAsked(question, subjects) {
+  const q = normalizeSubjectText(question);
+  const compactQ = q.replace(/ /g, '');
+  for (const s of subjects) {
+    if (subjectMatchesAsk(s, q, compactQ)) return s;
   }
   return null;
 }
@@ -1882,7 +1915,10 @@ export async function handleGroupMessage(payload) {
           // Wrong-subject titles are stripped; if the real subject HAS notes
           // the direct branch below delivers them, otherwise the honest
           // no-notes line stands.
-          const subj2 = subjectAsked(question, dataJson.subjects ?? []);
+          // OWNER FIX 2026-10-17: notes resolution prefers the notes-bearing
+          // match (duplicate 'AI' record must not shadow 'Artificial
+          // Intelligence' and strip its real titles)
+          const subj2 = subjectAskedForNotes(question, dataJson.subjects ?? [], dataJson.noteFileIndex ?? []);
           if (sendTitles.length && subj2) {
             const subjOf = (t) => (dataJson.noteFileIndex ?? [])
               .find((n) => String(n.title ?? '').toLowerCase() === String(t).toLowerCase())?.subject ?? null;

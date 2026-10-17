@@ -108,4 +108,17 @@ test('REPRO: listing -> bare "OOP" with claim-text-only LLM answer -> rescue mus
   assert.ok(docs.length >= 1, 'rescue must deliver the OOP files');
 });
 
+test('REPRO-2: "AI ke notes bhej do" must deliver when a duplicate empty "AI" record shadows "Artificial Intelligence"', async () => {
+  // LLM answers honestly per its view: titles for the REAL AI subject
+  geminiPayload = { reply: 'Ye raha *BS_AI_Semester_2_Lecture_3.pdf*', send_note_titles: ['BS_AI_Semester_2_Lecture_3.pdf'], intent: 'class_info' };
+  chatbot.__resetGuards();
+  const res = await handleGroupMessage(groupMsg('bhai AI ke notes bhej do'));
+  await new Promise((r) => setTimeout(r, 300));
+  const docs = filesSent();
+  console.log('AI FILES SENT:', docs.length);
+  const lastLog = await ChatbotLog.findOne({}).sort({ createdAt: -1 }).lean();
+  console.log('AI LASTLOG reply:', String(lastLog?.reply).slice(0, 160), '| sentFiles:', lastLog?.sentFiles);
+  assert.ok(docs.length >= 1, 'the duplicate empty "AI" record must not block the real Artificial Intelligence notes');
+});
+
 test.after(async () => { server.close(); await mongoose.connection.close(); await replset.stop(); });
