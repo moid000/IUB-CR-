@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
 import { MotionConfig } from 'motion/react';
+import { Analytics } from '@vercel/analytics/react';
 
 // The SPA is namespaced under /frontend/ (vite base), but root-level URLs
 // (e.g. /admin, served by the same SPA via rewrites) are also supported.
@@ -213,6 +214,7 @@ export default function App() {
         </BrowserRouter>
       </MotionConfig>
       </AuthProvider>
+      <Analytics />
     </ErrorBoundary>
   );
 }
