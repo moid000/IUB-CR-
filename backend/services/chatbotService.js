@@ -827,10 +827,21 @@ export function resolveSubjectFollowUp(question, lastLog, data) {
   // OWNER SPEC 2026-10-14 §3.4: a bare subject right after an AVAILABILITY
   // listing ("In ke notes available hain: ...") is a delivery pick too
   const listedNotes = /notes available hain/i.test(lastLog.reply);
-  if (!askedNotes && !askedAssign && !listedNotes) return null;
+  // OWNER REGRESSION FIX 2026-10-16 (live student evidence 18:31 PKT):
+  // regex-matching the BOT's reply wording broke the moment a different
+  // model phrased the clarification differently (GPT-OSS: "Which subject's
+  // notes do you need? Available subjects: ...") — the bare "OOP" answer
+  // fell to the LLM, one transient Groq hiccup shipped the AI-pause notice.
+  // The STUDENT's own question is the stable intent signal: a notes/
+  // assignment-ish previous ask that delivered NO files was a clarification
+  // or listing — so a bare subject answer right after it is a delivery pick,
+  // whatever wording the reply used.
+  const lastQ = String(lastLog.question ?? '').toLowerCase();
+  const askedNoteish = /note|assignment/.test(lastQ) && !(lastLog.sentFiles > 0);
+  if (!askedNotes && !askedAssign && !listedNotes && !askedNoteish) return null;
   const subj = subjectAsked(question, data.subjects ?? []);
   if (!subj) return null;
-  if (askedNotes || listedNotes) {
+  if (askedNotes || listedNotes || (askedNoteish && !/assignment/.test(lastQ))) {
     const list = (data.noteFileIndex ?? []).filter((n) => n.subject === subj.name);
     if (!list.length) return { reply: `Is waqt ${subj.name} ke published notes nahi mile.`, titles: [] };
     const lines = list.slice(0, 6).map((n) => `- ${n.title}`);
@@ -1116,6 +1127,16 @@ export function subjectAliasKeys(s) {
   push(normalizeSubjectText(s.code)); // cs 101
   const abbr = name.split(' ').filter(Boolean).map((w) => w[0]).join('');
   if (abbr.length >= 2) push(abbr); // oop, ai, pf
+  // OWNER FIX 2026-10-17 (claim-with-no-files root cause): a parenthetical
+  // suffix poisons the initials-abbr — "Object oriented programming (OOP)"
+  // normalized to FOUR words makes the abbr "oopo", so a bare "OOP" answer
+  // never matched the subject and every bare-subject pick fell through to
+  // the LLM (which wrote "*Notes — OOP*" and delivered 0 files). Any
+  // ALL-CAPS word in the RAW name ("OOP", "QR", "ICT") is a real
+  // abbreviation token and gets its own alias key.
+  for (const tok of String(s.name ?? '').split(/[^A-Za-z0-9]+/)) {
+    if (tok.length >= 2 && tok.length <= 10 && /^[A-Z0-9]+$/.test(tok)) push(normalizeSubjectText(tok));
+  }
   for (const a of s.aliases ?? []) push(normalizeSubjectText(a));
   return keys;
 }
@@ -1843,7 +1864,15 @@ export async function handleGroupMessage(payload) {
         // open from the last 30 min). Concept questions, jokes, thanks and
         // unrelated chatter can never trigger a delivery.
         const nIntent = notesRequestIntent(question, Boolean(pickLog));
-        if (sendTitles.length && !nIntent) {
+        // OWNER FIX 2026-10-17 (live evidence 04:37): a bare subject answer
+        // ("OOP") right after a notes clarification is a PICK with context,
+        // not an unsolicited proposal — without this flag the gate's
+        // blocked-branch cleared the titles AND skipped the else-chain, so
+        // the rescue below never ran and the LLM's claim-with-no-files text
+        // shipped unchanged ("yeh rahe OOP ke tamam notes", 0 files).
+        const bareSubjectPick = Boolean(pickLog) && String(question).trim().length <= 20
+          && Boolean(subjectAsked(question, dataJson.subjects ?? []));
+        if (sendTitles.length && !nIntent && !bareSubjectPick) {
           await traceGroup(data.id, 'notes-gate-blocked', { titles: sendTitles.length });
           sendTitles = []; // unsolicited delivery blocked; the text answer stays
         } else {
@@ -1857,7 +1886,13 @@ export async function handleGroupMessage(payload) {
           if (sendTitles.length && subj2) {
             const subjOf = (t) => (dataJson.noteFileIndex ?? [])
               .find((n) => String(n.title ?? '').toLowerCase() === String(t).toLowerCase())?.subject ?? null;
-            const relevant = sendTitles.filter((t) => !subjOf(t) || subjOf(t) === subj2.name);
+            // OWNER FIX 2026-10-17 (live evidence 04:33): a title that is NOT
+            // in noteFileIndex (subjOf === null) is a HALLUCINATION — it
+            // survived this filter (delivering nothing later) and kept
+            // sendTitles non-empty, which blocked the pick-rescue below and
+            // shipped claim-with-no-files ("yeh rahe OOP ke tamam notes" with
+            // 0 files). Only REAL titles of the asked subject survive.
+            const relevant = sendTitles.filter((t) => subjOf(t) === subj2.name);
             if (relevant.length < sendTitles.length) {
               await traceGroup(data.id, 'notes-subject-filter', { dropped: sendTitles.length - relevant.length });
             }
@@ -1869,6 +1904,24 @@ export async function handleGroupMessage(payload) {
             // the subject is determinable, deliver the real notes directly.
             const direct = resolveDirectNotes(question, dataJson);
             if (direct) { answer = direct.reply; sendTitles = direct.titles; intent = intent ?? 'class_info'; }
+          } else if (!sendTitles.length && (nIntent === 'followup' || bareSubjectPick)) {
+            // OWNER FIX 2026-10-16 (GPT-OSS live gap, evidence 18:39 PKT; live
+            // follow-up 2026-10-17 04:29: bare "OOP" — Gemini wrote "*Notes —
+            // OOP*" but left send_note_titles empty, shipping a
+            // claim-with-no-files; a bare subject answer never matches
+            // PICK_FOLLOWUP_RE so the followup branch alone missed it): a
+            // pick follow-up OR a short bare-subject answer where the LLM
+            // delivered NOTHING — the LLM stays primary for pick wording,
+            // but the DELIVERY is rescued from DB context so the student
+            // always gets the files and no claim text ships without them.
+            const rescue = resolveSubjectFollowUp(question, pickLog, dataJson)
+              ?? resolvePick(question, pickLog, dataJson)
+              ?? resolveLastNotes(question, dataJson);
+            if (rescue) {
+              await traceGroup(data.id, 'pick-rescue', { files: rescue.titles?.length ?? 0 });
+              answer = rescue.reply;
+              sendTitles = rescue.titles ?? [];
+            }
           } else if (sendTitles.length && /\b(available nahi|nahi mile|nahi mili|nahi hain\s*$|mujhe nahi pata|cr se (rabta|pooch|confirm))/i.test(String(answer))) {
             // LIVE BUG 2026-10-13 (case-2 verification): the lite model's TEXT
             // claimed 'notes available nahi hain' while its own titles delivered
