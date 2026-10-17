@@ -393,7 +393,7 @@ async function buildContextFresh(sectionId) {
       .populate('department', 'name').populate('session', 'name')
       .populate('cr', 'name').populate('gr', 'name')
       .select('name semester department session cr gr').lean(),
-    Subject.find({ section: sectionId, status: 'active' }).select('name code').sort({ name: 1 }).lean(),
+    Subject.find({ section: sectionId, status: 'active' }).select('name code aliases').sort({ name: 1 }).lean(),
     Timetable.find({ section: sectionId, status: 'active', date: { $gte: pktToday() } })
       .populate('subject', 'name').select('date startTime endTime room teacherConfirmation.status')
       .sort({ date: 1, startTime: 1 }).limit(15).lean(),
@@ -414,7 +414,12 @@ async function buildContextFresh(sectionId) {
 
 /** Compact JSON of the section's real data — the ONLY facts the LLM may use. */
 export function contextData(ctx) {
-  const subjects = (ctx.subjects ?? []).map((s) => ({ name: s.name, code: s.code ?? '' }));
+  const subjects = (ctx.subjects ?? []).map((s) => ({ name: s.name, code: s.code ?? '', aliases: s.aliases ?? [] }));
+  // OWNER FIX 2026-10-17 (multi-section correctness, owner request): the
+  // Subject.aliases field (owner spec 2026-10-14) was never loaded by
+  // buildContext's projection nor passed through contextData, so CR-set
+  // aliases were silently DEAD in the group bot — every new section relying
+  // on portal aliases for subject matching would break.
   const timetable = (ctx.slots ?? []).slice(0, 15).map((slot) => ({
     date: slot.date,
     day: fmtDay(slot.date),
