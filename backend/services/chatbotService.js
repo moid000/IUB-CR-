@@ -607,7 +607,7 @@ export async function askGroqGroup({ question, data, memory = null, leader = fal
     // dry, off-personality replies ("Is waqt AI ke published notes..." for an
     // OOP ask, generic clarifications for banter). Same SYSTEM_PROMPT, but a
     // short reinforcement keeps the fallback indistinguishable from Gemini.
-    { role: 'system', content: 'REMINDER — follow the system rules exactly: same witty, SHORT, natural student tone as the class bot. NO emojis ever. Never invent or rename note titles; fill send_note_titles with EXACT titles from the data only. If the data has no answer, say so plainly and point to the CR. Never name a subject the student did not ask about.' },
+    { role: 'system', content: 'REMINDER — follow the system rules exactly: same witty, SHORT, natural student tone as the class bot, at most ONE light emoji per reply (rule 8, never more). Never invent or rename note titles; fill send_note_titles with EXACT titles from the data only. If the data has no answer, say so plainly and point to the CR. Never name a subject the student did not ask about.' },
     { role: 'user', content: `CLASS DATA (JSON):\n${JSON.stringify(data)}` },
     { role: 'assistant', content: 'Understood. I will answer only from this data, in the student\'s own language.' },
     { role: 'user', content: buildStudentTurnText(memory, question, leader, banReply) },
