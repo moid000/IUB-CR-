@@ -40,11 +40,22 @@ const noteDeliveryJobSchema = new Schema(
         filename: { type: String, trim: true, maxlength: 200 },
         url: { type: String, trim: true },
         mimeType: { type: String, trim: true },
-        // stable per-file idempotency key (msgId:url) — Phase 4.8
+        // stable per-file idempotency key (owner spec 2026-10-18 §2:
+        // job identity + actual file record id) — msgId is unique per job
+        // (see the msgId unique index), so key collisions across jobs are
+        // structurally impossible.
         sendKey: { type: String, trim: true, maxlength: 220 },
+        // intended sequence position (1-based) — the manifest order is the
+        // DB order (newest-first, _id tie-breaker) and delivery submits
+        // in exactly this order
+        seq: { type: Number, default: 0 },
         state: {
+          // 'unknown' = the worker died between the provider call and the
+          // status write (serverless kill / crash). NEVER auto-resent — the
+          // outcome is uncertain and a blind resend could duplicate. The
+          // student can re-ask; a NEW job then delivers fresh.
           type: String,
-          enum: ['pending', 'sending', 'sent', 'failed'],
+          enum: ['pending', 'sending', 'sent', 'failed', 'unknown'],
           default: 'pending',
         },
         attempts: { type: Number, default: 0 },

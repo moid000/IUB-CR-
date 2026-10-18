@@ -206,7 +206,7 @@ test('ND-G: one file fails -> others sent, honest partial line, sent files never
     assert.equal(states['OOP Poisoned'], 'failed', 'failed file honestly marked');
     assert.ok(jobs[0].files.find((f) => f.title === 'OOP Poisoned').error.length > 0, 'sanitized error recorded');
     const chatBodies = chatSends().map((s) => s.params.body).join('\n');
-    assert.match(chatBodies, /1 notes bhej diye; 1 file\(s\) nahi bhej paya/, 'honest partial completion');
+    assert.match(chatBodies, /1 files bhej di gayi; ye nahi ja saki: "fail\.pdf"/, 'honest partial completion');
     // re-running the SAME job never resends the sent file
     const before = fileSends().length;
     const job = await NoteDeliveryJob.findOne({});

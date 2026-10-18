@@ -48,7 +48,6 @@ const GROUP_SUFFIX = '@g.us';
 const GROUP_COOLDOWN_MS = 5_000;   // min gap between two bot replies in one group (owner: 8s felt slow)
 const GROUP_HOURLY_CAP = 25;       // max replies per group per hour
 const DAILY_CAP = 220;            // global Gemini calls per PKT day (buffer under 250)
-const MAX_FILES_PER_REPLY = 8;    // OWNER SPEC 2026-10-14 §3.9: never silently stop at 3;
                                   // 8 per batch + honest overflow line (spacing makes 8 ≈ 42s)
 const MESSAGE_MAX_AGE_MS = 3 * 60_000; // ignore messages older than 3 minutes (replays)
 const GEMINI_TIMEOUT_MS = 6_000; // per attempt — serverless budgets are tight
@@ -400,8 +399,17 @@ async function buildContextFresh(sectionId) {
     Timetable.find({ section: sectionId, status: 'active', date: { $gte: pktToday() } })
       .populate('subject', 'name').select('date startTime endTime room teacherConfirmation.status')
       .sort({ date: 1, startTime: 1 }).limit(15).lean(),
+    // OWNER SPEC 2026-10-18 (complete retrieval): this query is the
+    // AUTHORITATIVE notes set for the whole group pipeline — reply text AND
+    // file delivery both read from it. Deterministic order: newest-first
+    // (createdAt desc) with a stable _id tie-breaker, so repeated runs
+    // produce the identical sequence. Bound is 500, far above any real
+    // section; no preview limit, no first-page-only retrieval.
+    // mimeType is selected so classifyMime can send images/audio/video as
+    // their real WhatsApp type instead of everything as a document.
     Note.find({ section: sectionId, status: 'published' }).populate('subject', 'name')
-      .select('title subject createdAt attachments.url attachments.originalName').sort({ createdAt: -1 }).limit(60).lean(), // OWNER SPEC 2026-10-14 §3: discovery lists ALL subjects having notes, not the first 12
+      .select('title subject createdAt attachments.url attachments.originalName attachments.mimeType')
+      .sort({ createdAt: -1, _id: -1 }).limit(500).lean(),
     Assignment.find({ section: sectionId, status: 'published' }).populate('subject', 'name')
       .select('title subject deadline').sort({ deadline: 1 }).limit(8).lean(),
     // class roster — NAMES + roll numbers ONLY, never phone/email (owner rule)
@@ -491,7 +499,7 @@ RULES:
 4b. PRECISION (strict): answer EXACTLY what was asked — nothing extra. If asked about ONE subject's teacher, name ONLY that teacher ("AI ka teacher kon hai?" -> just the AI teacher, not every teacher or subject list). Give a full list ONLY when the question clearly asks for all of them ("sab teachers", "sare subjects", "poori list"). Never dump rosters, all teachers or all subjects unprompted — it reads unprofessional.
 5. PRIVACY (strict): NEVER share anyone's phone number, email or other personal contact detail. If asked for any personal info, refuse politely in the asker's language — "ye personal information hai, main share nahi kar sakta, apne CR se poochein". Student roster questions are answered with NAME and ROLL NUMBER only. Marks, fees and other sections' data are also out of scope — refuse the same way.
 6. Timetable questions: give the asked day's classes with time, subject, room and teacher-confirmation status. If the asked day has NO class, say plainly "aaj koi class nahi" (in the asker's language) and, if tomorrow has classes, list tomorrow's. NEVER say "check the portal" or send a website link.
-7. Notes questions: name the exact note titles from the data. If the student wants note FILES, also fill "send_note_titles" with ALL of that subject's exact titles that appear in "noteFileIndex" with hasFiles=true (max 8 per reply — a subject with 5 files means 5 titles, never just the first 3) — the system will deliver the actual files after your text. Only list titles that appear in "noteFileIndex" with hasFiles=true. If the wanted notes have no files, say so. The notes list is NEWEST-first ("date" = when shared): if asked for the LAST/most recent notes of a subject ("last time jo notes diye the", "pichli bar jo diye"), pick the newest note of that subject and fill "send_note_titles" with it.
+7. Notes questions: name the exact note titles from the data. If the student wants note FILES, also fill "send_note_titles" with ALL of that subject's exact titles that appear in "noteFileIndex" with hasFiles=true (ALL of them — a subject with 13 files means 13 titles; never send just the first few, never an arbitrary subset) — the system will deliver the actual files after your text. Only list titles that appear in "noteFileIndex" with hasFiles=true. If the wanted notes have no files, say so. The notes list is NEWEST-first ("date" = when shared): if asked for the LAST/most recent notes of a subject ("last time jo notes diye the", "pichli bar jo diye"), pick the newest note of that subject and fill "send_note_titles" with it.
 7b. TWO-STEP PICK: if several notes match and the student is unclear WHICH one, LIST the candidate titles and ask which one — do NOT send files yet. When the student then picks one ("ye wala", "dusra wala", a title fragment, or repeats the title), fill "send_note_titles" with that exact title and deliver it.
 7c. Assignment questions: when asked WHICH assignments, list the headlines (title + deadline). If the student picks one, reply with its subject, title and deadline (assignments have no files to send).
 7d. SUBJECT-FIRST (owner rules 2026-10-05 + 2026-10-11): if the student asks for notes or an assignment WITHOUT naming a subject, do NOT send or list anything yet. Ask ONE short question that names ONLY the categories ACTUALLY AVAILABLE in the data: notes -> "Kis subject ke notes chahiye? In ke notes available hain: <only subjects having notes in noteFileIndex>" / assignments -> "Kis subject ki assignment chahiye? In ki assignments pending hain: <only subjects having upcoming assignments>". Never list a subject as available when the data has no notes/assignments for it, and never invent categories — the list comes ONLY from the provided data. If NOTHING is available, do not ask — say clearly (in the asker's language, with one light emoji) that no notes/assignments are available yet and to check with the CR. When they answer with just a subject ("PF", "ICT wali"), use the MEMORY/history to know which resource they meant and deliver ONLY that subject's items. If the subject IS named in the original request, retrieve ONLY that subject's items — never mix other subjects in. ALL subjects' items go only when they explicitly ask for all ("sab subjects", "sare", "all"). If one subject has multiple assignments, list them (title + deadline) and ask which one they mean. If a request is vague ("kal wali cheez bhej do"), ask a short clarification question instead of guessing — accuracy beats speed.
@@ -877,16 +885,14 @@ export function resolveSubjectFollowUp(question, lastLog, data) {
   if (askedNotes || listedNotes || (askedNoteish && !/assignment/.test(lastQ))) {
     const list = (data.noteFileIndex ?? []).filter((n) => n.subject === subj.name);
     if (!list.length) return { reply: `Is waqt ${subj.name} ke published notes nahi mile.`, titles: [] };
-    const lines = list.slice(0, 6).map((n) => `- ${n.title}`);
-    // OWNER FIX 2026-10-17 (live: 5 notes thi, sirf 3 aayi — the bare-subject
-    // pick silently capped at 3 while MAX_FILES_PER_REPLY is 8): deliver ALL
-    // of the subject's files up to the owner cap, with the same honest
-    // overflow line resolveDirectNotes uses (§3.9: never silently truncate).
+    // OWNER SPEC 2026-10-18 (complete delivery): EVERY eligible file ships —
+    // no 8-cap, no first-page preview. The listing shows the full set and
+    // the count line tells the student exactly how many files are coming.
     const allHasFiles = list.filter((n) => n.hasFiles).map((n) => n.title);
-    const titles = allHasFiles.slice(0, MAX_FILES_PER_REPLY);
-    const overflow = allHasFiles.length > titles.length
-      ? `\n(${allHasFiles.length} notes hain — pehle ${titles.length} bhej raha hoon, baqi maang lena)` : '';
-    return { reply: [`*Notes — ${subj.name}*`, '', ...lines].join('\n') + overflow, titles };
+    const titles = allHasFiles;
+    const countLine = titles.length > 1
+      ? `\n(${titles.length} files hain — sab order me bhej raha hoon)` : '';
+    return { reply: [`*Notes — ${subj.name}*`, '', ...titles.map((t) => `- ${t}`)].join('\n') + countLine, titles };
   }
   const upcoming = (data.assignments ?? []).filter((a) => !a.past && a.subject === subj.name);
   if (!upcoming.length) return { reply: `Is waqt ${subj.name} ki koi pending assignment nahi hai.`, titles: [] };
@@ -1048,16 +1054,16 @@ export function resolveDirectNotes(question, dataJson) {
     const label = subj?.name ?? subjects[0] ?? '';
     return { reply: `${label ? `${label} ke ` : ''}notes titles maujood hain, lekin files available nahi hain — CR se pooch lena.`, titles: [] };
   }
-  const top = withFiles.slice(0, MAX_FILES_PER_REPLY);
-  const titles = top.map((n) => n.title);
+  // OWNER SPEC 2026-10-18 (complete delivery): the FULL eligible set ships —
+  // never the first 1/2/5/8/10. The count line states exactly how many files
+  // the authoritative query found and that all are being sent in order.
+  const titles = withFiles.map((n) => n.title);
   const label = subj?.name ?? subjects[0] ?? '';
-  // OWNER SPEC 2026-10-14 §3.9: truncation is NEVER silent — the student
-  // hears exactly how many files exist and that the rest are one ask away
-  const overflow = withFiles.length > top.length
-    ? `\n(${withFiles.length} notes hain — pehle ${top.length} bhej raha hoon, baqi maang lena)` : '';
+  const countLine = titles.length > 1
+    ? `\n(${titles.length} files hain — sab order me bhej raha hoon)` : '';
   const reply = titles.length === 1
     ? `Ye raha *${titles[0]}* — parh lo.`
-    : [`*Notes${label ? ` — ${label}` : ''}*`, '', ...titles.map((t) => `- ${t}`)].join('\n') + overflow;
+    : [`*Notes${label ? ` — ${label}` : ''}*`, '', ...titles.map((t) => `- ${t}`)].join('\n') + countLine;
   return { reply, titles };
 }
 
@@ -1404,12 +1410,16 @@ function classifyMime(mime) {
   return 'document';
 }
 
-/** Matches the LLM's note titles back to real notes (exact → substring). */
+/** OWNER SPEC 2026-10-18 (complete multi-file delivery): the manifest is
+ * built from EVERY matching note's EVERY attachment. No arbitrary cap, no
+ * top-N preview — a subject with 13 files picks up all 13, in context
+ * order (newest-first, stable _id tie-breaker) so the reply list, the
+ * delivery manifest and the WhatsApp submission share ONE order. */
 export function pickNotesForDelivery(titles, notes) {
   const picked = [];
   const usedNoteIds = new Set(); // a duplicated/duplicated-cased title must never deliver the same note twice
-  for (const raw of (titles ?? []).slice(0, 5)) {
-    if (picked.length >= MAX_FILES_PER_REPLY) break;
+  const seenUrls = new Set();    // two notes sharing one file URL deliver it ONCE
+  for (const raw of titles ?? []) {
     const want = String(raw ?? '').trim().toLowerCase();
     if (!want) continue;
     const note = (notes ?? []).find((n) => n.title?.toLowerCase() === want && !usedNoteIds.has(String(n._id ?? n.title)))
@@ -1417,11 +1427,8 @@ export function pickNotesForDelivery(titles, notes) {
         && (want.includes(n.title?.toLowerCase()) || n.title?.toLowerCase().includes(want)));
     if (!note) continue;
     usedNoteIds.add(String(note._id ?? note.title));
-    const files = (note.attachments ?? []).filter((a) => a?.url);
-    for (const file of files) {
-      if (picked.length >= MAX_FILES_PER_REPLY) break;
-      picked.push({ note, file });
-    }
+    const files = (note.attachments ?? []).filter((a) => a?.url && !seenUrls.has(a.url));
+    for (const file of files) { seenUrls.add(file.url); picked.push({ note, file }); }
   }
   return picked;
 }
@@ -1435,19 +1442,26 @@ export function pickNotesForDelivery(titles, notes) {
 /* retry finds the existing job and never double-sends.                */
 /* ------------------------------------------------------------------ */
 export async function createNotesDeliveryJob({ sectionId, groupId, requester, requesterName, msgId, question, picked }) {
-  const files = picked
-    .slice(0, MAX_FILES_PER_REPLY)
-    .map(({ note, file }) => ({
+  // OWNER SPEC 2026-10-18: the manifest contains EVERY eligible file — no
+  // cap, no truncation. Each row carries its intended sequence position
+  // (seq) and a stable idempotency key built from the JOB identity (msgId,
+  // unique per job) + the actual NOTE record id + the FILE id.
+  const rows = []; // ordered manifest — seq 1..N, one row per unique file URL
+  const deduped = new Set();
+  for (const { note, file } of picked) {
+    if (!file?.url || deduped.has(file.url)) continue;
+    deduped.add(file.url);
+    rows.push({
       noteId: note._id, fileId: String(file.id ?? file.url ?? '').slice(0, 64),
       title: String(note.title ?? '').slice(0, 160),
       filename: String(file.originalName ?? '').slice(0, 200),
       url: file.url, mimeType: file.mimeType,
-      // OWNER SPEC 2026-10-14 Phase 4.8: stable per-file idempotency key —
-      // webhook retries, model retries and job re-runs can never duplicate it
-      sendKey: `${String(msgId ?? '').slice(0, 100)}:${file.url}`,
+      sendKey: `${String(msgId ?? '').slice(0, 100)}:${String(file.url ?? '')}`,
+      seq: rows.length + 1,
       state: 'pending',
-    }));
-  if (!files.length) return null;
+    });
+  }
+  if (!rows.length) return null;
   try {
     return await NoteDeliveryJob.create({
       section: sectionId, groupId,
@@ -1455,7 +1469,7 @@ export async function createNotesDeliveryJob({ sectionId, groupId, requester, re
       requesterName: String(requesterName ?? '').slice(0, 80),
       msgId: String(msgId ?? '').slice(0, 100) || undefined,
       question: String(question ?? '').slice(0, 400),
-      files, status: 'pending',
+      files: rows, status: 'pending',
     });
   } catch (err) {
     if (err?.code === 11000) return null; // same msgId already has a job — replay safe
@@ -1464,49 +1478,156 @@ export async function createNotesDeliveryJob({ sectionId, groupId, requester, re
   }
 }
 
-/** Runs (or safely re-runs) a job: only files still pending/failed send —
- * a file already 'sent' is never re-submitted (idempotent retries, spec
- * §4). Per-file provider acceptance + timing recorded. Interactive sends
- * use queue PRIORITY so a student never waits behind a broadcast backlog. */
-export async function runDeliveryJob(job, groupId, requester) {
-  job.status = 'processing';
-  await job.save();
-  let sent = 0; let failed = 0; let first = true;
+const FILE_MAX_ATTEMPTS = 3; // bounded per-file retries (owner spec 2026-10-18 §6.5)
+
+/** Runs (or safely re-runs) a job.
+ *
+ * OWNER SPEC 2026-10-18 — deterministic, duplicate-proof, complete:
+ * - ORDER: files are processed in manifest order (seq 1..N = DB order);
+ *   sequential submission, no concurrency, so WhatsApp clients receive
+ *   them in the intended sequence.
+ * - DUPLICATE WALL: every file is ATOMICALLY CLAIMED at the DB level
+ *   (findOneAndUpdate pending/failed → sending). Two workers racing on
+ *   the same job can never both send the same file — the loser's claim
+ *   returns null and it skips. A file already 'sent' is terminal and is
+ *   never re-submitted, so re-runs/sweep resumes re-send ONLY the
+ *   failed/pending files. The msgId unique index already prevents a
+ *   duplicate webhook from creating a second job at all.
+ * - HONESTY: 'sent' is set ONLY on the provider's documented success
+ *   response; a thrown/errored send is 'failed' with the reason stored.
+ *   The completion summary counts only what the DB actually recorded.
+ */
+export async function runDeliveryJob(jobOrId, groupId, requester) {
+  const job = (typeof jobOrId === 'string' || jobOrId instanceof Object && jobOrId?._id)
+    ? await NoteDeliveryJob.findById(jobOrId?._id ?? jobOrId)
+    : jobOrId;
+  if (!job) return { sent: 0, failed: 0 };
+  if (job.status === 'complete' || job.status === 'failed') {
+    // terminal jobs never resurrect — a new explicit request creates a NEW job
+    const done = countJobStates(job);
+    return { sent: done.sent, failed: done.failed };
+  }
+  await NoteDeliveryJob.updateOne({ _id: job._id, status: { $ne: 'complete' } }, { $set: { status: 'processing' } });
+  const total = job.files.length;
+  let first = job.files.some((f) => f.state === 'sent');
   for (const f of job.files) {
-    if (f.state === 'sent') { sent += 1; first = false; continue; }
-    if (f.attempts >= 2) { if (f.state === 'failed') failed += 1; continue; }
-    f.attempts += 1; f.state = 'sending';
+    if (f.state === 'sent') continue; // terminal — never resend
+    if (f.state === 'sending') continue; // claimed by a concurrent worker
+    if (f.state === 'failed' && f.attempts >= FILE_MAX_ATTEMPTS) continue; // bounded retries exhausted
+    // ATOMIC DB-LEVEL CLAIM (owner spec §2/§3): pending/failed → sending.
+    // A concurrent worker that claimed first makes this return null.
+    const claimed = await NoteDeliveryJob.findOneAndUpdate(
+      { _id: job._id, files: { $elemMatch: { _id: f._id, state: { $in: ['pending', 'failed'] } } } },
+      { $set: { 'files.$.state': 'sending' }, $inc: { 'files.$.attempts': 1 } },
+      { new: true },
+    ).catch(() => null);
+    if (!claimed) continue; // lost the race or the file went terminal — skip
     const t0 = Date.now();
     try {
       const kind = classifyMime(f.mimeType);
       const caption = first ? `📎 ${f.title}` : undefined;
       const res = await sendInteractiveMedia(kind, groupId, f.url, f.filename, caption);
-      f.state = 'sent';
-      f.providerAccepted = !!(res?.sent ?? res?.success ?? true);
-      // Wasender facade returns { sent, msgId } — record the provider's own id
-      f.providerMsgId = String(res?.msgId ?? res?.id ?? res?.data?.id ?? res?.messageId ?? '').slice(0, 100);
-      f.sentAt = new Date(); f.durationMs = Date.now() - t0; f.error = undefined;
-      sent += 1; first = false;
+      const providerMsgId = String(res?.msgId ?? res?.id ?? res?.data?.id ?? res?.messageId ?? '').slice(0, 100);
+      await NoteDeliveryJob.updateOne(
+        { _id: job._id, 'files._id': f._id },
+        { $set: {
+          'files.$.state': 'sent',
+          'files.$.providerAccepted': !!(res?.sent ?? res?.success ?? true),
+          'files.$.providerMsgId': providerMsgId,
+          'files.$.sentAt': new Date(),
+          'files.$.durationMs': Date.now() - t0,
+          $unset: { 'files.$.error': 1 },
+        } },
+      );
+      first = false;
     } catch (err) {
-      f.state = 'failed';
-      f.error = String(err?.message ?? 'send failed').slice(0, 160);
-      failed += 1;
-      console.error('[chatbot] file delivery failed:', f.error);
+      const why = String(err?.message ?? 'send failed').slice(0, 160);
+      console.error('[chatbot] file delivery failed:', why);
+      await NoteDeliveryJob.updateOne(
+        { _id: job._id, 'files._id': f._id },
+        { $set: { 'files.$.state': 'failed', 'files.$.error': why } },
+      ).catch(() => {});
     }
   }
-  job.status = sent ? 'complete' : 'failed';
-  job.latencyMs = Date.now() - new Date(job.createdAt).getTime();
-  await job.save();
-  // HONEST completion: only on partial/full failure, never falsely claims
-  // success (spec §4.10/§6.6); duplicate completions impossible — the job
-  // is terminal here and a new request creates a NEW job.
-  if (failed) {
-    const line = sent
-      ? `${sent} notes bhej diye; ${failed} file(s) nahi bhej paya — thori der baad dobara maang lena 🙏`
-      : 'Maazrat — files nahi bhej pa raha. Thori der baad dobara maang lena 🙏';
-    try { await sendInteractiveText(groupId, requester ? `@${requester} ${line}` : line); } catch { /* completion line is best-effort */ }
+  // Recompute the truth from the DB — never from stale in-memory guesses.
+  const fresh = await NoteDeliveryJob.findById(job._id);
+  const done = countJobStates(fresh);
+  // terminal = every file reached a final state AND no failed file still has
+  // bounded attempts left. A job with retryable failures stays 'processing'
+  // so the deadline sweep retries ONLY those files (sent ones are terminal).
+  const retryable = fresh.files.filter((f) => (f.state === 'failed' && f.attempts < FILE_MAX_ATTEMPTS) || f.state === 'pending').length;
+  const terminal = done.sending === 0 && retryable === 0;
+  await NoteDeliveryJob.updateOne(
+    { _id: job._id },
+    { $set: { status: terminal ? (done.sent ? 'complete' : 'failed') : 'processing', latencyMs: Date.now() - new Date(fresh.createdAt).getTime() } },
+  );
+  // OWNER SPEC §7: ONE accurate completion summary, built only from recorded
+  // DB states, sent at most once per job (completionSent atomic claim).
+  // Failures/unknowns are ALWAYS reported (any batch size); clean success
+  // summaries only for real batches (≥3 files) to keep the chat clean.
+  const summaryWanted = done.failed > 0 || done.unknown > 0 || (total >= 3 && terminal);
+  if (summaryWanted) {
+    let line;
+    if (done.failed === 0) {
+      line = `Ho gaya — ${total} me se ${done.sent} files bhej di gayi, order me hain 📚`;
+    } else if (done.sent) {
+      const bad = fresh.files.filter((x) => x.state === 'failed' || x.state === 'unknown');
+      const names = bad.slice(0, 3).map((x) => `"${(x.filename || x.title || '').slice(0, 40)}"`)
+        .join(', ');
+      const extra = bad.length > 3 ? ` (+${bad.length - 3} aur)` : '';
+      line = `${done.sent} files bhej di gayi; ye nahi ja saki: ${names}${extra}${done.unknown ? ' (kuch ka status confirm nahi hua)' : ''} — thori der baad dobara maang lena 🙏`;
+    } else {
+      line = 'Maazrat — files nahi bhej pa raha. Thori der baad dobara maang lena 🙏';
+    }
+    // atomic once-per-job claim: a concurrent sweep can never double-ship
+    // the summary line
+    const claimed = await NoteDeliveryJob.updateOne(
+      { _id: job._id, completionSent: false },
+      { $set: { completionSent: true } },
+    ).catch(() => ({ modifiedCount: 0 }));
+    if (!claimed?.modifiedCount) return { sent: done.sent, failed: done.failed };
+    try { await sendInteractiveText(groupId, requester ? `@${requester} ${line}` : line); } catch { /* best-effort */ }
   }
-  return { sent, failed };
+  return { sent: done.sent, failed: done.failed };
+}
+
+function countJobStates(job) {
+  const st = { sent: 0, failed: 0, pending: 0, sending: 0, unknown: 0 };
+  for (const f of job?.files ?? []) st[f.state] = (st[f.state] ?? 0) + 1;
+  return st;
+}
+
+/** OWNER SPEC 2026-10-18 §3/§6: the deadline sweep resumes delivery jobs
+ * the live handler could not finish (serverless 60s ceiling vs a 13-file
+ * batch at the provider's 5.2s send spacing) or whose sends failed
+ * transiently. Idempotent by design: 'sent' files are terminal, atomic
+ * claims prevent double sends, bounded attempts (3) stop retry storms. */
+export async function runNoteDeliverySweep({ staleMs = 3 * 60_000 } = {}) {
+  // DEAD-WORKER RECOVERY: a file stuck in 'sending' for >5 min means its
+  // worker died mid-send (Vercel kills functions at 60s). The outcome is
+  // UNCERTAIN — never blind-resend (a duplicate would be worse); mark it
+  // 'unknown' and let the student re-ask. Production sends cannot exceed
+  // the 60s function ceiling, so a live worker can never still hold a
+  // 5-minute-old claim.
+  await NoteDeliveryJob.updateMany(
+    { status: 'processing', updatedAt: { $lt: new Date(Date.now() - 5 * 60_000) }, 'files.state': 'sending' },
+    { $set: { 'files.$[f].state': 'unknown', 'files.$[f].error': 'send outcome uncertain — not auto-resent' } },
+    { arrayFilters: [{ 'f.state': 'sending' }] },
+  ).catch(() => {});
+  const stuck = await NoteDeliveryJob.find({
+    status: { $in: ['pending', 'processing'] },
+    createdAt: { $lt: new Date(Date.now() - staleMs) },
+  }).sort({ createdAt: 1 }).limit(10);
+  let resumed = 0; let files = 0;
+  for (const job of stuck) {
+    if (!job.files?.some((f) => f.state === 'pending' || (f.state === 'failed' && f.attempts < FILE_MAX_ATTEMPTS))) continue;
+    const r = await runDeliveryJob(job, job.groupId, job.requester).catch((err) => {
+      console.error('[chatbot] delivery sweep failed:', String(err?.message ?? err).slice(0, 120));
+      return null;
+    });
+    if (r) { resumed += 1; files += (r.sent ?? 0) + (r.failed ?? 0); }
+  }
+  return { resumed, files };
 }
 
 /* ------------------------------------------------------------------ */

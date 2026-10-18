@@ -20,7 +20,7 @@ import { runTeacherQuestionSweep } from '../services/teacherQuestionService.js';
 // consumer of GROUP messages — it never throws, and returns false unless the
 // bot is enabled AND the payload is a group text message, so the teacher
 // DM flow below stays byte-for-byte identical when the bot is off.
-import { handleGroupMessage } from '../services/chatbotService.js';
+import { handleGroupMessage, runNoteDeliverySweep as _nds } from '../services/chatbotService.js';
 // OWNER RELIABILITY SPEC §9 (2026-10-10): outbox delivery tracking + retry
 import { retryOutbox } from '../services/whatsappService.js';
 import * as whatsappService from '../services/whatsappService.js';
@@ -85,13 +85,17 @@ const handle = async (req, res, next) => {
       return { error: true };
     });
     // RELIABILITY SWEEPS (owner spec 2026-10-09): crash-recovery + retries.
-    const [materialReliability, questionReliability, outbox] = await Promise.allSettled([
+    const [materialReliability, questionReliability, outbox, noteDeliveries] = await Promise.allSettled([
       runTeacherMaterialSweep(), runTeacherQuestionSweep(), retryOutbox(),
+      // OWNER SPEC 2026-10-18: resume incomplete multi-file note deliveries
+      // (serverless kill / transient provider failures) — idempotent.
+      _nds(),
     ]);
     res.json({ success: true, data: { ...report, teacherConfirmations, classReminders, beaconWatch,
       materialReliability: materialReliability.status === 'fulfilled' ? materialReliability.value : { error: true },
       questionReliability: questionReliability.status === 'fulfilled' ? questionReliability.value : { error: true },
-      outbox: outbox.status === 'fulfilled' ? outbox.value : { error: true } } });
+      outbox: outbox.status === 'fulfilled' ? outbox.value : { error: true },
+      noteDeliveries: noteDeliveries.status === 'fulfilled' ? noteDeliveries.value : { error: true } } });
   } catch (err) {
     next(err);
   }

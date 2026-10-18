@@ -345,10 +345,16 @@ test('pickNotesForDelivery delivers every matching file and matches titles toler
   const picked = pickNotesForDelivery(['a note', 'b note'], notes);
   assert.equal(picked.length, 4, 'ALL matching files identified, none silently dropped');
   assert.equal(picked[0].note.title, 'A Note');
-  // the cap is a bounded-concurrency guard (8), not a 3-file wall
+  // OWNER SPEC 2026-10-18: NO cap — every eligible file enters the manifest
   const many = { title: 'C Note', attachments: Array.from({ length: 12 }, (_, i) => ({ url: `u${i}`, mimeType: 'application/pdf' })) };
-  const capped = pickNotesForDelivery(['c note'], [many]);
-  assert.equal(capped.length, 8, 'MAX_FILES_PER_REPLY = 8 bounded batch');
+  const all = pickNotesForDelivery(['c note'], [many]);
+  assert.equal(all.length, 12, 'ALL 12 files picked — no arbitrary cap');
+  // the same URL shared by two notes is delivered exactly once
+  const dupUrl = [
+    { title: 'D Note', attachments: [{ url: 'shared.pdf', mimeType: 'application/pdf' }] },
+    { title: 'E Note', attachments: [{ url: 'shared.pdf', mimeType: 'application/pdf' }] },
+  ];
+  assert.equal(pickNotesForDelivery(['d note', 'e note'], dupUrl).length, 1, 'duplicate URL delivered once');
 });
 
 test('unlinked group → consumed but silent (privacy)', async () => {
