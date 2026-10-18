@@ -618,8 +618,13 @@ export async function askGroqGroup({ question, data, memory = null, leader = fal
     { role: 'user', content: buildStudentTurnText(memory, question, leader, banReply) },
   ];
   try {
+    // OWNER FIX 2026-10-18 (peak-hour pause notices, live evidence): the
+    // 6s per-model cap aborted gpt-oss-120b mid-reasoning during Groq's
+    // evening load — the same message sometimes answered, sometimes shipped
+    // the pause notice even though Groq quota was NOT exhausted. 10s lets
+    // the big model finish; the fast 20b backup stays behind it.
     const parsed = await groqChat({ key, messages, jsonMode: true, temperature: 0.5,
-      maxTokens: 900, timeoutMs: 6_000, diag: onFail });
+      maxTokens: 900, timeoutMs: 10_000, diag: onFail });
 
     // CONTRACT NORMALIZATION (live-evidence-proof): Llama fills the same JSON
     // contract, but a missing/odd-typed field must never crash the pipeline
