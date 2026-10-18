@@ -66,6 +66,9 @@ export const adminApi = {
     // Never returns the Gemini key — only whether one is configured.
     get: () => api.get('/api/admin/chatbot'),
     update: (body) => api.put('/api/admin/chatbot', body), // { enabled?, apiKey?, geminiKeys?, openaiKey? }
+    // OWNER FEATURE 2026-10-18: per-model LLM health + limits (usage today,
+    // last failure reason, Groq real remaining limits, breaker state).
+    health: () => api.get('/api/admin/chatbot/health'),
   },
   experience: {
     // Teacher-agent learning examples (Administration page).

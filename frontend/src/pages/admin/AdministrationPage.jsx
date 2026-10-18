@@ -6,7 +6,7 @@ import { Alert } from '../../components/ui/Alert.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
-import { IconShield, IconChatBubble } from '../../components/icons.jsx';
+import { IconShield, IconChatBubble, IconPulse } from '../../components/icons.jsx';
 
 /**
  * Administration — owner profile + data-protection overview.
@@ -27,6 +27,37 @@ export default function AdministrationPage() {
     let alive = true;
     adminApi.experience.get().then((res) => { if (alive) setExpStats(res.data); }).catch(() => {});
     return () => { alive = false; };
+  }, []);
+
+  // OWNER FEATURE 2026-10-18: live LLM model health & limits (60s auto-refresh)
+  const [health, setHealth] = useState(null);
+  const [healthBusy, setHealthBusy] = useState(false);
+  const [healthError, setHealthError] = useState(null);
+  const [healthAt, setHealthAt] = useState(null);
+  const loadHealth = async () => {
+    setHealthBusy(true);
+    try {
+      const res = await adminApi.chatbot.health();
+      setHealth(res.data);
+      setHealthAt(new Date());
+      setHealthError(null);
+    } catch (err) {
+      setHealthError(err?.message ?? 'Could not load model health.');
+    } finally {
+      setHealthBusy(false);
+    }
+  };
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await adminApi.chatbot.health();
+        if (alive) { setHealth(r.data); setHealthAt(new Date()); }
+      } catch { /* shown on manual refresh */ }
+    })();
+    const t = setInterval(() => { if (document.visibilityState !== 'hidden') loadHealth(); }, 60_000);
+    return () => { alive = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const profile = data?.configured ? data.profile : null;
@@ -378,6 +409,92 @@ export default function AdministrationPage() {
                     Save Groq key
                   </Button>
                 </form>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-soft sm:p-6" aria-label="AI model health and limits">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                <IconPulse className="size-4.5" />
+              </span>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">AI Model Health &amp; Limits (live)</h2>
+                    <p className="mt-1 max-w-2xl text-xs text-slate-500">
+                      Every Gemini and Groq model the chat pipeline uses — today's usage, remaining limits (Groq live
+                      from its API), and the exact reason whenever a model fails. Refreshes every 60 seconds.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {healthAt && <span className="text-xs text-slate-400">Updated {healthAt.toLocaleTimeString()}</span>}
+                    <Button variant="secondary" onClick={loadHealth} disabled={healthBusy}>
+                      {healthBusy ? 'Checking…' : 'Refresh'}
+                    </Button>
+                  </div>
+                </div>
+
+                {healthError && <Alert variant="danger" className="mt-4">{healthError}</Alert>}
+
+                {health ? (
+                  <>
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-semibold ${health.breakerOpen ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        <span className={`size-2 rounded-full ${health.breakerOpen ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                        {health.breakerOpen
+                          ? `Gemini breaker open till ${new Date(health.aiOutageUntil).toLocaleTimeString()} — Groq + DB answers keep working`
+                          : 'AI chains healthy'}
+                      </span>
+                      {Object.entries(health.replies24h?.bySource ?? {}).map(([src, n]) => (
+                        <span key={src} className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">
+                          {src}: {n} replies (24h)
+                        </span>
+                      ))}
+                    </div>
+
+                    {health.models?.length ? (
+                      <div className="mt-4 space-y-2">
+                        {health.models.map((m) => {
+                          const gl = m.provider === 'groq' ? (health.groqLimits ?? []).find((g) => g.model === m.model) : null;
+                          const failing = (m.fail429 ?? 0) + (m.failOther ?? 0) > 0;
+                          return (
+                            <div key={`${m.provider}:${m.model}`} className="rounded-xl border border-slate-200 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`size-2 rounded-full ${failing ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                                  <span className="text-sm font-semibold text-slate-800">{m.model}</span>
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${m.provider === 'gemini' ? 'bg-sky-100 text-sky-700' : 'bg-orange-100 text-orange-700'}`}>
+                                    {m.provider}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  Today: <span className="font-semibold text-emerald-600">{m.ok} ok</span>
+                                  {(m.fail429 ?? 0) > 0 && <> · <span className="font-semibold text-rose-600">{m.fail429} quota (429)</span></>}
+                                  {(m.failOther ?? 0) > 0 && <> · <span className="font-semibold text-rose-600">{m.failOther} failed</span></>}
+                                  {gl && gl.remainingRequests != null && (
+                                    <> · <span className="font-semibold text-slate-700">{gl.remainingRequests}/{gl.requestsPerDay} requests left</span></>
+                                  )}
+                                </div>
+                              </div>
+                              {m.lastError && (
+                                <p className="mt-1.5 text-xs text-rose-600">
+                                  Last error {m.lastErrorAt ? `${new Date(m.lastErrorAt).toLocaleString()} — ` : ''}{m.lastError}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="mt-4 text-xs text-slate-400">No model calls recorded yet today — the counters start filling with the first chat reply.</p>
+                    )}
+
+                    <p className="mt-3 text-[11px] leading-relaxed text-slate-400">{health.note}</p>
+                  </>
+                ) : !healthError ? (
+                  <div className="mt-4"><Skeleton className="h-4 w-3/4" /><div className="mt-2"><Skeleton className="h-4 w-1/2" /></div></div>
+                ) : null}
               </div>
             </div>
           </section>

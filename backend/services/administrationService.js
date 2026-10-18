@@ -270,6 +270,18 @@ function geminiKeysFlags(doc) {
   };
 }
 
+/** OWNER FEATURE 2026-10-18: live LLM model-health snapshot for the
+ * Administration panel — per-model today usage (total/ok/429/fail), the exact
+ * last failure reason + time, the AI breaker state, 24h reply-source split,
+ * and Groq's REAL remaining limits from its rate-limits API. Never returns
+ * any key material. */
+export async function getChatbotHealth() {
+  const { runtimeGroqKey, GROQ_MODELS } = await import('./groqService.js');
+  const { llmHealthSnapshot } = await import('./llmTelemetryService.js');
+  const groqKey = await runtimeGroqKey().catch(() => null);
+  return llmHealthSnapshot({ groqKey, groqModels: GROQ_MODELS });
+}
+
 /** Admin-only update of the ON/OFF switch + the OpenAI voice key.
  * 'enabled' (boolean) and/or 'openaiApiKey' ('' clears, 'sk-…' sets).
  * Neither field is ever echoed back — only configuration flags. */

@@ -1,3 +1,4 @@
+import { recordLlm } from './llmTelemetryService.js';
 /**
  * OWNER FEATURE 2026-10-15 (24/7 uptime): GROQ FREE-TIER FALLBACK.
  * Gemini stays PRIMARY — when the whole Gemini chain dies (daily quota /
@@ -19,7 +20,7 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // became ENTERPRISE-ONLY on 2026-08-16 — free/developer keys get 404 on them,
 // which silently killed the whole fallback during the live Groq E2E test.
 // Free-tier text models now: GPT-OSS 120B (quality) + GPT-OSS 20B (fast headroom).
-const GROQ_MODELS = (process.env.GROQ_MODELS || 'openai/gpt-oss-120b,openai/gpt-oss-20b')
+export const GROQ_MODELS = (process.env.GROQ_MODELS || 'openai/gpt-oss-120b,openai/gpt-oss-20b')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
 /** Tolerant JSON parse — mirrors parseGeminiJson (fences, embedded JSON). */
@@ -75,15 +76,16 @@ export async function groqChat({ key, messages, jsonMode = true, temperature = 0
       // per-model just like Google — the next model may still be alive.
       // diag records WHY each model failed (ops evidence — the 2026-08-16
       // llama retirement was invisible for hours because failures were silent).
-      if (!res.ok) { try { diag?.({ model, status: res.status }); } catch { } continue; }
+      if (!res.ok) { try { diag?.({ model, status: res.status }); } catch { } recordLlm({ provider: 'groq', model, ok: false, status: res.status, error: 'groq api' }); continue; }
       const json = await res.json();
       const text = String(json?.choices?.[0]?.message?.content ?? '').trim();
-      if (!text) { try { diag?.({ model, status: 'empty' }); } catch { } continue; }
-      if (!jsonMode) return text;
+      if (!text) { try { diag?.({ model, status: 'empty' }); } catch { } recordLlm({ provider: 'groq', model, ok: false, status: 'empty', error: 'groq api' }); continue; }
+      if (!jsonMode) { recordLlm({ provider: 'groq', model, ok: true }); return text; }
       const parsed = parseLooseJson(text);
-      if (parsed) return parsed;
+      if (parsed) { recordLlm({ provider: 'groq', model, ok: true }); return parsed; }
+      recordLlm({ provider: 'groq', model, ok: false, status: 'unparseable', error: 'groq api' });
       try { diag?.({ model, status: 'unparseable' }); } catch { }
-    } catch { try { diag?.({ model, status: 'timeout' }); } catch { } /* timeout/network → next model */ } finally { clearTimeout(timer); }
+    } catch { try { diag?.({ model, status: 'timeout' }); } catch { } recordLlm({ provider: 'groq', model, ok: false, status: 'timeout', error: 'groq api' }); /* timeout/network → next model */ } finally { clearTimeout(timer); }
   }
   return null;
 }

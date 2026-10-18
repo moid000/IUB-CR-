@@ -31,6 +31,8 @@ router.put('/administration/profile', ctl.updateAdminProfile);
 // Tri3M WhatsApp chatbot master switch (ON/OFF) + Gemini key, admin-only
 router.get('/chatbot', ctl.getChatbotSetting);
 router.put('/chatbot', ctl.updateChatbotSetting);
+// OWNER FEATURE 2026-10-18: per-model LLM health + limits for the panel card
+router.get('/chatbot/health', ctl.getChatbotHealth);
 // OWNER night #8 follow-up: teacher-agent learning examples (admin-only)
 router.get('/experience', ctl.getExperience);
 router.post('/experience/refresh', ctl.refreshExperience);

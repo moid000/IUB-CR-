@@ -28,6 +28,8 @@ export { default as WipeVerification } from './WipeVerification.js';
 export { default as ChatbotLog } from './ChatbotLog.js';
 export { default as VoiceDiag } from './VoiceDiag.js';
 export { default as ChatbotSetting } from './ChatbotSetting.js';
+// OWNER FEATURE 2026-10-18: per-model LLM usage telemetry (admin health card)
+export { default as LlmUsage } from './LlmUsage.js';
 export { default as GroupRosterCache } from './GroupRosterCache.js';
 export { default as WhatsAppEvent } from './WhatsAppEvent.js';
 export { default as ExperienceExample } from './ExperienceExample.js';

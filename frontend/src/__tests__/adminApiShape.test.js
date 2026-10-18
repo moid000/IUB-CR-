@@ -24,9 +24,12 @@ describe('AAS: real adminApi shape (no mocks)', () => {
 
   it('chatbot has no stray nested service groups', () => {
     // If someone nests a sibling service inside chatbot again, catch it here.
+    // ('health' is a legit chatbot-scoped method — the 2026-10-18 model-health
+    // card — not a nested service group like the old experience bug.)
     const stray = Object.keys(adminApi.chatbot || {}).filter(
-      (k) => !['get', 'update'].includes(k),
+      (k) => !['get', 'update', 'health'].includes(k),
     );
     expect(stray).toEqual([]);
+    expect(typeof adminApi.chatbot?.health).toBe('function');
   });
 });

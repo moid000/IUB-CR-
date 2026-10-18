@@ -1,5 +1,6 @@
 import { Section, Subject, Note, Assignment, Timetable, User, Teacher, Announcement, ChatbotLog, ChatbotSetting, NoteDeliveryJob } from '../models/index.js';
 import { recordVoiceDiag } from '../models/VoiceDiag.js';
+import { recordLlm } from './llmTelemetryService.js';
 import { env } from '../config/env.js';
 import { normalizePhone, samePhone } from './phoneUtils.js';
 import {
@@ -291,12 +292,14 @@ async function transcribeWithGemini(bytes, mimeType) {
       });
       if (!res.ok) { // 503/404/429 → next MODEL (429 is often per-model —
         // OWNER FIX 2026-10-15 live evidence); 400 → next KEY.
+        recordLlm({ provider: 'gemini', model, ok: false, status: res.status, error: `voice transcription` });
         if (res.status === 400) break;
         continue;
       }
       const json = await res.json();
       const text = String(json?.candidates?.[0]?.content?.parts?.map((p) => p?.text ?? '').join('') ?? '').trim();
-      if (text) return text;
+      if (text) { recordLlm({ provider: 'gemini', model, ok: true }); return text; }
+      recordLlm({ provider: 'gemini', model, ok: false, status: 'empty', error: 'voice transcription' });
     } catch { /* timeout/network → next model */ }
   }
   return null;
@@ -532,7 +535,25 @@ Return ONLY JSON: { "reply": string, "send_note_titles": string[] (may be empty)
 const BACKUP_MODELS = (process.env.CHATBOT_GEMINI_BACKUP || 'gemini-flash-latest,gemini-flash-lite-latest,gemini-3.1-flash-lite')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
+/* OWNER FEATURE 2026-10-18: telemetry wrapper — every group-chain Gemini
+ * call is counted per model with its real outcome (ok/429/throttle/timeout)
+ * for the Administration model-health card. Fire-and-forget, never blocks. */
 async function geminiCall(url, payload, deadline = null) {
+  const model = decodeURIComponent(/models\/([^:]+):generateContent/.exec(String(url))?.[1] ?? '');
+  let out;
+  try {
+    out = await geminiCallRaw(url, payload, deadline);
+  } catch (err) {
+    try { recordLlm({ provider: 'gemini', model, ok: false, status: 'timeout', error: err?.message }); } catch { }
+    throw err;
+  }
+  try {
+    recordLlm({ provider: 'gemini', model, ok: Boolean(out?.ok && out?.parsed), status: out?.status ?? null, error: out?.textHead });
+  } catch { }
+  return out;
+}
+
+async function geminiCallRaw(url, payload, deadline = null) {
   const controller = new AbortController();
   const budget = deadline ? Math.max(1_000, deadline - Date.now()) : GEMINI_TIMEOUT_MS;
   const timer = setTimeout(() => controller.abort(), Math.min(GEMINI_TIMEOUT_MS, budget));

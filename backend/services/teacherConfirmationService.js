@@ -5,6 +5,7 @@ import { isConfigured, sendText, sendTracked, sendCrTracked } from './whatsappSe
 import { createNotification } from './notificationService.js';
 // OWNER night #8: teacher VOICE NOTES reuse the group bot's Whisper helper
 import { transcribeVoice, runtimeKeyPool } from './chatbotService.js';
+import { recordLlm } from './llmTelemetryService.js';
 import { recordVoiceDiag } from '../models/VoiceDiag.js';
 // OWNER MASTER UPGRADE (2026-10-08) — teacher FILE attachments pipeline
 import { handleTeacherFile, handleMaterialApprovalIntent } from './teacherMaterialService.js';
@@ -1396,10 +1397,11 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
         // answered 200. Only a Google-confirmed INVALID key skips to the next
         // key; a 429 moves to the next model.
         if (res.status === 400 && /api key not valid/i.test(msg)) break;
+        recordLlm({ provider: 'gemini', model, ok: false, status: res.status, error: msg });
         continue; }
       const json = await res.json();
       const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      try { return JSON.parse(raw) ?? null; } catch { continue; }
+      try { recordLlm({ provider: 'gemini', model, ok: true }); return JSON.parse(raw) ?? null; } catch { recordLlm({ provider: 'gemini', model, ok: false, status: 'unparseable', error: 'teacher chat' }); continue; }
     } catch { continue; } // timeout / network → next model
     finally { clearTimeout(timer); }
   }

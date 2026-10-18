@@ -123,4 +123,6 @@ export const refreshExperience = wrap(async (req) => {
   return result;
 });
 export const updateChatbotSetting = wrap(adminProfileSvc.updateChatbotSetting);
+// OWNER FEATURE 2026-10-18: model health & limits card (admin-only)
+export const getChatbotHealth = wrap(adminProfileSvc.getChatbotHealth);
 export const requestWipeCodes = wrap(adminProfileSvc.requestWipeCodes);

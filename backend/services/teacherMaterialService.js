@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import { Note, Section, Subject, Teacher, TeacherMaterial, Timetable, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../middleware/error.js';
+import { recordLlm } from './llmTelemetryService.js';
 import { isConfigured, sendText, sendTracked, sendCrTracked, sanitizeWhatsAppText, cleanWhatsAppField } from './whatsappService.js';
 import { allowedTypeForExt, uploadAttachmentFromServer, destroyAttachmentMetas } from './fileService.js';
 import { findMediaUrl } from './chatbotService.js';
@@ -46,11 +47,11 @@ async function geminiJson(payload, timeoutMs, models = GEMINI_MODELS) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
         { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!res.ok) continue;
+      if (!res.ok) { recordLlm({ provider: 'gemini', model, ok: false, status: res.status, error: 'material classification' }); continue; }
       const json = await res.json();
       const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      try { return JSON.parse(raw) ?? null; } catch { continue; }
-    } catch { continue; } finally { clearTimeout(timer); }
+      try { recordLlm({ provider: 'gemini', model, ok: true }); return JSON.parse(raw) ?? null; } catch { recordLlm({ provider: 'gemini', model, ok: false, status: 'unparseable', error: 'material classification' }); continue; }
+    } catch { recordLlm({ provider: 'gemini', model, ok: false, status: 'timeout', error: 'material classification' }); continue; } finally { clearTimeout(timer); }
   }
   try {
     const { groqFromGeminiPayload } = await import('./groqService.js');
