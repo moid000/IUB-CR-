@@ -5,13 +5,13 @@ import { useAdminQuery, useFlash } from '../../admin/hooks.js';
 import { formatDate } from '../../admin/format.js';
 import { DataTable } from '../../components/admin/DataTable.jsx';
 import { StatusBadge } from '../../components/admin/StatusBadge.jsx';
-import { PageHeader, SearchInput, FormModal, SuccessFlash } from '../../components/admin/controls.jsx';
+import { PageHeader, SearchInput, FormModal, SuccessFlash, ConfirmDialog } from '../../components/admin/controls.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
 import { Alert } from '../../components/ui/Alert.jsx';
 import { Badge } from '../../components/ui/Badge.jsx';
 import { NoSection } from '../../cr/NoSection.jsx';
-import { IconUserPlus, IconInfo } from '../../components/icons.jsx';
+import { IconUserPlus, IconInfo, IconBell } from '../../components/icons.jsx';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -72,6 +72,9 @@ export default function StudentsPage() {
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [flash, showFlash] = useFlash();
+  const [remind, setRemind] = useState(null); // { eligibleCount, skipped } | { sending }
+  const [remindBusy, setRemindBusy] = useState(false);
+  const [remindError, setRemindError] = useState(null);
 
   const { items, pagination, loading, error, reload } = useAdminQuery(
     () => crApi.students.list({ page, limit: 100 }), // sections are small; backend caps at 100
@@ -86,6 +89,10 @@ export default function StudentsPage() {
     return items.filter((s) =>
       [s.name, s.email, s.rollNo, s.phone].some((v) => (v ?? '').toLowerCase().includes(q)));
   }, [items, search]);
+
+  // eligible count for the button label (display only — the server
+  // re-validates eligibility when the dialog opens and again at send time)
+  const pendingCount = items.filter((s) => s.registrationStatus === 'pending').length;
 
   if (!section) return <NoSection />;
 
@@ -119,9 +126,49 @@ export default function StudentsPage() {
     { key: 'createdAt', header: 'Added', render: (s) => <span className="whitespace-nowrap text-xs text-slate-500">{formatDate(s.createdAt)}</span> },
   ];
 
+  const openRemindDialog = async () => {
+    setRemindError(null);
+    setRemindBusy(true);
+    try {
+      const res = await crApi.students.reminderTargets(); // server-side eligibility
+      setRemind({ eligibleCount: res.data?.eligibleCount ?? 0, skipped: res.data?.skipped ?? [] });
+    } catch (err) {
+      setRemindError(err);
+    } finally {
+      setRemindBusy(false);
+    }
+  };
+
+  const confirmReminders = async () => {
+    setRemindError(null);
+    setRemindBusy(true);
+    try {
+      const res = await crApi.students.sendReminders();
+      const d = res.data ?? {};
+      const parts = [`${d.sent ?? 0} reminder${(d.sent ?? 0) === 1 ? '' : 's'} sent`];
+      if (d.failed?.length) parts.push(`${d.failed.length} failed`);
+      if (d.skipped?.length) parts.push(`${d.skipped.length} skipped`);
+      if ((d.sent ?? 0) === 0 && (d.failed?.length ?? 0) > 0) {
+        setRemindError({ message: 'No reminders were delivered — the WhatsApp gateway did not confirm any send. Please try again later.' });
+      } else {
+        setModal(null);
+        setRemind(null);
+        showFlash(`Activation reminders: ${parts.join(', ')}.`);
+      }
+    } catch (err) {
+      setRemindError(err);
+    } finally {
+      setRemindBusy(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Students" description={`Students enrolled in ${section.name}.`}>
+        <Button variant="secondary" icon={IconBell} onClick={openRemindDialog} loading={remindBusy && !remind}
+          disabled={!pendingCount} className="whitespace-nowrap">
+          Remind pending{pendingCount ? ` (${pendingCount})` : ''}
+        </Button>
         <Button icon={IconUserPlus} onClick={() => setModal({ mode: 'create' })}>Add student</Button>
       </PageHeader>
 
@@ -162,6 +209,37 @@ export default function StudentsPage() {
           Once activated, they can sign in and appear as active members of your section.
         </p>
       </div>
+
+      <ConfirmDialog
+        open={remind !== null}
+        onClose={() => { if (!remindBusy) { setRemind(null); setRemindError(null); } }}
+        title="Send activation reminders"
+        confirmLabel={`Send to ${remind?.eligibleCount ?? 0} student${remind?.eligibleCount === 1 ? '' : 's'}`}
+        onConfirm={confirmReminders}
+        busy={remindBusy}
+        error={remindError}
+        disabled={!remind || remind.eligibleCount === 0}
+      >
+        {remind && (
+          <div className="space-y-2 text-sm text-slate-600">
+            {remind.eligibleCount > 0 ? (
+              <p>
+                <span className="font-semibold text-slate-900">{remind.eligibleCount}</span>
+                {' '}pending student{remind.eligibleCount === 1 ? '' : 's'} will receive a professional activation
+                reminder on their WhatsApp number, with their details and the account activation link.
+              </p>
+            ) : (
+              <p>No students are currently eligible for an activation reminder.</p>
+            )}
+            {remind.skipped?.length > 0 && (
+              <p className="text-xs text-slate-500">
+                {remind.skipped.length} will be skipped: {remind.skipped.slice(0, 3).map((s) => `${s.name} (${s.reason})`).join(', ')}
+                {remind.skipped.length > 3 ? ` and ${remind.skipped.length - 3} more` : ''}.
+              </p>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
 
       {modal?.mode === 'create' && (
         <AddStudentForm open onClose={() => setModal(null)} onSaved={(msg) => { showFlash(msg); reload(); }} />

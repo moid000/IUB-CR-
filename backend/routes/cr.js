@@ -32,6 +32,7 @@ import {
   getSubmission,
   getTimetable,
   listAnnouncements,
+  listActivationReminderTargets,
   listAssignments,
   listAttendanceRecords,
   listAttendanceSessions,
@@ -46,6 +47,7 @@ import {
   updateNote,
   updateSubject,
   updateTimetable,
+  sendActivationRemindersController,
 } from '../controllers/crController.js';
 import {
   listMyNotifications, getUnreadCount, getUnreadCountByType, getUnreadContentRefs, markNotificationRead,
@@ -100,6 +102,10 @@ router.post('/notifications/read-by-type', markNotificationsReadByType);
 
 router.get('/students', listStudents);
 router.post('/students', precreateStudent);
+
+// Pending-student activation reminders (owner feature 2026-10-18)
+router.get('/students/activation-reminders', listActivationReminderTargets);
+router.post('/students/activation-reminders', sendActivationRemindersController);
 
 // Subjects — section is ALWAYS derived from the authenticated CR
 router.get('/subjects', listSubjects);

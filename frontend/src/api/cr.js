@@ -22,6 +22,8 @@ export const crApi = {
   students: {
     list: (params) => api.get(`/api/cr/students${qs(params)}`), // page | limit → { data, pagination }
     precreate: (body) => api.post('/api/cr/students', body), // { name, rollNo, email, phone? }
+    reminderTargets: () => api.get('/api/cr/students/activation-reminders'), // { eligibleCount, skipped[] }
+    sendReminders: () => api.post('/api/cr/students/activation-reminders'), // { sent, failed[], skipped[] }
   },
 
   /* ---- Subjects ---- */

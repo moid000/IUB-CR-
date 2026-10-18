@@ -11,6 +11,7 @@ import * as assignmentSvc from '../services/assignmentService.js';
 import * as timetableSvc from '../services/timetableService.js';
 import * as attendanceSvc from '../services/attendanceService.js';
 import * as deviceSvc from '../services/deviceAttendanceService.js';
+import { pendingReminderCandidates, sendActivationReminders } from '../services/activationReminderService.js';
 
 /**
  * CR student management. Section ownership is ALWAYS server-derived from
@@ -162,4 +163,37 @@ export async function precreateStudent(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+/* ---- Pending-student activation reminders (owner feature 2026-10-18) ---- */
+
+/**
+ * Eligibility snapshot for the confirmation dialog. Server-side only: the
+ * CR's own section, role=student, still pending, valid stored phone,
+ * not already reminded in the last 24h. NEVER sends anything.
+ */
+export async function listActivationReminderTargets(req, res, next) {
+  try {
+    if (req.user.registrationStatus !== 'active') throw new ApiError(403, 'Account is not active');
+    const sectionId = req.user.section; // server-derived — never from the client
+    if (!sectionId) throw new ApiError(400, 'You are not assigned to a section');
+    const { eligible, skipped } = await pendingReminderCandidates(sectionId);
+    res.json({ data: { eligibleCount: eligible.length, skipped: skipped.slice(0, 25) } });
+  } catch (err) { next(err); }
+}
+
+/**
+ * Sends the activation reminders after the CR's explicit confirmation.
+ * Same server-side eligibility; per-student re-validation at send time;
+ * exactly-once per day via the tracked outbox. Honest summary only —
+ * 'sent' means the gateway confirmed.
+ */
+export async function sendActivationRemindersController(req, res, next) {
+  try {
+    if (req.user.registrationStatus !== 'active') throw new ApiError(403, 'Account is not active');
+    const sectionId = req.user.section; // server-derived — never from the client
+    if (!sectionId) throw new ApiError(400, 'You are not assigned to a section');
+    const summary = await sendActivationReminders(sectionId, req.user);
+    res.json({ data: summary });
+  } catch (err) { next(err); }
 }
