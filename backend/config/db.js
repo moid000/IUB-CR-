@@ -16,6 +16,15 @@ export async function connectDB() {
   const connectPromise = mongoose
     .connect(env.mongoUri, {
       serverSelectionTimeoutMS: 10_000,
+      // Atlas M0 free tier caps total connections; serverless spawns many
+      // short-lived lambdas, so keep each instance's pool tiny and let idle
+      // sockets go quickly. Prevents "tlsv1 alert internal error" rejects
+      // (SSL alert 80) when the cluster's connection budget is exhausted.
+      maxPoolSize: 5,
+      minPoolSize: 0,
+      maxIdleTimeMS: 30_000,
+      socketTimeoutMS: 45_000,
+      connectTimeoutMS: 10_000,
     })
     .catch((err) => {
       globalThis.__mongoConn = null; // allow retry on the next invocation

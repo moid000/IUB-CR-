@@ -63,6 +63,22 @@ export function errorHandler(err, req, res, next) {
     });
   }
 
+  // Transient database/network failures (Atlas handshake rejects, pool
+  // resets, server selection timeouts) are NOT a code bug — answer with a
+  // retryable 503 instead of an alarming generic 500, and log it cleanly.
+  if (
+    err.name === 'MongoNetworkError'
+    || err.name === 'MongoServerSelectionError'
+    || err.name === 'MongoNetworkTimeoutError'
+    || err.name === 'MongooseServerSelectionError'
+  ) {
+    console.error('[db-unavailable]', err.message);
+    return res.status(503).json({
+      success: false,
+      message: 'Database temporarily unavailable — please try again in a moment',
+    });
+  }
+
   // Unexpected errors — log server-side, return a generic message
   console.error('[unhandled]', err);
   return res.status(500).json({ success: false, message: 'Internal server error' });
